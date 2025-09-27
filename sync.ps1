@@ -2,9 +2,9 @@
 # No Python installation required!
 
 # CHANGE THESE VALUES:
-$DEVELOPER_NAME = "riddhidhakhara"
-$API_TOKEN = "AWToken_vKeY5pcMmyvUkfh_GJh8JMHVQWhy2GYTnwxNuw2NhLI"
-
+const syncPsContent = `# ActivityWatch Sync Script - Generated for ${developerName}
+$DEVELOPER_NAME = "${developerName}"
+$API_TOKEN = "${apiToken}"
 # Don't change below this line
 $SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
