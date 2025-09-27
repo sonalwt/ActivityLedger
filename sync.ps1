@@ -48,8 +48,18 @@ function Send-ActivityData {
             
             # Send to server
             $jsonPayload = $payload | ConvertTo-Json -Depth 10
-            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-            
+            # $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+            try {
+                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+            } catch {
+                if ($_.Exception.Response.StatusCode.Value__ -eq 308) {
+                    $redirectUrl = $_.Exception.Response.Headers["Location"]
+                    Write-Host "Redirect detected, resending to $redirectUrl"
+                    $response = Invoke-RestMethod -Uri $redirectUrl -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+                } else {
+                    throw $_
+                }
+            }
             if ($response.success) {
                 Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
             } else {
