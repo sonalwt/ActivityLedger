@@ -1,14 +1,51 @@
-# ActivityWatch Sync Script - PowerShell Version
-# No Python installation required!
+# ActivityWatch Sync Script - Dynamic PowerShell Version
+# Usage: .\sync_dynamic.ps1 -Name "developer_name" -Token "AWToken_xxx"
 
-# CHANGE THESE VALUES:
-$DEVELOPER_NAME = "riddhidhakhara"
-$API_TOKEN = "AWToken_vKeY5pcMmyvUkfh_GJh8JMHVQWhy2GYTnwxNuw2NhLI"
+param(
+    [string]$Name,
+    [string]$Token
+)
 
-# Don't change below this line
+# Check for parameters or use saved config
+$configPath = "$env:USERPROFILE\.aw-sync-config.json"
+
+if ($Name -and $Token) {
+    $DEVELOPER_NAME = $Name
+    $API_TOKEN = $Token
+    
+    # Save config for future use
+    $config = @{
+        name = $Name
+        token = $Token
+    }
+    $config | ConvertTo-Json | Out-File $configPath
+} elseif (Test-Path $configPath) {
+    # Load from saved config
+    $config = Get-Content $configPath | ConvertFrom-Json
+    $DEVELOPER_NAME = $config.name
+    $API_TOKEN = $config.token
+} else {
+    # Interactive prompt
+    $DEVELOPER_NAME = Read-Host "Enter your developer name"
+    $API_TOKEN = Read-Host "Enter your API token" -AsSecureString
+    $API_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($API_TOKEN))
+    
+    # Offer to save
+    $save = Read-Host "Save credentials? (y/n)"
+    if ($save -eq 'y') {
+        $config = @{
+            name = $DEVELOPER_NAME
+            token = $API_TOKEN
+        }
+        $config | ConvertTo-Json | Out-File $configPath
+    }
+}
+
+# Server configuration (NO TRAILING SLASH!)
 $SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
+# Rest of your sync logic here...
 function Send-ActivityData {
     try {
         Write-Host "Checking ActivityWatch at $(Get-Date -Format 'HH:mm:ss')"
