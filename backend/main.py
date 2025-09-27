@@ -126,7 +126,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already registered")
     return crud.create_user(db=db, user=user)
 
-@app.post("/api/sync/")
+@app.post("/api/sync")
 async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
     try:
         name = sync_data.get("name")
