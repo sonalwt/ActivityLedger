@@ -1,63 +1,74 @@
-# ActivityWatch Sync Script - Generated for ankita gholap
+# ActivityWatch Sync Script - Improved
 $DEVELOPER_NAME = "ankita gholap"
-$API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
+$API_TOKEN = "AWToken_bt91zeN3FMTmBZU2gN1AGIoUdHOM3h5srwHuo_yVoo0"
 $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
-$LOCAL_AW = "https://localhost:5600/api/0"
+$LOCAL_AW = "http://localhost:5600/api/0"
 
 function Send-ActivityData {
     try {
         Write-Host "Checking ActivityWatch at $(Get-Date -Format 'HH:mm:ss')"
-        
+
         # Get ActivityWatch buckets
         $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
-        
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
-        
-        # Calculate time range (last 6 minutes)
+
+        # Time range
         $endTime = (Get-Date).ToUniversalTime()
         $startTime = $endTime.AddMinutes(-6)
         $startISO = $startTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
         $endISO = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-        
-        # Collect all events
+
+        # Collect events
         $allEvents = @()
         foreach ($bucket in $buckets) {
             try {
                 $eventsUrl = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
                 $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
                 $allEvents += $events
-            }
-            catch {
+            } catch {
                 Write-Host "Warning: Could not get events from bucket $bucket"
             }
         }
-        
+
         if ($allEvents.Count -gt 0) {
             # Prepare payload
             $payload = @{
-                name = $DEVELOPER_NAME
-                token = $API_TOKEN  
-                data = $allEvents
+                name      = $DEVELOPER_NAME
+                data      = $allEvents
                 timestamp = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
             }
-            
-            # Send to server
             $jsonPayload = $payload | ConvertTo-Json -Depth 10 -Compress
-            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-            
-            if ($response.success) {
-                Write-Host "Synced $($allEvents.Count) events successfully" -ForegroundColor Green
-            }
-            else {
-                Write-Host "Server error: $($response.error)" -ForegroundColor Red
-            }
-        }
-        else {
-            Write-Host "No new data to sync"
+
+            # Use HttpClient to follow 308 redirects automatically
+            Add-Type @"
+using System.Net;
+using System.Net.Http;
+public class HttpClientHelper {
+    public static string PostJson(string url, string json, string token) {
+        var handler = new HttpClientHandler { AllowAutoRedirect = true };
+        using (var client = new HttpClient(handler)) {
+            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            var response = client.PostAsync(url, content).Result;
+            return response.Content.ReadAsStringAsync().Result;
         }
     }
-    catch {
+}
+"@
+
+            $responseText = [HttpClientHelper]::PostJson($SERVER_URL, $jsonPayload, $API_TOKEN)
+            $responseObj = $responseText | ConvertFrom-Json
+
+            if ($responseObj.success) {
+                Write-Host "Synced $($allEvents.Count) events successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Server error: $($responseObj.error)" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "No new data to sync"
+        }
+    } catch {
         Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
