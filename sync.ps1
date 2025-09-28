@@ -1,11 +1,6 @@
-# ActivityWatch Sync Script - PowerShell Version
-# No Python installation required!
-
-# CHANGE THESE VALUES:
-const syncPsContent = `# ActivityWatch Sync Script - Generated for ${developerName}
-$DEVELOPER_NAME = "${developerName}"
-$API_TOKEN = "${apiToken}"
-# Don't change below this line
+# ActivityWatch Sync Script - Generated for ankita gholap
+$DEVELOPER_NAME = "ankita gholap"
+$API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
 $SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
@@ -32,7 +27,8 @@ function Send-ActivityData {
                 $eventsUrl = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
                 $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
                 $allEvents += $events
-            } catch {
+            }
+            catch {
                 Write-Host "Warning: Could not get events from bucket $bucket"
             }
         }
@@ -47,37 +43,29 @@ function Send-ActivityData {
             }
             
             # Send to server
-            $jsonPayload = $payload | ConvertTo-Json -Depth 10
-            # $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-            try {
-                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-            } catch {
-                if ($_.Exception.Response.StatusCode.Value__ -eq 308) {
-                    $redirectUrl = $_.Exception.Response.Headers["Location"]
-                    Write-Host "Redirect detected, resending to $redirectUrl"
-                    $response = Invoke-RestMethod -Uri $redirectUrl -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-                } else {
-                    throw $_
-                }
-            }
+            $jsonPayload = $payload | ConvertTo-Json -Depth 10 -Compress
+            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+            
             if ($response.success) {
-                Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
-            } else {
-                Write-Host "✗ Server error: $($response.error)" -ForegroundColor Red
+                Write-Host "Synced $($allEvents.Count) events successfully" -ForegroundColor Green
             }
-        } else {
+            else {
+                Write-Host "Server error: $($response.error)" -ForegroundColor Red
+            }
+        }
+        else {
             Write-Host "No new data to sync"
         }
-        
-    } catch {
+    }
+    catch {
         Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
 # Main execution
-Write-Host "=" * 50
+Write-Host "=========================================="
 Write-Host "ActivityWatch Sync for $DEVELOPER_NAME" -ForegroundColor Cyan
-Write-Host "=" * 50
+Write-Host "=========================================="
 Write-Host "Press Ctrl+C to stop"
 Write-Host ""
 
@@ -86,5 +74,5 @@ while ($true) {
     Send-ActivityData
     $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
     Write-Host "Waiting 5 minutes... (next sync at $nextSync)"
-    Start-Sleep -Seconds 300  # 5 minutes
+    Start-Sleep -Seconds 300
 }
