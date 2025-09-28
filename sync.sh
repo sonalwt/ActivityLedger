@@ -52,7 +52,7 @@ if [ -z "$DEVELOPER_NAME" ] || [ -z "$API_TOKEN" ]; then
 fi
 
 # Server configuration
-SERVER_URL="http://api-timesheet.firsteconomy.com/api/sync"
+SERVER_URL="https://api-timesheet.firsteconomy.com/api/sync"
 LOCAL_AW="http://localhost:5600/api/0"
 
 send_data() {

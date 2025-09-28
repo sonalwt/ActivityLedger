@@ -1,8 +1,8 @@
 # ActivityWatch Sync Script - Generated for ankita gholap
 $DEVELOPER_NAME = "ankita gholap"
 $API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
-$SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
-$LOCAL_AW = "http://localhost:5600/api/0"
+$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
+$LOCAL_AW = "https://localhost:5600/api/0"
 
 function Send-ActivityData {
     try {

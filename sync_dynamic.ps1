@@ -42,7 +42,7 @@ if ($Name -and $Token) {
 }
 
 # Server configuration (NO TRAILING SLASH!)
-$SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
+$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
 # Rest of your sync logic here...

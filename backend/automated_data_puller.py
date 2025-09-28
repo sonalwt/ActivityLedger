@@ -99,7 +99,7 @@ class ActivityWatchDataPuller:
             port = developer.get('activitywatch_port') or ACTIVITYWATCH_PORT
             
             if ip_address:
-                aw_url = f"http://{ip_address}:{port}"
+                aw_url = f"https://{ip_address}:{port}"
                 
                 # Test the connection quickly
                 try:

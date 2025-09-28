@@ -14,7 +14,7 @@ class DynamicActivityWatchClient:
         self.developer_id = developer_info['id']
         self.host = developer_info['host']
         self.port = developer_info['port']
-        self.base_url = f"http://{self.host}:{self.port}"
+        self.base_url = f"https://{self.host}:{self.port}"
         self.device_id = developer_info.get('device_id', self.developer_id)
         self.timeout = 10
         
