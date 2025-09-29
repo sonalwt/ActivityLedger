@@ -1,0 +1,59 @@
+# STEP-BY-STEP GUIDE TO FIX HTTPS ON YOUR SERVER
+
+## 1. SSH into your server
+ssh your-server
+
+## 2. Check current nginx configuration
+sudo nano /etc/nginx/sites-available/default
+# or
+sudo nano /etc/nginx/sites-available/api-timesheet.firsteconomy.com
+
+## 3. Look for the problematic redirect
+# Find lines like:
+# return 308 https://$server_name$request_uri;
+# Change 308 to 301 or remove the redirect if HTTPS is already configured
+
+## 4. If you don't have HTTPS configured, set it up:
+# Install certbot
+sudo apt update
+sudo apt install certbot python3-certbot-nginx
+
+# Get SSL certificate
+sudo certbot --nginx -d api-timesheet.firsteconomy.com
+
+## 5. Update your backend configuration
+cd /your/path/to/timesheet_new/backend
+sudo nano .env.production
+
+# Change:
+# PRODUCTION_DOMAIN=http://api-timesheet.firsteconomy.com
+# To:
+# PRODUCTION_DOMAIN=https://api-timesheet.firsteconomy.com
+
+## 6. Update CORS in backend/main.py
+# Make sure your allowed_origins includes both:
+# "http://api-timesheet.firsteconomy.com",
+# "https://api-timesheet.firsteconomy.com",
+
+## 7. Test nginx configuration
+sudo nginx -t
+
+## 8. Reload nginx
+sudo systemctl reload nginx
+
+## 9. Restart your backend service
+# If using systemd:
+sudo systemctl restart your-timesheet-backend-service
+
+# If using PM2:
+pm2 restart timesheet-backend
+
+# If running directly:
+# Find the process
+ps aux | grep uvicorn
+# Kill it and restart
+
+## 10. Test the endpoint
+curl -I https://api-timesheet.firsteconomy.com/api/sync
+
+# You should see "HTTP/2 200" or "HTTP/2 422" (not 308)

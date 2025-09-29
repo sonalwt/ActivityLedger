@@ -1,8 +1,8 @@
-# ActivityWatch Sync Script - Updated
+# ActivityWatch Sync Script - Fixed for HTTP
 $DEVELOPER_NAME = "ankita gholap"
 $API_TOKEN = "AWToken_bt91zeN3FMTmBZU2gN1AGIoUdHOM3h5srwHuo_yVoo0"
-# FIXED: Changed from https:// to http:// to avoid 308 redirect
-$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
+# Changed from https:// to http://
+$SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
 function Send-ActivityData {
@@ -64,20 +64,21 @@ function Send-ActivityData {
             }
             
             try {
-                # Let PowerShell handle redirects automatically (no -MaximumRedirection parameter)
                 $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Headers $headers -Body $jsonPayload -TimeoutSec 30
                 
                 if ($response.success) {
-                    Write-Host "✓ Sync successful!" -ForegroundColor Green
+                    Write-Host "✓ Sync successful! Received $($response.received) activities" -ForegroundColor Green
+                } elseif ($response.error) {
+                    Write-Host "Server error: $($response.error)" -ForegroundColor Red
                 } else {
-                    Write-Host "Server returned: $($response.error)" -ForegroundColor Red
+                    Write-Host "✓ Data sent to server" -ForegroundColor Green
                 }
             } catch {
                 $statusCode = $_.Exception.Response.StatusCode.Value__
                 
                 if ($statusCode -eq 308) {
-                    Write-Host "Still getting 308 redirect. Server configuration issue." -ForegroundColor Red
-                    Write-Host "Contact your administrator to fix the server redirect." -ForegroundColor Yellow
+                    Write-Host "❌ 308 Redirect error. The server URL may be incorrect." -ForegroundColor Red
+                    Write-Host "Try running: python test_sync_endpoint.py" -ForegroundColor Yellow
                 } elseif ($statusCode -eq 422) {
                     Write-Host "Invalid data format. Check with administrator." -ForegroundColor Red
                 } elseif ($statusCode -eq 401 -or $statusCode -eq 403) {

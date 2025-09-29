@@ -1,0 +1,20 @@
+# Check these locations on your server:
+
+# 1. Backend .env.production file
+cd /path/to/timesheet_new/backend
+nano .env.production
+
+# Change:
+PRODUCTION_DOMAIN=http://api-timesheet.firsteconomy.com
+# To:
+PRODUCTION_DOMAIN=https://api-timesheet.firsteconomy.com
+
+# 2. Frontend .env.production file
+cd /path/to/timesheet_new/frontend
+nano .env.production
+
+# Make sure it uses HTTPS:
+REACT_APP_API_URL=https://api-timesheet.firsteconomy.com
+
+# 3. Check CORS settings in backend/main.py
+# Make sure both HTTP and HTTPS are allowed in CORS origins
