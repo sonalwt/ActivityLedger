@@ -8,7 +8,7 @@ $LOCAL_AW = "http://localhost:5600/api/0"
 function Send-ActivityData {
     try {
         Write-Host "Checking ActivityWatch at $(Get-Date -Format 'HH:mm:ss')"
-        
+        Write-Host "$LOCAL_AW/buckets"
         $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
