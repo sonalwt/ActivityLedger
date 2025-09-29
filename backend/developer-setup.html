@@ -122,42 +122,89 @@
             if(!devName || !apiToken) { alert('Please fill both fields'); return; }
             if(!apiToken.startsWith('AWToken_')) { alert('API token must start with "AWToken_"'); return; }
     
-            // Revoke old blobs to avoid caching
+            // Revoke old blobs
             if(window.psBlobURL) URL.revokeObjectURL(window.psBlobURL);
             if(window.batBlobURL) URL.revokeObjectURL(window.batBlobURL);
             if(window.shBlobURL) URL.revokeObjectURL(window.shBlobURL);
     
-            // PowerShell content
-            const psContent = `# ActivityWatch Sync Script for ${devName}
-    $DEVELOPER_NAME="${devName}"
-    $API_TOKEN="${apiToken}"
-    $SERVER_URL="https://api-timesheet.firsteconomy.com/api/sync"
-    $LOCAL_AW="http://localhost:5600/api/0"
-    Write-Host "This is a generated script for ${devName}"`;
+            // Full PowerShell content (your actual sync script)
+            const psContent = `# ActivityWatch Sync Script - FIXED with correct HTTPS URL
+    $DEVELOPER_NAME = "${devName}"
+    $API_TOKEN = "${apiToken}"
+    $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
+    $LOCAL_AW = "http://localhost:5600/api/0"
     
-            // Batch content
+    function Send-ActivityData {
+        try {
+            Write-Host "$LOCAL_AW/buckets"
+            $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
+            $buckets = $bucketsResponse.PSObject.Properties.Name
+            Write-Host "Found $($buckets.Count) ActivityWatch buckets"
+    
+            $endTime = (Get-Date).ToUniversalTime()
+            $startTime = $endTime.AddMinutes(-6)
+            $startISO = $startTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            $endISO = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    
+            $allEvents = @()
+            foreach ($bucket in $buckets) {
+                try {
+                    $eventsUrl = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
+                    $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
+                    if ($events -and $events.Count -gt 0) {
+                        $allEvents += $events
+                        Write-Host "  - $bucket: $($events.Count) events" -ForegroundColor DarkGray
+                    }
+                } catch {}
+            }
+    
+            if ($allEvents.Count -gt 0) {
+                Write-Host "Sending $($allEvents.Count) events to server..." -ForegroundColor Cyan
+                $payload = @{ name=$DEVELOPER_NAME; token=$API_TOKEN; data=$allEvents; timestamp=$endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") }
+                $jsonPayload = $payload | ConvertTo-Json -Depth 10
+                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+                if ($response.success) { Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green }
+                else { Write-Host "Server error: $($response.error)" -ForegroundColor Red }
+            } else { Write-Host "No new data to sync" }
+        } catch { Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red }
+    }
+    
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "ActivityWatch Sync for $DEVELOPER_NAME" -ForegroundColor Cyan
+    Write-Host "Server: $SERVER_URL" -ForegroundColor Gray
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Press Ctrl+C to stop"
+    Write-Host ""
+    
+    while ($true) {
+        Send-ActivityData
+        $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
+        Write-Host "\`nWaiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
+        Write-Host "─" * 40 -ForegroundColor DarkGray
+        Start-Sleep -Seconds 300
+    }`;
+    
+            // Batch content just runs the .ps1
             const batContent = `@echo off
     title ActivityWatch Sync - ${devName}
     cd /d "%~dp0"
     powershell -ExecutionPolicy Bypass -File "sync.ps1"
     pause`;
     
-            // Bash content
             const shContent = `#!/bin/bash
     DEVELOPER_NAME="${devName}"
     API_TOKEN="${apiToken}"
     echo "Generated bash script for ${devName}"`;
     
-            // Create blobs
-            window.psBlobURL = URL.createObjectURL(new Blob([psContent],{type:'text/plain'}));
-            window.batBlobURL = URL.createObjectURL(new Blob([batContent],{type:'text/plain'}));
-            window.shBlobURL = URL.createObjectURL(new Blob([shContent],{type:'text/plain'}));
+            window.psBlobURL = URL.createObjectURL(new Blob([psContent], {type:'text/plain'}));
+            window.batBlobURL = URL.createObjectURL(new Blob([batContent], {type:'text/plain'}));
+            window.shBlobURL = URL.createObjectURL(new Blob([shContent], {type:'text/plain'}));
     
             downloadPS1.href = window.psBlobURL;
             downloadBat.href = window.batBlobURL;
             downloadSH.href = window.shBlobURL;
     
-            // Automatically trigger download of .bat in root folder (browser will prompt to save)
+            // Optionally auto-download the .bat immediately
             downloadBat.click();
     
             const os = detectOS();
@@ -187,5 +234,5 @@
         });
     })();
     </script>
-    </body>
+        </body>
 </html>
