@@ -62,7 +62,7 @@
         <h3>Download Your Setup Files</h3>
         <p id="downloadMessage"></p>
         <div id="windowsDownloads">
-            <button id="downloadBtn">Download .bat</button>
+            <a id="downloadPS1" class="download-btn" download="sync.ps1">Download sync.ps1 (PowerShell)</a>
             <a id="downloadBat" class="download-btn" download="start_sync.bat">Download start_sync.bat</a>
         </div>
         <div id="macLinuxDownloads" style="display:none;">
@@ -93,38 +93,99 @@
     </div>
 </div>
 
-
-
 <script>
-document.getElementById('downloadBtn').addEventListener('click', function() {
-    const developerName = document.getElementById('developerName').value.trim();
-    const apiToken = document.getElementById('apiToken').value.trim();
-
-    if (!developerName || !apiToken) {
-        alert('Please fill in both fields');
-        return;
-    }
-
-    // .bat file content with dynamic values
-    const batContent = `@echo off
-title ActivityWatch Sync - ${developerName}
-echo Starting ActivityWatch sync for ${developerName}...
-echo Using token: ${apiToken}
-cd /d "%~dp0"
-powershell -ExecutionPolicy Bypass -File "sync.ps1"
-pause`;
-
-    // Create Blob and download link
-    const blob = new Blob([batContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
+    (function() {
+        const form = document.getElementById('setupForm');
+        const downloadPS1 = document.getElementById('downloadPS1');
+        const downloadBat = document.getElementById('downloadBat');
+        const downloadSH = document.getElementById('downloadSH');
+        const downloadSection = document.getElementById('downloadSection');
+        const windowsDownloads = document.getElementById('windowsDownloads');
+        const macLinuxDownloads = document.getElementById('macLinuxDownloads');
+        const downloadMessage = document.getElementById('downloadMessage');
+        const instructions = document.getElementById('instructions');
+        const windowsInstructions = document.getElementById('windowsInstructions');
+        const macLinuxInstructions = document.getElementById('macLinuxInstructions');
     
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'start_sync.bat';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-});
-</script>
-</body>
+        function detectOS() {
+            const p = navigator.platform;
+            if (/Win/.test(p)) return 'Windows';
+            if (/Mac/.test(p)) return 'Mac';
+            if (/Linux/.test(p)) return 'Linux';
+            return 'Other';
+        }
+    
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const devName = document.getElementById('developerName').value.trim();
+            const apiToken = document.getElementById('apiToken').value.trim();
+            if(!devName || !apiToken) { alert('Please fill both fields'); return; }
+            if(!apiToken.startsWith('AWToken_')) { alert('API token must start with "AWToken_"'); return; }
+    
+            // Revoke old blobs to avoid caching
+            if(window.psBlobURL) URL.revokeObjectURL(window.psBlobURL);
+            if(window.batBlobURL) URL.revokeObjectURL(window.batBlobURL);
+            if(window.shBlobURL) URL.revokeObjectURL(window.shBlobURL);
+    
+            // PowerShell content
+            const psContent = `# ActivityWatch Sync Script for ${devName}
+    $DEVELOPER_NAME="${devName}"
+    $API_TOKEN="${apiToken}"
+    $SERVER_URL="https://api-timesheet.firsteconomy.com/api/sync"
+    $LOCAL_AW="http://localhost:5600/api/0"
+    Write-Host "This is a generated script for ${devName}"`;
+    
+            // Batch content
+            const batContent = `@echo off
+    title ActivityWatch Sync - ${devName}
+    cd /d "%~dp0"
+    powershell -ExecutionPolicy Bypass -File "sync.ps1"
+    pause`;
+    
+            // Bash content
+            const shContent = `#!/bin/bash
+    DEVELOPER_NAME="${devName}"
+    API_TOKEN="${apiToken}"
+    echo "Generated bash script for ${devName}"`;
+    
+            // Create blobs
+            window.psBlobURL = URL.createObjectURL(new Blob([psContent],{type:'text/plain'}));
+            window.batBlobURL = URL.createObjectURL(new Blob([batContent],{type:'text/plain'}));
+            window.shBlobURL = URL.createObjectURL(new Blob([shContent],{type:'text/plain'}));
+    
+            downloadPS1.href = window.psBlobURL;
+            downloadBat.href = window.batBlobURL;
+            downloadSH.href = window.shBlobURL;
+    
+            // Automatically trigger download of .bat in root folder (browser will prompt to save)
+            downloadBat.click();
+    
+            const os = detectOS();
+            if(os==='Windows') {
+                windowsDownloads.style.display='block';
+                macLinuxDownloads.style.display='none';
+                windowsInstructions.style.display='block';
+                macLinuxInstructions.style.display='none';
+                downloadMessage.textContent='Windows detected - Download files';
+            } else if(os==='Mac'||os==='Linux'){
+                windowsDownloads.style.display='none';
+                macLinuxDownloads.style.display='block';
+                windowsInstructions.style.display='none';
+                macLinuxInstructions.style.display='block';
+                downloadMessage.textContent=os+' detected - Download files';
+            } else {
+                windowsDownloads.style.display='block';
+                macLinuxDownloads.style.display='block';
+                windowsInstructions.style.display='block';
+                macLinuxInstructions.style.display='block';
+                downloadMessage.textContent='Download files for your OS';
+            }
+    
+            downloadSection.style.display='block';
+            instructions.style.display='block';
+            downloadSection.scrollIntoView({behavior:'smooth'});
+        });
+    })();
+    </script>
+    </body>
 </html>
