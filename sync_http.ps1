@@ -18,7 +18,7 @@ function Send-ActivityData {
         }
 
         # Get ActivityWatch buckets
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
+        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name | Where-Object { $_ -like "aw-*" }
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
 

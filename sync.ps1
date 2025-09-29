@@ -10,7 +10,7 @@ function Send-ActivityData {
         Write-Host "Checking ActivityWatch at $(Get-Date -Format 'HH:mm:ss')"
 
         # Get list of buckets
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
+        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
 

@@ -64,7 +64,7 @@ send_data() {
     fi
     
     # Get buckets from ActivityWatch
-    buckets_response=$(curl -s --max-time 10 "$LOCAL_AW/buckets" 2>/dev/null)
+    buckets_response=$(curl -s --max-time 10 "$LOCAL_AW/buckets/" 2>/dev/null)
     if [ $? -ne 0 ] || [ -z "$buckets_response" ]; then
         echo "ActivityWatch not responding"
         return 1
@@ -92,7 +92,7 @@ except:
     
     if [ -z "$bucket_names" ]; then
         echo "No ActivityWatch buckets found"
-        echo "Debug: Check buckets at http://localhost:5600/#/buckets"
+        echo "Debug: Check buckets at http://localhost:5600/#/buckets/"
         return 1
     fi
     

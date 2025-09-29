@@ -22,7 +22,7 @@ class SimpleTracker:
             aw_url = "http://localhost:5600/api/0"
             
             # Get buckets
-            buckets = requests.get(f"{aw_url}/buckets").json()
+            buckets = requests.get(f"{aw_url}/buckets/").json()
             
             activities = []
             now = datetime.now()
