@@ -71,3 +71,5 @@ logs/
 # API keys and secrets
 config/secrets.py
 secrets/
+
+_to_delete_

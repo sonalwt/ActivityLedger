@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 import json
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -35,27 +34,36 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Timesheet API", version="1.0.0")
 
 # CORS middleware - use environment-aware configuration
-from config import Config
+# Update this section in your backend/main.py
 
 from fastapi.middleware.cors import CORSMiddleware
+from config import Config
+
+# Get allowed origins based on environment
+if Config.is_production():
+    allowed_origins = [
+        "http://localhost:3000",  # For local development
+        "http://timesheet.firsteconomy.com",
+        "https://timesheet.firsteconomy.com",
+        # Add both possible API domains
+        "http://api-timesheet.firsteconomy.com",
+        "https://api-timesheet.firsteconomy.com",
+        "http://timesheet-api.firsteconomy.com",
+        "https://timesheet-api.firsteconomy.com",
+    ]
+else:
+    # In development, allow all origins for easier testing
+    allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://timesheet.firsteconomy.com",
-        "https://timesheet.firsteconomy.com",
-        "http://api-timesheet.firsteconomy.com",
-        "https://api-timesheet.firsteconomy.com",
-        "https://timesheet-api.firsteconomy.com",  # From .env.production
-        "*"  # Temporarily allow all origins to debug
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Allow browsers to cache preflight requests
+    max_age=3600,
 )
-
 app.include_router(stateless_router, prefix="/api/v1", tags=["stateless-webhook"])
 
 # Add multi-developer support
@@ -81,7 +89,7 @@ def get_db():
     finally:
         db.close()
 
-exec(open('real_data_endpoints.py').read())
+# exec(open('real_data_endpoints.py').read())  # DISABLED - causing import issues
 
 class DeveloperRegistration(BaseModel):
     developer_name: str
