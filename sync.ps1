@@ -1,93 +1,75 @@
-# ActivityWatch Sync Script - Updated
+# ActivityWatch Sync Script - FIXED with correct HTTPS URL
 $DEVELOPER_NAME = "ankita gholap"
 $API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
-# FIXED: Changed from https:// to http:// to avoid 308 redirect
+# FIXED: Using HTTPS without trailing slash
 $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
 function Send-ActivityData {
     try {
         Write-Host "Checking ActivityWatch at $(Get-Date -Format 'HH:mm:ss')"
-
-        # Get list of buckets
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
+        
+        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
-
+        
         $endTime = (Get-Date).ToUniversalTime()
-        $startTime = $endTime.AddMinutes(-$SYNC_INTERVAL)
+        $startTime = $endTime.AddMinutes(-6)
         $startISO = $startTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-        $endISO   = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-
+        $endISO = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        
         $allEvents = @()
-
         foreach ($bucket in $buckets) {
             try {
                 $eventsUrl = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
                 $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
                 if ($events -and $events.Count -gt 0) {
                     $allEvents += $events
-                    Write-Host "  - $bucket: $($events.Count) events"
+                    Write-Host "  - $bucket: $($events.Count) events" -ForegroundColor DarkGray
                 }
             } catch {
-                Write-Host "Warning: Could not get events from bucket $bucket" -ForegroundColor Yellow
+                # Skip bucket if error
             }
         }
-
+        
         if ($allEvents.Count -gt 0) {
             Write-Host "Sending $($allEvents.Count) events to server..." -ForegroundColor Cyan
-
+            
             $payload = @{
-                name      = $DEVELOPER_NAME
-                token     = $API_TOKEN
-                data      = $allEvents
-                timestamp = $endISO
+                name = $DEVELOPER_NAME
+                token = $API_TOKEN  
+                data = $allEvents
+                timestamp = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
             }
-
-            $jsonPayload = $payload | ConvertTo-Json -Depth 10 -Compress
-
-            # Send POST request with automatic redirect handling
-            try {
-                $response = Invoke-RestMethod -Uri $SERVER_URL `
-                                              -Method POST `
-                                              -Body $jsonPayload `
-                                              -ContentType "application/json" `
-                                              -MaximumRedirection 5 `
-                                              -TimeoutSec 30
-
-                if ($response.success) {
-                    Write-Host "✓ Sync successful! ($($allEvents.Count) events)" -ForegroundColor Green
-                } else {
-                    Write-Host "Server returned: $($response.error)" -ForegroundColor Red
-                }
-
-            } catch {
-                Write-Host "❌ Error sending data: $($_.Exception.Message)" -ForegroundColor Red
+            
+            $jsonPayload = $payload | ConvertTo-Json -Depth 10
+            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
+            
+            if ($response.success) {
+                Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
+            } else {
+                Write-Host "Server error: $($response.error)" -ForegroundColor Red
             }
-
         } else {
-            Write-Host "No new activity data to sync" -ForegroundColor Gray
+            Write-Host "No new data to sync"
         }
-
+        
     } catch {
-        Write-Host "Unexpected error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
-# ===== MAIN LOOP =====
-Clear-Host
-Write-Host "============================================"
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "ActivityWatch Sync for $DEVELOPER_NAME" -ForegroundColor Cyan
 Write-Host "Server: $SERVER_URL" -ForegroundColor Gray
-Write-Host "Sync interval: $SYNC_INTERVAL minutes"
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop"
-Write-Host "============================================`n"
+Write-Host ""
 
-# Initial sync
-Send-ActivityData
-
-# Continuous loop
 while ($true) {
-    Start-Sleep -Seconds ($SYNC_INTERVAL * 60)
     Send-ActivityData
+    $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
+    Write-Host "`nWaiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
+    Write-Host "─" * 40 -ForegroundColor DarkGray
+    Start-Sleep -Seconds 300
 }
