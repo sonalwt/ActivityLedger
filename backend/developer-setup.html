@@ -265,7 +265,7 @@ function Send-ActivityData {
                 $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15 -MaximumRedirection 5
                 
                 if ($response.success) {
-                    Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
+                    Write-Host "[SUCCESS] Synced $($allEvents.Count) events successfully" -ForegroundColor Green
                 } else {
                     Write-Host "Server error: $($response.error)" -ForegroundColor Red
                 }
@@ -291,8 +291,9 @@ Write-Host ""
 while ($true) {
     Send-ActivityData
     $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
-    Write-Host "\`nWaiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
-    Write-Host "─" * 40 -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Waiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Start-Sleep -Seconds 300
 }`;
 
@@ -372,7 +373,7 @@ send_data() {
     
     if [ $? -eq 0 ]; then
         if echo "$response" | grep -q '"success":true'; then
-            echo "✓ Synced $event_count events successfully"
+            echo "[SUCCESS] Synced $event_count events successfully"
         else
             echo "Server error: $response"
         fi
@@ -397,7 +398,7 @@ while true; do
     fi
     echo ""
     echo "Waiting 5 minutes... (next sync at $next_sync)"
-    echo "────────────────────────────────────────"
+    echo "----------------------------------------"
     sleep 300
 done`;
 

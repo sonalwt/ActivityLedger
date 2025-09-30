@@ -1,3 +1,5 @@
+# Save sync.ps1 with proper Windows line endings
+$content = @'
 # ActivityWatch Sync Script - HTTPS with Redirect Handling
 $DEVELOPER_NAME = "ankita gholap"
 $API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
@@ -48,7 +50,7 @@ function Send-ActivityData {
                 $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15 -MaximumRedirection 5
                 
                 if ($response.success) {
-                    Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
+                    Write-Host "[SUCCESS] Synced $($allEvents.Count) events successfully" -ForegroundColor Green
                 } else {
                     Write-Host "Server error: $($response.error)" -ForegroundColor Red
                 }
@@ -64,17 +66,25 @@ function Send-ActivityData {
     }
 }
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "ActivityWatch Sync for $DEVELOPER_NAME" -ForegroundColor Cyan
-Write-Host "Server: $SERVER_URL" -ForegroundColor Gray
-Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "========================================"
+Write-Host "ActivityWatch Sync for $DEVELOPER_NAME"
+Write-Host "Server: $SERVER_URL"
+Write-Host "========================================"
 Write-Host "Press Ctrl+C to stop"
 Write-Host ""
 
 while ($true) {
     Send-ActivityData
     $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
-    Write-Host "`nWaiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
-    Write-Host "─" * 40 -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Waiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Start-Sleep -Seconds 300
 }
+'@
+
+# Save with Windows line endings
+$content | Out-File -FilePath "C:\Users\ankit\Downloads\sync_windows.ps1" -Encoding UTF8
+
+Write-Host "File saved to: C:\Users\ankit\Downloads\sync_windows.ps1"
+Write-Host "This file has proper Windows line endings and UTF8 encoding."
