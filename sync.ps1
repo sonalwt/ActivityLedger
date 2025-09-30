@@ -1,7 +1,7 @@
-# ActivityWatch Sync Script - FIXED with correct HTTPS URL
+# ActivityWatch Sync Script - HTTPS with Redirect Handling
 $DEVELOPER_NAME = "ankita gholap"
 $API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
-# FIXED: Using HTTPS without trailing slash
+# Using HTTPS with proper redirect handling
 $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
@@ -42,12 +42,18 @@ function Send-ActivityData {
             }
             
             $jsonPayload = $payload | ConvertTo-Json -Depth 10
-            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
             
-            if ($response.success) {
-                Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
-            } else {
-                Write-Host "Server error: $($response.error)" -ForegroundColor Red
+            # Using Invoke-RestMethod with redirect handling
+            try {
+                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15 -MaximumRedirection 5
+                
+                if ($response.success) {
+                    Write-Host "✓ Synced $($allEvents.Count) events successfully" -ForegroundColor Green
+                } else {
+                    Write-Host "Server error: $($response.error)" -ForegroundColor Red
+                }
+            } catch {
+                Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
             }
         } else {
             Write-Host "No new data to sync"
