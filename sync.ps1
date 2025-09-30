@@ -24,7 +24,7 @@ function Send-ActivityData {
                 $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
                 if ($events -and $events.Count -gt 0) {
                     $allEvents += $events
-                    Write-Host "  - $bucket: $($events.Count) events" -ForegroundColor DarkGray
+                    Write-Host ("  - " + $bucket + ": " + $events.Count + " events") -ForegroundColor DarkGray
                 }
             } catch {
                 # Skip bucket if error
