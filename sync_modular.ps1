@@ -1,14 +1,11 @@
-# ActivityWatch Sync Script - Using HTTP due to server redirect
-$DEVELOPER_NAME = "ankita gholap"
-$API_TOKEN = "AWToken_sFM_KiPpk3fuK64zdgGD-kWoZZf4MLlDeuY0nF8OyTs"
-# Using HTTP to avoid 308 redirect issues
-$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
-$LOCAL_AW = "http://localhost:5600/api/0"
+# ActivityWatch Sync Script - Modular version with config
+# Load configuration
+. ".\sync_config.ps1"
 
 function Send-ActivityData {
     try {
         Write-Host "$LOCAL_AW/buckets"
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
+        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
         
@@ -72,9 +69,9 @@ Write-Host ""
 
 while ($true) {
     Send-ActivityData
-    $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
+    $nextSync = (Get-Date).AddMinutes($SYNC_INTERVAL).ToString("HH:mm:ss")
     Write-Host ""
-    Write-Host "Waiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
+    Write-Host "Waiting $SYNC_INTERVAL minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
     Write-Host "----------------------------------------" -ForegroundColor DarkGray
-    Start-Sleep -Seconds 300
+    Start-Sleep -Seconds ($SYNC_INTERVAL * 60)
 }

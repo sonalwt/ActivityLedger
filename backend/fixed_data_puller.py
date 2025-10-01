@@ -26,7 +26,7 @@ def pull_activity_data():
         engine = create_engine(DATABASE_URL)
         
         # Get buckets
-        buckets_response = requests.get(f"{ACTIVITYWATCH_URL}/api/0/buckets", timeout=10)
+        buckets_response = requests.get(f"{ACTIVITYWATCH_URL}/api/0/buckets/", timeout=10)
         if buckets_response.status_code != 200:
             print("❌ Could not fetch buckets")
             return

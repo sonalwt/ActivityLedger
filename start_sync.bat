@@ -1,15 +1,8 @@
-REM Run the PowerShell sync script
-powershell -ExecutionPolicy Bypass -File "sync.ps1"
-pause
-
 @echo off
-title ActivityWatch Sync - Windows
-echo Starting ActivityWatch sync...
-echo Using PowerShell (no Python needed)
+title ActivityWatch Sync - ankita gholap
+echo Starting ActivityWatch sync for ankita gholap...
+echo Using PowerShell (no Python installation needed)
 echo.
-
 cd /d "%~dp0"
-
 powershell -ExecutionPolicy Bypass -File "sync.ps1"
-
 pause

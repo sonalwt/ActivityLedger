@@ -1,64 +1,76 @@
 @echo off
-REM fix_308_redirect.bat - Automatically fix 308 redirect issue
-
-setlocal enabledelayedexpansion
-
 cls
-echo ========================================
-echo ActivityWatch Sync 308 Redirect Fixer
-echo ========================================
+color 0C
 echo.
-
-REM Check current sync.ps1
-echo Checking current sync.ps1 configuration...
+echo  ====================================================
+echo   CRITICAL: 308 REDIRECT ISSUE DETECTED
+echo  ====================================================
 echo.
-
-REM Find SERVER_URL in sync.ps1
-powershell -Command "$content = Get-Content sync.ps1 -Raw; if ($content -match '\$SERVER_URL\s*=\s*\"(.*?)\"') { Write-Host 'Current SERVER_URL: ' $matches[1] -ForegroundColor Yellow }"
-
+echo  Your server is returning 308 redirects for ALL endpoints!
+echo  This is preventing the sync script from working.
 echo.
-echo Testing server endpoints...
+echo  ====================================================
+echo   IMMEDIATE SOLUTIONS:
+echo  ====================================================
 echo.
-
-REM Test both HTTP and HTTPS
-echo 1. Testing HTTPS (current):
-powershell -Command "try { $r = Invoke-WebRequest 'https://api-timesheet.firsteconomy.com/api/sync' -Method POST -Body '{""test"":true}' -ContentType 'application/json' -MaximumRedirection 0 -ErrorAction SilentlyContinue; Write-Host '   Status:' $r.StatusCode -ForegroundColor Green } catch { if ($_.Exception.Response.StatusCode -eq 308) { Write-Host '   Status: 308 REDIRECT (This is the problem!)' -ForegroundColor Red } else { Write-Host '   Error:' $_.Exception.Message -ForegroundColor Red } }"
-
+echo  1. Run diagnostics   - Find where server redirects to
+echo  2. Use curl version  - Better redirect handling  
+echo  3. Use Python sync   - Most robust solution
+echo  4. Contact IT team   - Fix server configuration
 echo.
-echo 2. Testing HTTP:
-powershell -Command "try { $r = Invoke-WebRequest 'http://api-timesheet.firsteconomy.com/api/sync' -Method POST -Body '{""test"":true}' -ContentType 'application/json' -ErrorAction SilentlyContinue; Write-Host '   Status:' $r.StatusCode -ForegroundColor Green; Write-Host '   HTTP endpoint works!' -ForegroundColor Green } catch { Write-Host '   Error:' $_.Exception.Message -ForegroundColor Red }"
-
+echo  ====================================================
 echo.
-echo ========================================
-echo.
+set /p choice="Enter your choice (1-4): "
 
-REM Ask user to fix
-choice /C YN /M "Do you want to fix the 308 redirect issue by changing to HTTP"
-if %errorlevel%==1 (
+if "%choice%"=="1" (
     echo.
-    echo Creating backup of sync.ps1...
-    copy sync.ps1 sync.ps1.backup >nul 2>&1
-    
-    echo Updating sync.ps1 to use HTTP...
-    powershell -Command "(Get-Content sync.ps1) -replace 'https://api-timesheet\.firsteconomy\.com', 'http://api-timesheet.firsteconomy.com' | Set-Content sync.ps1"
-    
+    echo Running endpoint diagnostics...
     echo.
-    echo ✓ Fixed! Your sync.ps1 now uses HTTP.
+    powershell -ExecutionPolicy Bypass -File "diagnose_endpoints.ps1"
+) else if "%choice%"=="2" (
     echo.
-    echo Backup saved as: sync.ps1.backup
+    echo Starting sync with curl (handles redirects better)...
     echo.
-    
-    choice /C YN /M "Do you want to test the sync now"
-    if !errorlevel!==1 (
-        echo.
-        echo Starting sync...
-        powershell.exe -ExecutionPolicy Bypass -File sync.ps1
+    powershell -ExecutionPolicy Bypass -File "sync_with_curl.ps1"
+) else if "%choice%"=="3" (
+    echo.
+    echo Starting Python sync...
+    echo.
+    if exist venv\Scripts\activate.bat (
+        call venv\Scripts\activate
+    ) else (
+        echo Installing Python requirements...
+        python -m venv venv
+        call venv\Scripts\activate
+        pip install requests
     )
+    python sync_python.py
+) else if "%choice%"=="4" (
+    echo.
+    echo  ====================================================
+    echo   SERVER CONFIGURATION FIX NEEDED:
+    echo  ====================================================
+    echo.
+    echo  The server at api-timesheet.firsteconomy.com is
+    echo  configured to redirect ALL requests with 308.
+    echo.
+    echo  Tell your IT team to:
+    echo  1. Check nginx/Apache redirect rules
+    echo  2. In FastAPI: app = FastAPI(redirect_slashes=False^)
+    echo  3. Ensure /api/sync accepts POST without redirect
+    echo.
+    echo  Current behavior:
+    echo  - http://api-timesheet.firsteconomy.com/api/sync → 308
+    echo  - https://api-timesheet.firsteconomy.com/api/sync → 308
+    echo.
+    echo  ====================================================
+    echo.
+    pause
 ) else (
     echo.
-    echo Fix cancelled. You can manually edit sync.ps1 and change:
-    echo   FROM: $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
-    echo   TO:   $SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
+    echo Invalid choice. Please run again.
+    echo.
+    timeout /t 3
 )
 
 echo.

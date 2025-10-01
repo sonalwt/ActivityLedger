@@ -215,11 +215,11 @@
             const os = detectOS();
             
             // Generate PowerShell content for Windows - UPDATED VERSION
-            const powershellContent = `# ActivityWatch Sync Script - HTTPS with Redirect Handling
+            const powershellContent = `# ActivityWatch Sync Script - Using HTTP
 $DEVELOPER_NAME = "${developerName}"
 $API_TOKEN = "${apiToken}"
-# Using HTTPS with proper redirect handling
-$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
+# Using HTTP to avoid 308 redirect issues
+$SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
 function Send-ActivityData {
@@ -260,9 +260,9 @@ function Send-ActivityData {
             
             $jsonPayload = $payload | ConvertTo-Json -Depth 10
             
-            # Using Invoke-RestMethod with redirect handling
+            # Using Invoke-RestMethod without redirect handling
             try {
-                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15 -MaximumRedirection 5
+                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
                 
                 if ($response.success) {
                     Write-Host "[SUCCESS] Synced $($allEvents.Count) events successfully" -ForegroundColor Green
@@ -299,11 +299,11 @@ while ($true) {
 
             // Generate bash content for Mac/Linux - UPDATED VERSION
             const bashContent = `#!/bin/bash
-# ActivityWatch Sync Script - HTTPS with curl redirect handling
+# ActivityWatch Sync Script - Using HTTP
 
 DEVELOPER_NAME="${developerName}"
 API_TOKEN="${apiToken}"
-# Using HTTPS with curl redirect following
+# Using HTTP to avoid 308 redirect issues
 SERVER_URL="https://api-timesheet.firsteconomy.com/api/sync"
 LOCAL_AW="http://localhost:5600/api/0"
 
@@ -315,7 +315,7 @@ send_data() {
         return 1
     fi
     
-    buckets_response=$(curl -s --max-time 10 "$LOCAL_AW/buckets" 2>/dev/null)
+    buckets_response=$(curl -s --max-time 10 "$LOCAL_AW/buckets/" 2>/dev/null)
     if [ $? -ne 0 ] || [ -z "$buckets_response" ]; then
         echo "ActivityWatch not responding"
         return 1
@@ -369,7 +369,7 @@ send_data() {
     
     payload="{\\"name\\":\\"$DEVELOPER_NAME\\",\\"token\\":\\"$API_TOKEN\\",\\"data\\":$all_events,\\"timestamp\\":\\"$end_time\\"}"
     
-    response=$(curl -L -s --max-time 20 -X POST -H "Content-Type: application/json" -d "$payload" "$SERVER_URL" 2>/dev/null)
+    response=$(curl -s --max-time 20 -X POST -H "Content-Type: application/json" -d "$payload" "$SERVER_URL" 2>/dev/null)
     
     if [ $? -eq 0 ]; then
         if echo "$response" | grep -q '"success":true'; then

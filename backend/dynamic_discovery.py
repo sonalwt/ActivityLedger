@@ -286,7 +286,7 @@ class DynamicActivityWatchClient:
     def get_buckets(self) -> Dict:
         """Get all available buckets"""
         try:
-            response = requests.get(f"{self.base_url}/api/0/buckets")
+            response = requests.get(f"{self.base_url}/api/0/buckets/")
             response.raise_for_status()
             return response.json()
         except Exception as e:

@@ -1,0 +1,38 @@
+ACTIVITYWATCH SYNC - INSTRUCTIONS
+==================================
+
+THE PROBLEM:
+Your HTTPS server (https://api-timesheet.firsteconomy.com) returns a 308 redirect
+that PowerShell cannot handle properly.
+
+THE SOLUTION:
+Use HTTP instead: http://api-timesheet.firsteconomy.com/api/sync
+
+TO START SYNCING:
+
+Option 1 (Easiest):
+------------------
+Double-click: RUN_SYNC_SOLUTION.bat
+
+Option 2 (Manual):
+------------------
+1. Open PowerShell
+2. Navigate to: E:\timesheet\timesheet_new
+3. Run: .\sync.ps1
+
+Option 3 (From Downloads):
+--------------------------
+1. Copy sync.ps1 to Downloads
+2. Open PowerShell in Downloads folder  
+3. Run: .\sync.ps1
+
+FILES THAT WORK:
+- sync.ps1 (main script - uses HTTP)
+- start_sync.bat (launcher)
+- RUN_SYNC_SOLUTION.bat (easiest option)
+
+IF YOU NEED HTTPS:
+Contact your server admin to disable redirect_slashes in FastAPI
+OR use sync_curl.ps1 which handles redirects better
+
+CURRENT STATUS: ✅ WORKING WITH HTTP
