@@ -42,7 +42,7 @@ async def get_all_developers_fix(db: Session = Depends(get_db)):
                     ar.developer_id = d.developer_id 
                     OR ar.developer_name = d.name
                 )
-                WHERE d.active = true OR d.active = 1
+                WHERE d.active = true
                 GROUP BY d.id, d.developer_id, d.name, d.email, d.active, d.created_at, d.last_sync
                 ORDER BY d.created_at DESC
             """)
@@ -61,7 +61,7 @@ async def get_all_developers_fix(db: Session = Depends(get_db)):
                     MAX(ar.timestamp) as last_activity
                 FROM developers d
                 LEFT JOIN activity_records ar ON ar.developer_id = d.developer_id
-                WHERE d.active = true OR d.active = 1
+                WHERE d.active = true
                 GROUP BY d.id, d.developer_id, d.name, d.email, d.active, d.created_at, d.last_sync
                 ORDER BY d.created_at DESC
             """)

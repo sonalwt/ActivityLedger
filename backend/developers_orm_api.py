@@ -17,7 +17,7 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
     try:
         # Query developers using ORM
         developers = db.query(Developer).filter(
-            (Developer.active == True) | (Developer.active == 1)
+            Developer.active == True
         ).all()
         
         developer_list = []
@@ -153,7 +153,7 @@ async def get_developers_with_stats(db: Session = Depends(get_db)):
         ).group_by(
             Developer.id
         ).filter(
-            (Developer.active == True) | (Developer.active == 1)
+            Developer.active == True
         ).all()
         
         developer_list = []

@@ -31,7 +31,7 @@ class FixedDeveloperDiscovery(DeveloperDiscovery):
                     created_at,
                     last_sync
                 FROM developers
-                WHERE active = true OR active = 1
+                WHERE active = true
             """)
             
             result = self.db_session.execute(query)

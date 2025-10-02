@@ -24,7 +24,7 @@ async def get_all_developers_simple(db: Session = Depends(get_db)):
                 created_at,
                 last_sync
             FROM developers
-            WHERE active = true OR active = 1
+            WHERE active = true
             ORDER BY created_at DESC
         """)
         
