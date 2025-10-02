@@ -94,6 +94,14 @@ app.include_router(simple_dev_router, tags=["developers-simple"])
 from developers_orm_api import router as orm_dev_router
 app.include_router(orm_dev_router, tags=["developers-orm"])
 
+# Add productivity and project analysis endpoints
+from productivity_api import router as productivity_router
+app.include_router(productivity_router, tags=["productivity"])
+
+# Add project assignment endpoints
+from project_assignment_api import router as project_assignment_router
+app.include_router(project_assignment_router, tags=["project-assignment"])
+
 # Add real data endpoints
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")

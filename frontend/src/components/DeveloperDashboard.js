@@ -7,7 +7,9 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import ActivityChart from './ActivityChart';
 import ActivityTable from './ActivityTable';
-import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import ProductivityMetrics from './ProductivityMetrics';
+import ProjectBreakdown from './ProjectBreakdown';
+import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FileText } from 'lucide-react';
 
 // Live Daily Hours Component
 const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
@@ -192,6 +194,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const [totalTime, setTotalTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [isTopActivitiesOpen, setIsTopActivitiesOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('activity');
 
   const API_BASE = 'http://localhost:8000';
 
@@ -441,6 +444,30 @@ function DeveloperDashboard({ developer, onBack }) {
     boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
   };
 
+  const tabStyle = {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '30px',
+    borderBottom: '2px solid #e5e7eb',
+    paddingBottom: '0'
+  };
+
+  const tabButtonStyle = (isActive) => ({
+    padding: '12px 24px',
+    background: isActive ? 'white' : 'transparent',
+    border: 'none',
+    borderBottom: isActive ? '2px solid #667eea' : '2px solid transparent',
+    marginBottom: '-2px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: isActive ? '600' : '400',
+    color: isActive ? '#667eea' : '#6b7280',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    transition: 'all 0.2s ease'
+  });
+
   return (
     <div style={dashboardStyle}>
       <div style={headerStyle}>
@@ -552,7 +579,35 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       )}
 
-      {!loading && activityData.length > 0 && (
+      {/* Tab Navigation */}
+      {developer && (
+        <div style={tabStyle}>
+          <button
+            style={tabButtonStyle(activeTab === 'activity')}
+            onClick={() => setActiveTab('activity')}
+          >
+            <Activity size={16} />
+            Activity Data
+          </button>
+          <button
+            style={tabButtonStyle(activeTab === 'productivity')}
+            onClick={() => setActiveTab('productivity')}
+          >
+            <BarChart2 size={16} />
+            Productivity
+          </button>
+          <button
+            style={tabButtonStyle(activeTab === 'projects')}
+            onClick={() => setActiveTab('projects')}
+          >
+            <Briefcase size={16} />
+            Projects
+          </button>
+        </div>
+      )}
+
+      {/* Tab Content */}
+      {!loading && activeTab === 'activity' && activityData.length > 0 && (
         <>
           {/* Live Daily Hours Report */}
           <LiveDailyHoursReport activityData={activityData} startDate={startDate} endDate={endDate} />
@@ -706,6 +761,22 @@ function DeveloperDashboard({ developer, onBack }) {
             )}
           </div>
         </>
+      )}
+
+      {/* Productivity Tab Content */}
+      {!loading && activeTab === 'productivity' && developer && (
+        <ProductivityMetrics 
+          developerId={developer.developer_id || developer.id} 
+          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
+        />
+      )}
+
+      {/* Projects Tab Content */}
+      {!loading && activeTab === 'projects' && developer && (
+        <ProjectBreakdown 
+          developerId={developer.developer_id || developer.id} 
+          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
+        />
       )}
 
       {!loading && activityData.length === 0 && (

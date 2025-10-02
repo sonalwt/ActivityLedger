@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, User, Eye, Activity, Monitor } from 'lucide-react';
 import DeveloperDashboard from './DeveloperDashboard'; // Your original dashboard renamed
+import TeamProductivitySummary from './TeamProductivitySummary';
 
 const Dashboard = () => {
   const [developers, setDevelopers] = useState([]);
@@ -149,6 +150,11 @@ const Dashboard = () => {
         }}>
           <strong>Error:</strong> {error}
         </div>
+      )}
+
+      {/* Team Productivity Summary - Only in Production Mode */}
+      {environment === 'production' && !loading && (
+        <TeamProductivitySummary />
       )}
 
       {/* Loading State */}
