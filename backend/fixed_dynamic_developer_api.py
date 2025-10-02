@@ -41,6 +41,25 @@ class EnvironmentBasedDeveloperService:
             local_hostname = socket.gethostname()
             local_developer_name = Config.LOCAL_DEVELOPER_NAME or local_hostname
             
+            # Check if local developer exists in developers table
+            from sqlalchemy import text
+            dev_result = self.db.execute(text("""
+                SELECT developer_id, name 
+                FROM developers 
+                WHERE name = :dev_name OR developer_id = :dev_name
+                LIMIT 1
+            """), {
+                "dev_name": local_developer_name
+            }).fetchone()
+            
+            # Use the developer_id from database if exists
+            if dev_result:
+                local_developer_id = dev_result[0]
+                local_developer_name = dev_result[1]
+            else:
+                local_developer_id = local_developer_name
+                logger.warning(f"Local developer '{local_developer_name}' not found in developers table")
+            
             # Check if ActivityWatch is running locally
             local_instances = self.discovery.discover_local_instances()
             
@@ -59,14 +78,15 @@ class EnvironmentBasedDeveloperService:
                         "source": "local",
                         "description": f"Local ActivityWatch instance",
                         "device_id": instance.get('device_id', f"{local_hostname}_{instance['port']}"),
-                        "activity_count": self._get_activity_count_safe(local_developer_name),
+                        "developer_id": local_developer_id,
+                        "activity_count": self._get_activity_count_safe(local_developer_id),
                         "last_seen": datetime.now(timezone.utc).isoformat(),
                         "version": instance.get('version', 'unknown'),
                         "bucket_count": instance.get('bucket_count', 0)
                     })
             else:
                 # No ActivityWatch running - check database for historical data
-                db_activity_count = self._get_activity_count_safe(local_developer_name)
+                db_activity_count = self._get_activity_count_safe(local_developer_id)
                 
                 developers.append({
                     "id": f"local_db_{local_hostname}",
@@ -78,8 +98,9 @@ class EnvironmentBasedDeveloperService:
                     "source": "database" if db_activity_count > 0 else "local",
                     "description": f"Local developer ({db_activity_count} activities in database)" if db_activity_count > 0 else f"Local developer (no data yet)",
                     "device_id": local_hostname,
+                    "developer_id": local_developer_id,
                     "activity_count": db_activity_count,
-                    "last_seen": self._get_last_activity_time_safe(local_developer_name),
+                    "last_seen": self._get_last_activity_time_safe(local_developer_id),
                     "version": "database" if db_activity_count > 0 else "unknown",
                     "bucket_count": 0
                 })
@@ -89,7 +110,8 @@ class EnvironmentBasedDeveloperService:
                 "environment": "local",
                 "total_count": len(developers),
                 "discovered_at": datetime.now(timezone.utc).isoformat(),
-                "local_developer": local_developer_name
+                "local_developer": local_developer_name,
+                "local_developer_id": local_developer_id if 'local_developer_id' in locals() else local_developer_name
             }
             
         except Exception as e:
@@ -106,6 +128,7 @@ class EnvironmentBasedDeveloperService:
                     "source": "local",
                     "description": "Local developer (database error)",
                     "device_id": socket.gethostname(),
+                    "developer_id": Config.LOCAL_DEVELOPER_NAME,
                     "activity_count": 0,
                     "last_seen": None,
                     "version": "unknown",
@@ -132,9 +155,11 @@ class EnvironmentBasedDeveloperService:
             
             # Enhance with activity counts
             for dev in discovered_developers:
-                dev['activity_count'] = self._get_activity_count_safe(dev.get('name') or dev['id'])
+                # Use developer_id for activity count lookup
+                dev_id = dev.get('developer_id') or dev.get('id')
+                dev['activity_count'] = self._get_activity_count_safe(dev_id)
                 if not dev.get('last_seen'):
-                    dev['last_seen'] = self._get_last_activity_time_safe(dev.get('name') or dev['id'])
+                    dev['last_seen'] = self._get_last_activity_time_safe(dev_id)
                     if dev['last_seen']:
                         dev['last_seen'] = dev['last_seen'].isoformat() if isinstance(dev['last_seen'], datetime) else dev['last_seen']
             
@@ -150,27 +175,40 @@ class EnvironmentBasedDeveloperService:
             logger.error(f"Error discovering all developers: {e}")
             raise HTTPException(status_code=500, detail=f"Error discovering developers: {str(e)}")
     
-    def _get_activity_count_safe(self, developer_name: str) -> int:
+    def _get_activity_count_safe(self, developer_id_or_name: str) -> int:
         """Safely get activity count for a developer"""
         try:
             from sqlalchemy import func, text
             
-            # Use raw SQL to avoid column type issues
-            result = self.db.execute(text("""
-                SELECT COUNT(*) 
-                FROM activity_records 
-                WHERE COALESCE(developer_name, CAST(developer_id AS TEXT)) = :dev_name
-                OR application_name LIKE :app_pattern
+            # First check if it's a developer_id
+            dev_result = self.db.execute(text("""
+                SELECT developer_id 
+                FROM developers 
+                WHERE developer_id = :dev_id OR name = :dev_name
+                LIMIT 1
             """), {
-                "dev_name": developer_name,
-                "app_pattern": f"%{developer_name}%"
-            })
+                "dev_id": developer_id_or_name,
+                "dev_name": developer_id_or_name
+            }).fetchone()
             
-            count = result.scalar()
-            return count or 0
+            if dev_result:
+                developer_id = dev_result[0]
+                # Count activities for this developer
+                result = self.db.execute(text("""
+                    SELECT COUNT(*) 
+                    FROM activity_records 
+                    WHERE developer_id = :dev_id
+                """), {
+                    "dev_id": developer_id
+                })
+                
+                count = result.scalar()
+                return count or 0
+            else:
+                return 0
             
         except Exception as e:
-            logger.warning(f"Error getting activity count for {developer_name}: {e}")
+            logger.warning(f"Error getting activity count for {developer_id_or_name}: {e}")
             # Try simpler query
             try:
                 result = self.db.execute(text("SELECT COUNT(*) FROM activity_records"))
@@ -180,26 +218,40 @@ class EnvironmentBasedDeveloperService:
             except:
                 return 0
     
-    def _get_last_activity_time_safe(self, developer_name: str) -> Optional[str]:
+    def _get_last_activity_time_safe(self, developer_id_or_name: str) -> Optional[str]:
         """Safely get last activity time for a developer"""
         try:
             from sqlalchemy import text
             
-            result = self.db.execute(text("""
-                SELECT MAX(COALESCE(activity_timestamp, timestamp, created_at))
-                FROM activity_records 
-                WHERE COALESCE(developer_name, CAST(developer_id AS TEXT)) = :dev_name
-                OR application_name LIKE :app_pattern
+            # First get the developer_id
+            dev_result = self.db.execute(text("""
+                SELECT developer_id 
+                FROM developers 
+                WHERE developer_id = :dev_id OR name = :dev_name
+                LIMIT 1
             """), {
-                "dev_name": developer_name,
-                "app_pattern": f"%{developer_name}%"
-            })
+                "dev_id": developer_id_or_name,
+                "dev_name": developer_id_or_name
+            }).fetchone()
             
-            last_time = result.scalar()
-            return last_time.isoformat() if last_time else None
+            if dev_result:
+                developer_id = dev_result[0]
+                # Get last activity for this developer
+                result = self.db.execute(text("""
+                    SELECT MAX(timestamp)
+                    FROM activity_records 
+                    WHERE developer_id = :dev_id
+                """), {
+                    "dev_id": developer_id
+                })
+                
+                last_time = result.scalar()
+                return last_time.isoformat() if last_time else None
+            else:
+                return None
             
         except Exception as e:
-            logger.warning(f"Error getting last activity time for {developer_name}: {e}")
+            logger.warning(f"Error getting last activity time for {developer_id_or_name}: {e}")
             return None
 
 # API Endpoints
@@ -263,37 +315,35 @@ async def get_developer_activity_data(
             try:
                 from sqlalchemy import text
                 
-                # Use safe SQL query for existing database structure
+                # Use proper JOIN to get developer name from developers table
                 db_records = db.execute(text("""
                     SELECT 
-                        application_name,
-                        window_title,
-                        duration,
-                        timestamp,
-                        category,
-                        detailed_activity,
-                        url,
-                        file_path,
-                        COALESCE(developer_name, CAST(developer_id AS TEXT)) as dev_name
-                    FROM activity_records
-                    WHERE (
-                        COALESCE(developer_name, CAST(developer_id AS TEXT)) = :dev_name
-                        OR application_name LIKE :app_pattern
-                    )
-                    AND timestamp >= :start_date
-                    AND timestamp <= :end_date
-                    ORDER BY duration DESC
+                        ar.application_name,
+                        ar.window_title,
+                        ar.duration,
+                        ar.timestamp,
+                        ar.category,
+                        ar.detailed_activity,
+                        ar.url,
+                        ar.file_path,
+                        ar.developer_id,
+                        d.name as developer_name
+                    FROM activity_records ar
+                    LEFT JOIN developers d ON ar.developer_id = d.developer_id
+                    WHERE ar.developer_id = :dev_id
+                    AND ar.timestamp >= :start_date
+                    AND ar.timestamp <= :end_date
+                    ORDER BY ar.duration DESC
                     LIMIT 1000
                 """), {
-                    "dev_name": developer['name'],
-                    "app_pattern": f"%{developer['name']}%",
+                    "dev_id": developer.get('developer_id') or developer['name'],
                     "start_date": start,
                     "end_date": end
                 }).fetchall()
                 
                 activity_data = [{
-                    "developer_id": developer_id,
-                    "developer_name": developer['name'],
+                    "developer_id": record.developer_id,
+                    "developer_name": record.developer_name or developer['name'],
                     "application_name": record.application_name,
                     "window_title": record.window_title,
                     "duration": record.duration or 0,

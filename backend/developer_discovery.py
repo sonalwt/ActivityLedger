@@ -161,17 +161,16 @@ class DeveloperDiscovery:
             from sqlalchemy import text
             
             # Query unique developers from activity records
+            # Only use columns that exist in the table
             query = text("""
                 SELECT DISTINCT 
                     developer_id,
-                    developer_name,
-                    developer_hostname,
                     MAX(created_at) as last_seen,
                     COUNT(*) as activity_count
                 FROM activity_records 
                 WHERE developer_id IS NOT NULL 
                     AND created_at > :last_month
-                GROUP BY developer_id, developer_name, developer_hostname
+                GROUP BY developer_id
                 ORDER BY last_seen DESC
             """)
             
@@ -182,10 +181,10 @@ class DeveloperDiscovery:
             for row in result:
                 db_developers.append({
                     "id": row.developer_id,
-                    "name": row.developer_name or row.developer_id,
+                    "name": row.developer_id,  # Use developer_id as name since we don't have developer_name
                     "host": "unknown",  # Will be resolved later
                     "port": 5600,  # Default port
-                    "hostname": row.developer_hostname or row.developer_name or row.developer_id,
+                    "hostname": row.developer_id,  # Use developer_id as hostname
                     "device_id": row.developer_id,
                     "description": f"From database records ({row.activity_count} activities)",
                     "last_seen": row.last_seen.isoformat() if row.last_seen else None,

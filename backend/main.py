@@ -78,6 +78,10 @@ app.include_router(dynamic_developer_router, tags=["dynamic-developers"])
 from test_developers_endpoint import router as test_router
 app.include_router(test_router, tags=["test"])
 
+# Add test relationships endpoint
+from test_relationships import router as test_rel_router
+app.include_router(test_rel_router, tags=["test-relationships"])
+
 # Add all developers fix endpoint
 from all_developers_fix import router as all_dev_router
 app.include_router(all_dev_router, tags=["developers-fix"])

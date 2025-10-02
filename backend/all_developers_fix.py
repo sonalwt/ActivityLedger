@@ -14,57 +14,24 @@ async def get_all_developers_fix(db: Session = Depends(get_db)):
     """Get all developers from database regardless of environment"""
     try:
         # Query developers table
-        # First, check which columns exist in activity_records
-        columns_check = db.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'activity_records'
-        """)).fetchall()
-        
-        available_columns = [col[0] for col in columns_check]
-        has_developer_name = 'developer_name' in available_columns
-        
-        # Build query based on available columns
-        if has_developer_name:
-            developers_query = text("""
-                SELECT 
-                    d.id,
-                    d.developer_id,
-                    d.name,
-                    d.email,
-                    d.active,
-                    d.created_at,
-                    d.last_sync,
-                    COUNT(DISTINCT ar.id) as activity_count,
-                    MAX(ar.timestamp) as last_activity
-                FROM developers d
-                LEFT JOIN activity_records ar ON (
-                    ar.developer_id = d.developer_id 
-                    OR ar.developer_name = d.name
-                )
-                WHERE d.active = true
-                GROUP BY d.id, d.developer_id, d.name, d.email, d.active, d.created_at, d.last_sync
-                ORDER BY d.created_at DESC
-            """)
-        else:
-            # Fallback query without developer_name column
-            developers_query = text("""
-                SELECT 
-                    d.id,
-                    d.developer_id,
-                    d.name,
-                    d.email,
-                    d.active,
-                    d.created_at,
-                    d.last_sync,
-                    COUNT(DISTINCT ar.id) as activity_count,
-                    MAX(ar.timestamp) as last_activity
-                FROM developers d
-                LEFT JOIN activity_records ar ON ar.developer_id = d.developer_id
-                WHERE d.active = true
-                GROUP BY d.id, d.developer_id, d.name, d.email, d.active, d.created_at, d.last_sync
-                ORDER BY d.created_at DESC
-            """)
+        # For PostgreSQL, we'll skip the column check and just use developer_id
+        developers_query = text("""
+            SELECT 
+                d.id,
+                d.developer_id,
+                d.name,
+                d.email,
+                d.active,
+                d.created_at,
+                d.last_sync,
+                COUNT(DISTINCT ar.id) as activity_count,
+                MAX(ar.timestamp) as last_activity
+            FROM developers d
+            LEFT JOIN activity_records ar ON ar.developer_id = d.developer_id
+            WHERE d.active = true
+            GROUP BY d.id, d.developer_id, d.name, d.email, d.active, d.created_at, d.last_sync
+            ORDER BY d.created_at DESC
+        """)
         
         result = db.execute(developers_query)
         

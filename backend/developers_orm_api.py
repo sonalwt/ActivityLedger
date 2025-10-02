@@ -15,30 +15,37 @@ router = APIRouter()
 async def get_developers_using_orm(db: Session = Depends(get_db)):
     """Get all developers using SQLAlchemy ORM with relationships"""
     try:
-        # Query developers using ORM
-        developers = db.query(Developer).filter(
+        # Query developers with their activity counts using proper joins
+        from sqlalchemy import func
+        
+        # Subquery to get activity counts
+        activity_counts = db.query(
+            ActivityRecord.developer_id,
+            func.count(ActivityRecord.id).label('activity_count'),
+            func.max(ActivityRecord.timestamp).label('last_activity')
+        ).group_by(ActivityRecord.developer_id).subquery()
+        
+        # Main query joining developers with activity counts
+        developers_with_stats = db.query(
+            Developer,
+            func.coalesce(activity_counts.c.activity_count, 0).label('activity_count'),
+            activity_counts.c.last_activity
+        ).outerjoin(
+            activity_counts,
+            Developer.developer_id == activity_counts.c.developer_id
+        ).filter(
             Developer.active == True
         ).all()
         
         developer_list = []
         
-        for dev in developers:
-            # Count activities using relationship
-            activity_count = db.query(ActivityRecord).filter(
-                ActivityRecord.developer_id == dev.developer_id
-            ).count()
-            
-            # Get last activity
-            last_activity = db.query(ActivityRecord.timestamp).filter(
-                ActivityRecord.developer_id == dev.developer_id
-            ).order_by(ActivityRecord.timestamp.desc()).first()
-            
+        for developer, activity_count, last_activity in developers_with_stats:
             # Determine status based on last activity
             status = "offline"
             last_seen = None
             
-            if last_activity and last_activity[0]:
-                last_seen = last_activity[0]
+            if last_activity:
+                last_seen = last_activity
                 if hasattr(last_seen, 'replace'):
                     time_diff = datetime.now(timezone.utc) - last_seen.replace(tzinfo=timezone.utc)
                 else:
@@ -50,24 +57,24 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                     status = "idle"
             
             developer_list.append({
-                "id": dev.developer_id or f"dev_{dev.id}",
-                "name": dev.name,
-                "hostname": dev.name,
+                "id": developer.developer_id or f"dev_{developer.id}",
+                "name": developer.name,
+                "hostname": developer.name,
                 "host": "unknown",
                 "port": 5600,
                 "status": status,
                 "source": "database",
                 "description": f"Developer with {activity_count} activities",
-                "device_id": dev.developer_id or f"dev_{dev.id}",
+                "device_id": developer.developer_id or f"dev_{developer.id}",
                 "activity_count": activity_count,
                 "last_seen": last_seen.isoformat() if last_seen else (
-                    dev.created_at.isoformat() if dev.created_at else None
+                    developer.created_at.isoformat() if developer.created_at else None
                 ),
                 "version": "N/A",
                 "bucket_count": 0,
-                "email": dev.email,
-                "created_at": dev.created_at.isoformat() if dev.created_at else None,
-                "active": dev.active
+                "email": developer.email,
+                "created_at": developer.created_at.isoformat() if developer.created_at else None,
+                "active": developer.active
             })
         
         return {
@@ -91,7 +98,7 @@ async def get_developer_activities(
 ):
     """Get activities for a specific developer using ORM"""
     try:
-        # Get developer
+        # Get developer using ORM
         developer = db.query(Developer).filter(
             Developer.developer_id == developer_id
         ).first()
@@ -99,17 +106,25 @@ async def get_developer_activities(
         if not developer:
             raise HTTPException(status_code=404, detail="Developer not found")
         
-        # Get recent activities using ORM
-        activities = db.query(ActivityRecord).filter(
+        # Get recent activities with proper join to get developer info
+        activities = db.query(
+            ActivityRecord,
+            Developer.name.label('developer_name')
+        ).join(
+            Developer,
+            ActivityRecord.developer_id == Developer.developer_id
+        ).filter(
             ActivityRecord.developer_id == developer_id
         ).order_by(
             ActivityRecord.timestamp.desc()
         ).limit(limit).all()
         
         activities_list = []
-        for activity in activities:
+        for activity, developer_name in activities:
             activities_list.append({
                 "id": activity.id,
+                "developer_id": activity.developer_id,
+                "developer_name": developer_name,
                 "application_name": activity.application_name,
                 "window_title": activity.window_title,
                 "category": activity.category or "Other",

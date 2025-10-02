@@ -48,11 +48,9 @@ class FixedDeveloperDiscovery(DeveloperDiscovery):
                             MAX(timestamp) as last_activity
                         FROM activity_records 
                         WHERE developer_id = :dev_id
-                           OR developer_name = :dev_name
                     """)
                     count_result = self.db_session.execute(count_query, {
-                        "dev_id": row.developer_id,
-                        "dev_name": row.name
+                        "dev_id": row.developer_id
                     }).fetchone()
                     
                     if count_result:
