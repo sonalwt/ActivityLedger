@@ -1,0 +1,387 @@
+/* Dashboard.css */
+
+/* Main Dashboard Container */
+.dashboard-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Header Section */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.dashboard-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-title {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #1f2937;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  background-color: #dbeafe;
+  color: #1e40af;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.refresh-button {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  color: #2563eb;
+  background-color: white;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refresh-button:hover {
+  background-color: #f0f9ff;
+  border-color: #93c5fd;
+}
+
+.refresh-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Error Display */
+.error-banner {
+  padding: 16px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b91c1c;
+  margin-bottom: 24px;
+}
+
+/* Loading State */
+.loading-container {
+  text-align: center;
+  padding: 48px;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.loading-icon {
+  font-size: 2rem;
+  margin-bottom: 16px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Developers Grid */
+.developers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 24px;
+}
+
+/* Developer Card */
+.developer-card {
+  background-color: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.developer-card.online {
+  border: 2px solid #10b981;
+}
+
+.developer-card.offline {
+  border: 2px solid #ef4444;
+}
+
+.developer-card.unknown {
+  border: 2px solid #6b7280;
+}
+
+.developer-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* Developer Header */
+.developer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.developer-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.developer-status-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.developer-status-icon.online {
+  background-color: #10b981;
+}
+
+.developer-status-icon.offline {
+  background-color: #ef4444;
+}
+
+.developer-status-icon.unknown {
+  background-color: #6b7280;
+}
+
+.developer-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 4px 0;
+}
+
+.developer-hostname {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.developer-status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.developer-status-badge.online {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.developer-status-badge.offline {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.developer-status-badge.unknown {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+/* Developer Stats */
+.developer-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #2563eb;
+}
+
+.stat-value.source {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #059669;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* Developer Info Section */
+.developer-details {
+  margin-bottom: 20px;
+}
+
+.developer-description {
+  font-size: 0.875rem;
+  color: #4b5563;
+  margin-bottom: 8px;
+}
+
+.developer-last-seen {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* View Button */
+.view-dashboard-button {
+  width: 100%;
+  padding: 12px 24px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+}
+
+.view-dashboard-button:hover {
+  background-color: #1d4ed8;
+}
+
+/* No Developers State */
+.no-developers {
+  text-align: center;
+  padding: 48px;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.no-developers-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+}
+
+.no-developers-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 12px;
+}
+
+.no-developers-text {
+  color: #6b7280;
+  margin-bottom: 24px;
+}
+
+.discover-button {
+  padding: 12px 24px;
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.discover-button:hover {
+  background-color: #1d4ed8;
+}
+
+/* Local Development Mode */
+.local-mode-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  flex-direction: column;
+}
+
+.local-mode-loading-icon {
+  font-size: 2rem;
+  margin-bottom: 16px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.local-mode-error {
+  padding: 40px;
+  text-align: center;
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border-radius: 12px;
+  margin: 20px;
+}
+
+.local-mode-error h3 {
+  margin-bottom: 12px;
+}
+
+.retry-button {
+  padding: 8px 16px;
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 16px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+  background-color: #b91c1c;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .dashboard-wrapper {
+    padding: 12px;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-title {
+    font-size: 1.5rem;
+  }
+
+  .developers-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-stats {
+    grid-template-columns: 1fr;
+  }
+}

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, User, Eye, Activity, Monitor } from 'lucide-react';
 import DeveloperDashboard from './DeveloperDashboard'; // Your original dashboard renamed
 import TeamProductivitySummary from './TeamProductivitySummary';
+import './Dashboard.css';
 
 const Dashboard = () => {
   const [developers, setDevelopers] = useState([]);
@@ -64,11 +65,8 @@ const Dashboard = () => {
     
     if (loading) {
       return (
-        <div style={{ 
-          display: 'flex', justifyContent: 'center', alignItems: 'center', 
-          height: '400px', flexDirection: 'column' 
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: '16px' }}>⏳</div>
+        <div className="local-mode-loading">
+          <div className="local-mode-loading-icon">⏳</div>
           <p>Loading your dashboard...</p>
         </div>
       );
@@ -76,17 +74,10 @@ const Dashboard = () => {
     
     if (error) {
       return (
-        <div style={{ 
-          padding: '40px', textAlign: 'center', 
-          backgroundColor: '#fef2f2', color: '#b91c1c', 
-          borderRadius: '12px', margin: '20px' 
-        }}>
+        <div className="local-mode-error">
           <h3>Error Loading Dashboard</h3>
           <p>{error}</p>
-          <button onClick={loadDevelopers} style={{
-            padding: '8px 16px', backgroundColor: '#dc2626', color: 'white',
-            border: 'none', borderRadius: '6px', cursor: 'pointer', marginTop: '16px'
-          }}>
+          <button onClick={loadDevelopers} className="retry-button">
             Try Again
           </button>
         </div>
@@ -108,46 +99,27 @@ const Dashboard = () => {
 
   // Production developer list view
   return (
-    <div style={{ 
-      maxWidth: '1200px', margin: '0 auto', padding: '24px',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-    }}>
+    <div className="dashboard-wrapper">
       {/* Header */}
-      <div style={{ 
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-        marginBottom: '32px' 
-      }}>
+      <div className="dashboard-header">
         <div>
-          <h1 style={{ 
-            fontSize: '2rem', fontWeight: 'bold', color: '#1f2937', 
-            margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '12px' 
-          }}>
+          <h1 className="dashboard-title">
             <Users size={36} color="#2563eb" />
             All Developers Dashboard
           </h1>
-          <div style={{ 
-            padding: '4px 12px', borderRadius: '20px', fontSize: '0.875rem',
-            backgroundColor: '#dbeafe', color: '#1e40af', fontWeight: '500', display: 'inline-block'
-          }}>
+          <div className="dashboard-badge">
             Production Mode - {developers.length} Developer{developers.length !== 1 ? 's' : ''}
           </div>
         </div>
         
-        <button onClick={loadDevelopers} disabled={loading} style={{
-          padding: '8px 16px', fontSize: '0.875rem', color: '#2563eb',
-          backgroundColor: 'white', border: '1px solid #dbeafe', borderRadius: '8px',
-          cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1
-        }}>
+        <button onClick={loadDevelopers} disabled={loading} className="refresh-button">
           {loading ? 'Loading...' : 'Refresh List'}
         </button>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div style={{ 
-          padding: '16px', backgroundColor: '#fef2f2', border: '1px solid #fecaca',
-          borderRadius: '8px', color: '#b91c1c', marginBottom: '24px' 
-        }}>
+        <div className="error-banner">
           <strong>Error:</strong> {error}
         </div>
       )}
@@ -159,11 +131,8 @@ const Dashboard = () => {
 
       {/* Loading State */}
       {loading && (
-        <div style={{ 
-          textAlign: 'center', padding: '48px', backgroundColor: 'white',
-          borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' 
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: '16px' }}>🔍</div>
+        <div className="loading-container">
+          <div className="loading-icon">🔍</div>
           <h3>Loading Developers...</h3>
           <p style={{ color: '#6b7280' }}>Discovering all developers on the network...</p>
         </div>
@@ -171,98 +140,57 @@ const Dashboard = () => {
 
       {/* Developers Grid */}
       {!loading && developers.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-          gap: '24px'
-        }}>
+        <div className="developers-grid">
           {developers.map((developer) => (
-            <div key={developer.id} style={{
-              backgroundColor: 'white',
-              borderRadius: '12px',
-              padding: '24px',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-              border: developer.status === 'online' ? '2px solid #10b981' : 
-                     developer.status === 'offline' ? '2px solid #ef4444' : '2px solid #6b7280',
-              transition: 'transform 0.2s, box-shadow 0.2s'
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 8px 15px -3px rgba(0, 0, 0, 0.1)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
-            }}
+            <div 
+              key={developer.id} 
+              className={`developer-card ${developer.status || 'unknown'}`}
             >
               {/* Developer Header */}
-              <div style={{ 
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                marginBottom: '16px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{
-                    width: '48px', height: '48px', borderRadius: '50%',
-                    backgroundColor: developer.status === 'online' ? '#10b981' : 
-                                   developer.status === 'offline' ? '#ef4444' : '#6b7280',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>
+              <div className="developer-header">
+                <div className="developer-info">
+                  <div className={`developer-status-icon ${developer.status || 'unknown'}`}>
                     {developer.status === 'online' ? '🟢' : 
                      developer.status === 'offline' ? '🔴' : '⚪'}
                   </div>
                   <div>
-                    <h3 style={{ 
-                      fontSize: '1.25rem', fontWeight: '600', color: '#1f2937', 
-                      margin: '0 0 4px 0' 
-                    }}>
+                    <h3 className="developer-name">
                       {developer.name}
                     </h3>
-                    <p style={{ 
-                      fontSize: '0.875rem', color: '#6b7280', margin: 0 
-                    }}>
+                    <p className="developer-hostname">
                       {developer.hostname}
                     </p>
                   </div>
                 </div>
                 
-                <div style={{
-                  padding: '4px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '500',
-                  backgroundColor: developer.status === 'online' ? '#d1fae5' : 
-                                 developer.status === 'offline' ? '#fee2e2' : '#f3f4f6',
-                  color: developer.status === 'online' ? '#065f46' :
-                         developer.status === 'offline' ? '#991b1b' : '#374151'
-                }}>
+                <div className={`developer-status-badge ${developer.status || 'unknown'}`}>
                   {developer.status.replace('_', ' ').toUpperCase()}
                 </div>
               </div>
 
               {/* Developer Stats */}
-              <div style={{ 
-                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px',
-                marginBottom: '20px', padding: '16px', backgroundColor: '#f9fafb',
-                borderRadius: '8px'
-              }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#2563eb' }}>
+              <div className="developer-stats">
+                <div className="stat-item">
+                  <div className="stat-value">
                     {developer.activity_count || 0}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Activities</div>
+                  <div className="stat-label">Activities</div>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '1rem', fontWeight: '500', color: '#059669' }}>
+                <div className="stat-item">
+                  <div className="stat-value source">
                     {developer.source || 'Unknown'}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Source</div>
+                  <div className="stat-label">Source</div>
                 </div>
               </div>
 
               {/* Developer Info */}
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '0.875rem', color: '#4b5563', marginBottom: '8px' }}>
+              <div className="developer-details">
+                <div className="developer-description">
                   <strong>Description:</strong> {developer.description || 'No description'}
                 </div>
                 {developer.last_seen && (
-                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                  <div className="developer-last-seen">
                     Last seen: {new Date(developer.last_seen).toLocaleString()}
                   </div>
                 )}
@@ -271,15 +199,7 @@ const Dashboard = () => {
               {/* View Button */}
               <button
                 onClick={() => handleViewDeveloper(developer)}
-                style={{
-                  width: '100%', padding: '12px 24px', fontSize: '0.875rem', fontWeight: '500',
-                  backgroundColor: '#2563eb', color: 'white', border: 'none',
-                  borderRadius: '8px', cursor: 'pointer', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', gap: '8px',
-                  transition: 'background-color 0.2s'
-                }}
-                onMouseOver={(e) => e.target.style.backgroundColor = '#1d4ed8'}
-                onMouseOut={(e) => e.target.style.backgroundColor = '#2563eb'}
+                className="view-dashboard-button"
               >
                 <Eye size={16} />
                 View Dashboard
@@ -291,19 +211,13 @@ const Dashboard = () => {
 
       {/* No Developers State */}
       {!loading && developers.length === 0 && (
-        <div style={{ 
-          textAlign: 'center', padding: '48px', backgroundColor: 'white',
-          borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' 
-        }}>
-          <div style={{ fontSize: '4rem', marginBottom: '16px' }}>👥</div>
-          <h3>No Developers Found</h3>
-          <p style={{ color: '#6b7280', marginBottom: '24px' }}>
+        <div className="no-developers">
+          <div className="no-developers-icon">👥</div>
+          <h3 className="no-developers-title">No Developers Found</h3>
+          <p className="no-developers-text">
             No developers were discovered on the network or in the database.
           </p>
-          <button onClick={loadDevelopers} style={{
-            padding: '12px 24px', backgroundColor: '#2563eb', color: 'white',
-            border: 'none', borderRadius: '8px', cursor: 'pointer'
-          }}>
+          <button onClick={loadDevelopers} className="discover-button">
             Discover Developers
           </button>
         </div>

@@ -10,6 +10,7 @@ import ActivityTable from './ActivityTable';
 import ProductivityMetrics from './ProductivityMetrics';
 import ProjectBreakdown from './ProjectBreakdown';
 import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FileText } from 'lucide-react';
+import './DeveloperDashboard.css';
 
 // Live Daily Hours Component
 const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
@@ -42,52 +43,43 @@ const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
   const avgHours = dailyHours.length > 0 ? totalHours / dailyHours.length : 0;
 
   return (
-    <div style={{
-      background: 'white',
-      padding: '24px',
-      borderRadius: '12px',
-      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-      marginBottom: '30px'
-    }}>
-      <h3 style={{ marginBottom: '20px', color: '#333' }}>📅 Daily Hours Report</h3>
+    <div className="report-card">
+      <h3>📅 Daily Hours Report</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-        <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
-          <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#0ea5e9' }}>
+      <div className="report-stats-grid">
+        <div className="report-stat-item">
+          <div className="report-stat-value">
             {totalHours.toFixed(1)}h
           </div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>Total Hours</div>
+          <div className="report-stat-label">Total Hours</div>
         </div>
-        <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#ecfdf5', borderRadius: '8px' }}>
-          <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#10b981' }}>
+        <div className="report-stat-item green">
+          <div className="report-stat-value">
             {avgHours.toFixed(1)}h
           </div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>Average/Day</div>
+          <div className="report-stat-label">Average/Day</div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-        {dailyHours.map(day => (
-          <div key={day.date} style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px',
-            borderRadius: '6px',
-            backgroundColor: '#f8fafc',
-            borderLeft: `4px solid ${day.color}`
-          }}>
-            <div>
-              <span style={{ fontWeight: '500' }}>{format(new Date(day.date), 'MMM d, yyyy')}</span>
-              <span style={{ fontSize: '0.875rem', color: '#64748b', marginLeft: '8px' }}>
-                ({day.activities} activities)
-              </span>
+      <div className="daily-hours-list">
+        {dailyHours.map(day => {
+          const hourClass = day.total_hours >= 8 ? 'excellent' : 
+                           day.total_hours >= 6 ? 'good' : 
+                           day.total_hours >= 4 ? 'fair' : 'low';
+          return (
+            <div key={day.date} className={`daily-hour-item ${hourClass}`}>
+              <div>
+                <span className="daily-hour-date">{format(new Date(day.date), 'MMM d, yyyy')}</span>
+                <span className="daily-hour-activities">
+                  ({day.activities} activities)
+                </span>
+              </div>
+              <div className={`daily-hour-value ${hourClass}`}>
+                {day.total_hours.toFixed(1)}h
+              </div>
             </div>
-            <div style={{ fontWeight: 'bold', color: day.color }}>
-              {day.total_hours.toFixed(1)}h
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -124,62 +116,51 @@ const LiveProductivityDashboard = ({ activityData }) => {
   const productivity = calculateProductivity();
 
   return (
-    <div style={{
-      background: 'white',
-      padding: '24px',
-      borderRadius: '12px',
-      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-      marginBottom: '30px'
-    }}>
-      <h3 style={{ marginBottom: '20px', color: '#333' }}>📊 Productivity Analysis</h3>
+    <div className="productivity-card">
+      <h3>📊 Productivity Analysis</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-        <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0ea5e9' }}>
+      <div className="productivity-metrics">
+        <div className="productivity-metric primary">
+          <div className="metric-value primary">
             {productivity.productivityScore}%
           </div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>Productivity Score</div>
+          <div className="metric-label">Productivity Score</div>
         </div>
-        <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#ecfdf5', borderRadius: '8px' }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#10b981' }}>
+        <div className="productivity-metric success">
+          <div className="metric-value success">
             {productivity.workTime.toFixed(1)}h
           </div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>Work Time</div>
+          <div className="metric-label">Work Time</div>
         </div>
-        <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#fefce8', borderRadius: '8px' }}>
-          <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#eab308' }}>
+        <div className="productivity-metric warning">
+          <div className="metric-value warning">
             {productivity.totalTime.toFixed(1)}h
           </div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>Total Time</div>
+          <div className="metric-label">Total Time</div>
         </div>
       </div>
 
-      <div>
-        <h4 style={{ marginBottom: '12px', color: '#374151' }}>Category Breakdown</h4>
-        {productivity.categories.map(category => (
-          <div key={category.name} style={{ marginBottom: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '0.875rem', color: '#374151' }}>{category.name}</span>
-              <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-                {category.time.toFixed(1)}h ({category.percentage.toFixed(1)}%)
-              </span>
+      <div className="category-breakdown">
+        <h4>Category Breakdown</h4>
+        {productivity.categories.map(category => {
+          const categoryClass = category.name.toLowerCase().replace(/\s+/g, '-');
+          return (
+            <div key={category.name} className="category-item">
+              <div className="category-header">
+                <span className="category-name">{category.name}</span>
+                <span className="category-stats">
+                  {category.time.toFixed(1)}h ({category.percentage.toFixed(1)}%)
+                </span>
+              </div>
+              <div className="category-progress">
+                <div 
+                  className={`category-progress-bar ${categoryClass === 'development' ? 'development' : categoryClass === 'web-browsing' ? 'browsing' : 'productivity'}`}
+                  style={{ width: `${category.percentage}%` }}
+                />
+              </div>
             </div>
-            <div style={{ 
-              height: '6px', 
-              backgroundColor: '#e5e7eb', 
-              borderRadius: '3px', 
-              overflow: 'hidden' 
-            }}>
-              <div style={{
-                width: `${category.percentage}%`,
-                height: '100%',
-                backgroundColor: category.name === 'Development' ? '#10b981' :
-                               category.name === 'Web Browsing' ? '#3b82f6' : '#f59e0b',
-                borderRadius: '3px'
-              }} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -374,131 +355,29 @@ function DeveloperDashboard({ developer, onBack }) {
     return { project: 'General Work', type: 'Work' };
   };
 
-  const dashboardStyle = {
-    padding: '20px',
-    maxWidth: '1200px',
-    margin: '0 auto'
-  };
-
-  const headerStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '30px',
-    flexWrap: 'wrap',
-    gap: '20px'
-  };
-
-  const titleStyle = {
-    fontSize: '32px',
-    fontWeight: 'bold',
-    color: '#333',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px'
-  };
-
-  const controlsStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-    flexWrap: 'wrap'
-  };
-
-  const datePickerStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    background: 'white',
-    padding: '12px 16px',
-    borderRadius: '8px',
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
-  };
-
-  const statsStyle = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '20px',
-    marginBottom: '30px'
-  };
-
-  const statCardStyle = {
-    background: 'white',
-    padding: '24px',
-    borderRadius: '12px',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-    textAlign: 'center'
-  };
-
-  const contentStyle = {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '30px',
-    marginBottom: '30px'
-  };
-
-  const chartContainerStyle = {
-    background: 'white',
-    padding: '24px',
-    borderRadius: '12px',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-  };
-
-  const tabStyle = {
-    display: 'flex',
-    gap: '4px',
-    marginBottom: '30px',
-    borderBottom: '2px solid #e5e7eb',
-    paddingBottom: '0'
-  };
-
-  const tabButtonStyle = (isActive) => ({
-    padding: '12px 24px',
-    background: isActive ? 'white' : 'transparent',
-    border: 'none',
-    borderBottom: isActive ? '2px solid #667eea' : '2px solid transparent',
-    marginBottom: '-2px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: isActive ? '600' : '400',
-    color: isActive ? '#667eea' : '#6b7280',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    transition: 'all 0.2s ease'
-  });
+  // All inline styles removed - now using CSS classes
 
   return (
-    <div style={dashboardStyle}>
-      <div style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+    <div className="developer-dashboard">
+      <div className="dev-dashboard-header">
+        <div className="header-left">
           {onBack && (
             <button
               onClick={onBack}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 12px',
-                backgroundColor: '#f3f4f6',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                color: '#374151'
-              }}
+              className="back-button"
             >
               <ArrowLeft size={16} />
               Back
             </button>
           )}
-          <h1 style={titleStyle}>
+          <h1 className="dev-dashboard-title">
             <Activity size={36} color="#667eea" />
             {developer ? `${developer.name}'s Dashboard` : 'Activity Dashboard'}
           </h1>
         </div>
         
-        <div style={controlsStyle}>
-          <div style={datePickerStyle}>
+        <div className="dashboard-controls">
+          <div className="date-picker-wrapper">
             <Calendar size={20} color="#667eea" />
             <DatePicker
               selected={startDate}
@@ -526,7 +405,6 @@ function DeveloperDashboard({ developer, onBack }) {
             onClick={() => fetchActivityData(true)}
             disabled={loading}
             className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
           >
             <RefreshCw size={16} className={loading ? 'spinning' : ''} />
             Sync from ActivityWatch
@@ -534,19 +412,19 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       </div>
 
-      <div style={statsStyle}>
-        <div style={statCardStyle}>
-          <Clock size={32} color="#667eea" style={{ marginBottom: '12px' }} />
-          <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Total Time</h3>
-          <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#667eea', margin: 0 }}>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <Clock size={32} color="#667eea" className="stat-icon" />
+          <h3>Total Time</h3>
+          <p className="stat-value">
             {formatTime(totalTime)}
           </p>
         </div>
         
-        <div style={statCardStyle}>
-          <Activity size={32} color="#28a745" style={{ marginBottom: '12px' }} />
-          <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Active Projects</h3>
-          <p style={{ fontSize: '24px', fontWeight: 'bold', color: '#28a745', margin: 0 }}>
+        <div className="stat-card">
+          <Activity size={32} color="#28a745" className="stat-icon" />
+          <h3>Active Projects</h3>
+          <p className="stat-value green">
             {(() => {
               const uniqueProjects = new Set();
               activityData.forEach(item => {
@@ -558,46 +436,46 @@ function DeveloperDashboard({ developer, onBack }) {
               return uniqueProjects.size;
             })()}
           </p>
-          <p style={{ fontSize: '12px', color: '#666', margin: '4px 0 0 0' }}>
+          <p className="stat-subtitle">
             in selected period
           </p>
         </div>
         
-        <div style={statCardStyle}>
-          <RefreshCw size={32} color="#ffc107" style={{ marginBottom: '12px' }} />
-          <h3 style={{ margin: '0 0 8px 0', color: '#333' }}>Last Updated</h3>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>
+        <div className="stat-card">
+          <RefreshCw size={32} color="#ffc107" className="stat-icon" />
+          <h3>Last Updated</h3>
+          <p className="stat-value yellow">
             {lastUpdated ? format(lastUpdated, 'MMM d, yyyy HH:mm') : 'Never'}
           </p>
         </div>
       </div>
 
       {loading && (
-        <div className="loading">
-          <div className="spinner"></div>
-          <p style={{ marginTop: '16px', color: '#666' }}>Loading activity data...</p>
+        <div className="loading-spinner-container">
+          <div className="spinner loading-spinner"></div>
+          <p className="loading-text">Loading activity data...</p>
         </div>
       )}
 
       {/* Tab Navigation */}
       {developer && (
-        <div style={tabStyle}>
+        <div className="tab-navigation">
           <button
-            style={tabButtonStyle(activeTab === 'activity')}
+            className={`tab-button ${activeTab === 'activity' ? 'active' : ''}`}
             onClick={() => setActiveTab('activity')}
           >
             <Activity size={16} />
             Activity Data
           </button>
           <button
-            style={tabButtonStyle(activeTab === 'productivity')}
+            className={`tab-button ${activeTab === 'productivity' ? 'active' : ''}`}
             onClick={() => setActiveTab('productivity')}
           >
             <BarChart2 size={16} />
             Productivity
           </button>
           <button
-            style={tabButtonStyle(activeTab === 'projects')}
+            className={`tab-button ${activeTab === 'projects' ? 'active' : ''}`}
             onClick={() => setActiveTab('projects')}
           >
             <Briefcase size={16} />
@@ -615,14 +493,14 @@ function DeveloperDashboard({ developer, onBack }) {
           {/* Live Productivity Analysis */}
           <LiveProductivityDashboard activityData={activityData} />
           
-          <div style={contentStyle}>
-            <div style={chartContainerStyle}>
-              <h3 style={{ marginBottom: '20px', color: '#333' }}>Activity Distribution</h3>
+          <div className="content-grid">
+            <div className="chart-container">
+              <h3>Activity Distribution</h3>
               <ActivityChart data={activityData} />
             </div>
             
-            <div style={chartContainerStyle}>
-              <h3 style={{ marginBottom: '20px', color: '#333' }}>
+            <div className="chart-container">
+              <h3>
                 Project Details
                 <span style={{ fontSize: '14px', color: '#666', fontWeight: 'normal', marginLeft: '8px' }}>
                   ({format(startDate, 'MMM d')} - {format(endDate, 'MMM d, yyyy')})
@@ -631,98 +509,50 @@ function DeveloperDashboard({ developer, onBack }) {
               
               {/* Only show top window titles for original dashboard (no developer prop) */}
               {!developer && topWindowTitles.length > 0 && (
-                <div style={{ marginBottom: '30px' }}>
-                  <h4 style={{ 
-                    fontSize: '16px', 
-                    color: '#333', 
-                    marginBottom: '15px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}>
+                <div className="window-titles-section">
+                  <h4>
                     🏆 Top Window Titles from ActivityWatch
-                    <span style={{ 
-                      fontSize: '12px', 
-                      color: '#666', 
-                      fontWeight: 'normal',
-                      background: '#f3f4f6',
-                      padding: '2px 8px',
-                      borderRadius: '12px'
-                    }}>
+                    <span className="live-data-badge">
                       Live Data
                     </span>
                   </h4>
                   
-                  <div style={{
-                    display: 'grid',
-                    gap: '12px',
-                    maxHeight: '400px',
-                    overflowY: 'auto',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    padding: '16px'
-                  }}>
-                    {topWindowTitles.map((title, index) => (
-                      <div key={index} style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '12px',
-                        background: '#f9fafb',
-                        borderRadius: '6px',
-                        border: '1px solid #e5e7eb'
-                      }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{
-                              fontSize: '14px',
-                              fontWeight: '600',
-                              color: '#1f2937',
-                              background: title.project_info?.project_type === 'Development' ? '#dcfce7' :
-                                         title.project_info?.project_type === 'Web Development' ? '#dbeafe' :
-                                         title.project_info?.project_type === 'Server Management' ? '#fef3c7' :
-                                         title.project_info?.project_type === 'Database' ? '#f3e8ff' :
-                                         '#f3f4f6',
-                              color: title.project_info?.project_type === 'Development' ? '#166534' :
-                                     title.project_info?.project_type === 'Web Development' ? '#1e40af' :
-                                     title.project_info?.project_type === 'Server Management' ? '#92400e' :
-                                     title.project_info?.project_type === 'Database' ? '#7c3aed' :
-                                     '#374151',
-                              padding: '2px 8px',
-                              borderRadius: '12px',
-                              fontSize: '11px'
-                            }}>
-                              {title.project_info?.project_type || 'Work'}
-                            </span>
-                            <span style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
-                              {title.project_info?.project_name || title.application_name}
-                            </span>
+                  <div className="window-titles-grid">
+                    {topWindowTitles.map((title, index) => {
+                      const projectType = title.project_info?.project_type || 'Work';
+                      const projectTypeClass = projectType.toLowerCase().replace(/\s+/g, '-');
+                      return (
+                        <div key={index} className="window-title-item">
+                          <div className="window-title-info">
+                            <div className="window-title-header">
+                              <span className={`project-type-badge ${projectTypeClass}`}>
+                                {projectType}
+                              </span>
+                              <span className="project-name">
+                                {title.project_info?.project_name || title.application_name}
+                              </span>
+                            </div>
+                            
+                            <div className="window-title-details">
+                              📄 {title.project_info?.file_name || title.window_title}
+                            </div>
+                            
+                            <div className="application-info">
+                              💻 {title.application_name} • {title.activity_count} activities
+                            </div>
                           </div>
                           
-                          <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '2px' }}>
-                            📄 {title.project_info?.file_name || title.window_title}
-                          </div>
-                          
-                          <div style={{ fontSize: '11px', color: '#9ca3af' }}>
-                            💻 {title.application_name} • {title.activity_count} activities
-                          </div>
-                        </div>
-                        
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ 
-                            fontSize: '16px', 
-                            fontWeight: '600', 
-                            color: '#059669',
-                            marginBottom: '2px'
-                          }}>
-                            {formatDecimalHoursToHoursMinutes(title.duration_formatted)}
-                          </div>
-                          <div style={{ fontSize: '10px', color: '#9ca3af' }}>
-                            Last: {new Date(title.last_seen).toLocaleTimeString()}
+                          <div className="window-title-duration">
+                            <div className="duration-value">
+                              {formatDecimalHoursToHoursMinutes(title.duration_formatted)}
+                            </div>
+                            <div className="last-seen-time">
+                              Last: {new Date(title.last_seen).toLocaleTimeString()}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -730,21 +560,13 @@ function DeveloperDashboard({ developer, onBack }) {
           </div>
           
           {/* Top Activities - Accordion */}
-          <div style={chartContainerStyle}>
+          <div className="chart-container">
             <div 
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                padding: '16px 0',
-                borderBottom: isTopActivitiesOpen ? '1px solid #e5e7eb' : 'none',
-                marginBottom: isTopActivitiesOpen ? '20px' : '0'
-              }}
+              className={`accordion-header ${isTopActivitiesOpen ? 'open' : ''}`}
               onClick={() => setIsTopActivitiesOpen(!isTopActivitiesOpen)}
             >
-              <h3 style={{ margin: 0, color: '#333' }}>Top Activities</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3>Top Activities</h3>
+              <div className="accordion-icon">
                 {isTopActivitiesOpen ? 
                   <ChevronUp size={20} color="#667eea" /> : 
                   <ChevronDown size={20} color="#667eea" />
@@ -753,9 +575,7 @@ function DeveloperDashboard({ developer, onBack }) {
             </div>
             
             {isTopActivitiesOpen && (
-              <div style={{
-                animation: 'fadeIn 0.3s ease-in-out'
-              }}>
+              <div className="accordion-content">
                 <ActivityTable data={activityData.filter(item => isWorkRelatedActivity(item))} formatTime={formatTime} showUrls={true} showDetails={false} />
               </div>
             )}
