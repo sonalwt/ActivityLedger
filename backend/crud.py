@@ -27,7 +27,7 @@ def create_user(db: Session, user: schemas.UserCreate):
 
 def create_activity_record(db: Session, activity_data: Dict, user_id: int):
     """Create a new activity record (prevents duplicates)"""
-    from project_extractor import extract_project_info
+    from improved_project_extractor import extract_project_info
     
     # Check if this exact record already exists
     existing_record = db.query(models.ActivityRecord).filter(

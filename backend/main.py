@@ -98,6 +98,10 @@ app.include_router(orm_dev_router, tags=["developers-orm"])
 from productivity_api import router as productivity_router
 app.include_router(productivity_router, tags=["productivity"])
 
+# Add activity categorization API
+from activity_categorization_api import router as categorization_router
+app.include_router(categorization_router, tags=["activity-categorization"])
+
 # Add project assignment endpoints
 from project_assignment_api import router as project_assignment_router
 app.include_router(project_assignment_router, tags=["project-assignment"])

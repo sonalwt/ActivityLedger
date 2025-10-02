@@ -732,7 +732,7 @@
   font-size: 14px;
 }
 
-/* Category Summary */
+/* Category Summary Section */
 .category-summary {
   background: white;
   padding: 24px;
@@ -751,14 +751,14 @@
 .category-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 
 .category-card {
   padding: 20px;
-  border-radius: 10px;
+  border-radius: 8px;
   text-align: center;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: all 0.2s ease;
   border: 2px solid transparent;
 }
 
@@ -768,13 +768,13 @@
 }
 
 .category-card.productive {
-  background-color: #f0f9ff;
-  border-color: #3b82f6;
+  background-color: #d1fae5;
+  border-color: #10b981;
 }
 
 .category-card.browser {
-  background-color: #fef3c7;
-  border-color: #f59e0b;
+  background-color: #dbeafe;
+  border-color: #3b82f6;
 }
 
 .category-card.server {
@@ -783,29 +783,29 @@
 }
 
 .category-icon {
-  font-size: 2.5rem;
-  margin-bottom: 10px;
+  font-size: 32px;
+  margin-bottom: 8px;
 }
 
 .category-card h4 {
-  font-size: 1.125rem;
+  font-size: 16px;
   font-weight: 600;
-  margin-bottom: 10px;
-  color: #1f2937;
+  color: #374151;
+  margin: 0 0 8px 0;
 }
 
 .category-percentage {
-  font-size: 2rem;
+  font-size: 24px;
   font-weight: bold;
-  margin-bottom: 5px;
+  margin: 0 0 4px 0;
 }
 
 .category-card.productive .category-percentage {
-  color: #3b82f6;
+  color: #10b981;
 }
 
 .category-card.browser .category-percentage {
-  color: #f59e0b;
+  color: #3b82f6;
 }
 
 .category-card.server .category-percentage {
@@ -813,41 +813,7 @@
 }
 
 .category-time {
-  font-size: 0.875rem;
+  font-size: 14px;
   color: #6b7280;
-}
-
-/* Activity Table Category Badges */
-.activity-category-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-  margin-left: 8px;
-}
-
-.activity-category-badge.productive {
-  background-color: #dbeafe;
-  color: #1e40af;
-}
-
-.activity-category-badge.browser {
-  background-color: #fed7aa;
-  color: #92400e;
-}
-
-.activity-category-badge.server {
-  background-color: #e9d5ff;
-  color: #6b21a8;
-}
-
-.activity-category-badge.non-work {
-  background-color: #fecaca;
-  color: #991b1b;
-}
-
-.activity-category-badge.uncategorized {
-  background-color: #e5e7eb;
-  color: #374151;
+  margin: 0;
 }

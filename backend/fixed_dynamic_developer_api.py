@@ -12,6 +12,7 @@ from developer_discovery import DeveloperDiscovery
 from fixed_developer_discovery import FixedDeveloperDiscovery
 from dynamic_activitywatch_client import DynamicActivityWatchClient
 from activity_categorizer import ActivityCategorizer
+from improved_project_extractor import extract_project_info
 import socket
 
 logger = logging.getLogger(__name__)
@@ -331,6 +332,9 @@ async def get_developer_activity_data(
                         ar.url,
                         ar.file_path,
                         ar.developer_id,
+                        ar.project_name,
+                        ar.project_type,
+                        ar.project_file,
                         d.name as developer_name
                     FROM activity_records ar
                     LEFT JOIN developers d ON ar.developer_id = d.developer_id
@@ -355,7 +359,10 @@ async def get_developer_activity_data(
                     "category": record.category or "Other",
                     "detailed_activity": record.detailed_activity or record.window_title,
                     "url": record.url or "",
-                    "file_path": record.file_path or ""
+                    "file_path": record.file_path or "",
+                    "project_name": record.project_name,
+                    "project_type": record.project_type,
+                    "project_file": record.project_file
                 } for record in db_records]
                 
                 data_source = "database"
@@ -365,8 +372,16 @@ async def get_developer_activity_data(
                 logger.error(f"Error getting database records: {e}")
                 activity_data = []
         
-        # Categorize all activities
+        # Categorize all activities and extract project info
         for activity in activity_data:
+            # Extract project info if missing
+            if not activity.get('project_name'):
+                project_info = extract_project_info(activity)
+                activity['project_name'] = project_info.get('project_name') or 'Unassigned'
+                activity['project_type'] = project_info.get('project_type') or 'General'
+                activity['project_file'] = project_info.get('project_file') or 'Activity'
+            
+            # Categorize activity
             category_info = categorizer.get_detailed_category(
                 activity.get('window_title', ''),
                 activity.get('application_name', '')

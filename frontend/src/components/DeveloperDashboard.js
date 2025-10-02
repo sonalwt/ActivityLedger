@@ -9,7 +9,8 @@ import ActivityChart from './ActivityChart';
 import ActivityTable from './ActivityTable';
 import ProductivityMetrics from './ProductivityMetrics';
 import ProjectBreakdown from './ProjectBreakdown';
-import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FileText } from 'lucide-react';
+import CategoryBreakdown from './CategoryBreakdown';
+import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FileText, FolderOpen } from 'lucide-react';
 import './DeveloperDashboard.css';
 
 // Live Daily Hours Component
@@ -177,7 +178,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const [isTopActivitiesOpen, setIsTopActivitiesOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('activity');
 
-  const API_BASE = process.env.REACT_APP_API_URL || 'api-timesheet.firsteconomy.com';
+  const API_BASE = process.env.REACT_APP_API_URL || '';
 
   const fetchActivityData = async (fetchFromAW = false) => {
     setLoading(true);
@@ -481,6 +482,13 @@ function DeveloperDashboard({ developer, onBack }) {
             <Briefcase size={16} />
             Projects
           </button>
+          <button
+            className={`tab-button ${activeTab === 'categories' ? 'active' : ''}`}
+            onClick={() => setActiveTab('categories')}
+          >
+            <FolderOpen size={16} />
+            Categories
+          </button>
         </div>
       )}
 
@@ -660,6 +668,14 @@ function DeveloperDashboard({ developer, onBack }) {
       {/* Projects Tab Content */}
       {!loading && activeTab === 'projects' && developer && (
         <ProjectBreakdown 
+          developerId={developer.developer_id || developer.id} 
+          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
+        />
+      )}
+
+      {/* Categories Tab Content */}
+      {!loading && activeTab === 'categories' && developer && (
+        <CategoryBreakdown 
           developerId={developer.developer_id || developer.id} 
           dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
         />

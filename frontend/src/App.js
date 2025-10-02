@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -37,51 +37,60 @@ function PublicRoute({ children }) {
   return user ? <Navigate to="/dashboard" /> : children;
 }
 
+function AppContent() {
+  const location = useLocation();
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+  
+  return (
+    <div className={`App ${isAuthPage ? 'auth-page' : 'dashboard-page'}`}>
+      <Navbar />
+      <Routes>
+        <Route path="/" element={<Navigate to="/dashboard" />} />
+        <Route 
+          path="/login" 
+          element={
+            <PublicRoute>
+              <Login />
+            </PublicRoute>
+          } 
+        />
+        <Route 
+          path="/register" 
+          element={
+            <PublicRoute>
+              <Register />
+            </PublicRoute>
+          } 
+        />
+        <Route 
+          path="/dashboard" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+      </Routes>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
+    </div>
+  );
+}
+
 function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="App">
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" />} />
-            <Route 
-              path="/login" 
-              element={
-                <PublicRoute>
-                  <Login />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/register" 
-              element={
-                <PublicRoute>
-                  <Register />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
-            />
-          </Routes>
-          <ToastContainer
-            position="top-right"
-            autoClose={3000}
-            hideProgressBar={false}
-            newestOnTop={false}
-            closeOnClick
-            rtl={false}
-            pauseOnFocusLoss
-            draggable
-            pauseOnHover
-          />
-        </div>
+        <AppContent />
       </Router>
     </AuthProvider>
   );
