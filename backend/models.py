@@ -61,6 +61,12 @@ class Developer(Base):
     api_token = Column(String, unique=True, nullable=True)  # Optional for future use
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_sync = Column(DateTime(timezone=True), nullable=True)
+    
+    # Add relationship to activity records
+    activities = relationship("ActivityRecord", 
+                            primaryjoin="Developer.developer_id==ActivityRecord.developer_id",
+                            foreign_keys="ActivityRecord.developer_id",
+                            backref="developer")
 
 
 # Enhanced model for dynamic developer discovery

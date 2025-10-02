@@ -2,7 +2,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function(app) {
   // Get URLs from environment variables
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const API_URL = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
   const AW_API_BASE_URL = process.env.REACT_APP_AW_API_URL || 'http://localhost:5600/api/0';
   
   // Extract base URL for ActivityWatch proxy (remove /api/0 part)

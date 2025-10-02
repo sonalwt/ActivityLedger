@@ -82,6 +82,14 @@ app.include_router(test_router, tags=["test"])
 from all_developers_fix import router as all_dev_router
 app.include_router(all_dev_router, tags=["developers-fix"])
 
+# Add simple developers endpoint
+from all_developers_simple import router as simple_dev_router
+app.include_router(simple_dev_router, tags=["developers-simple"])
+
+# Add ORM-based developers endpoint
+from developers_orm_api import router as orm_dev_router
+app.include_router(orm_dev_router, tags=["developers-orm"])
+
 # Add real data endpoints
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")

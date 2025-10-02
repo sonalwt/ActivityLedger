@@ -22,8 +22,7 @@ const Dashboard = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/api/all-developers`, 
-        {
+      const response = await fetch(`${API_BASE}/api/developers-orm`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
