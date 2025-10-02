@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Get the API URL from environment variables
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
 
 // Create axios instance with base URL
 const axiosInstance = axios.create({

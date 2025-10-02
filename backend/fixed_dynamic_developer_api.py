@@ -9,6 +9,7 @@ from database import get_db
 from models import ActivityRecord
 from config import Config
 from developer_discovery import DeveloperDiscovery
+from fixed_developer_discovery import FixedDeveloperDiscovery
 from dynamic_activitywatch_client import DynamicActivityWatchClient
 import socket
 
@@ -20,7 +21,7 @@ class EnvironmentBasedDeveloperService:
     
     def __init__(self, db: Session):
         self.db = db
-        self.discovery = DeveloperDiscovery(db)
+        self.discovery = FixedDeveloperDiscovery(db)
         
     def get_developers_list(self, scan_network: bool = False, 
                            scan_local: bool = True, 

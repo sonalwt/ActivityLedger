@@ -9,7 +9,6 @@ const Dashboard = () => {
   const [environment, setEnvironment] = useState('local');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
   // Use environment variable or relative path (proxy handles routing)
   const API_BASE = process.env.REACT_APP_API_URL || ''; // Use empty string for relative URLs via proxy
 
@@ -23,7 +22,8 @@ const Dashboard = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/developers`, {
+      const response = await fetch(`${API_BASE}/api/all-developers`, 
+        {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
