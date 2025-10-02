@@ -177,7 +177,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const [isTopActivitiesOpen, setIsTopActivitiesOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('activity');
 
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = process.env.REACT_APP_API_URL || 'api-timesheet.firsteconomy.com';
 
   const fetchActivityData = async (fetchFromAW = false) => {
     setLoading(true);
@@ -195,7 +195,7 @@ function DeveloperDashboard({ developer, onBack }) {
       } else {
         // Fallback to old API
         const endpoint = fetchFromAW ? '/activity-data' : '/activity-summary';
-        response = await axios.get(endpoint, {
+        response = await axios.get(`${API_BASE}${endpoint}`, {
           params: {
             start_date: startDate.toISOString(),
             end_date: endDate.toISOString()
@@ -224,7 +224,7 @@ function DeveloperDashboard({ developer, onBack }) {
 
   const fetchTopWindowTitles = async () => {
     try {
-      const response = await axios.get('/top-window-titles', {
+      const response = await axios.get(`${API_BASE}/top-window-titles`, {
         params: {
           start_date: startDate.toISOString(),
           end_date: endDate.toISOString(),
@@ -600,17 +600,16 @@ function DeveloperDashboard({ developer, onBack }) {
       )}
 
       {!loading && activityData.length === 0 && (
-        <div style={chartContainerStyle}>
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
-            <Activity size={64} color="#ccc" style={{ marginBottom: '20px' }} />
-            <h3 style={{ marginBottom: '12px' }}>No Activity Data</h3>
-            <p style={{ marginBottom: '20px' }}>
+        <div className="chart-container">
+          <div className="no-data-container">
+            <Activity size={64} color="#ccc" className="no-data-icon" />
+            <h3>No Activity Data</h3>
+            <p className="no-data-text">
               No activity data found for the selected date range.
             </p>
             <button
               onClick={() => fetchActivityData(true)}
               className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 auto' }}
             >
               <RefreshCw size={16} />
               Sync from ActivityWatch
