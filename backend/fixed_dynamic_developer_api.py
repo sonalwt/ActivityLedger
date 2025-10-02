@@ -11,6 +11,7 @@ from config import Config
 from developer_discovery import DeveloperDiscovery
 from fixed_developer_discovery import FixedDeveloperDiscovery
 from dynamic_activitywatch_client import DynamicActivityWatchClient
+from activity_categorizer import ActivityCategorizer
 import socket
 
 logger = logging.getLogger(__name__)
@@ -276,6 +277,9 @@ async def get_developer_activity_data(
 ):
     """Get activity data for a specific developer"""
     try:
+        # Initialize categorizer
+        categorizer = ActivityCategorizer()
+        
         # Parse dates
         if start_date:
             start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
@@ -361,13 +365,50 @@ async def get_developer_activity_data(
                 logger.error(f"Error getting database records: {e}")
                 activity_data = []
         
+        # Categorize all activities
+        for activity in activity_data:
+            category_info = categorizer.get_detailed_category(
+                activity.get('window_title', ''),
+                activity.get('application_name', '')
+            )
+            
+            # Update activity with categorization
+            activity['category'] = category_info['category']
+            activity['subcategory'] = category_info['subcategory']
+            activity['category_confidence'] = category_info['confidence']
+        
+        # Calculate category summaries
+        category_summary = {
+            "productive": {"count": 0, "duration": 0},
+            "browser": {"count": 0, "duration": 0},
+            "server": {"count": 0, "duration": 0},
+            "non-work": {"count": 0, "duration": 0},
+            "uncategorized": {"count": 0, "duration": 0}
+        }
+        
+        for activity in activity_data:
+            cat = activity.get('category', 'uncategorized')
+            if cat in category_summary:
+                category_summary[cat]['count'] += 1
+                category_summary[cat]['duration'] += activity.get('duration', 0)
+        
+        total_duration = sum(item["duration"] for item in activity_data)
+        
+        # Calculate percentages
+        for cat in category_summary:
+            if total_duration > 0:
+                category_summary[cat]['percentage'] = round((category_summary[cat]['duration'] / total_duration) * 100, 1)
+            else:
+                category_summary[cat]['percentage'] = 0
+        
         return {
             "data": activity_data,
             "developer": developer,
             "data_source": data_source,
-            "total_time": sum(item["duration"] for item in activity_data),
+            "total_time": total_duration,
             "date_range": {"start": start.isoformat(), "end": end.isoformat()},
-            "activity_count": len(activity_data)
+            "activity_count": len(activity_data),
+            "category_summary": category_summary
         }
         
     except Exception as e:

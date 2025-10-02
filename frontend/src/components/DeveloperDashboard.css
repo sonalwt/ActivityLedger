@@ -731,3 +731,123 @@
   color: #6b7280;
   font-size: 14px;
 }
+
+/* Category Summary */
+.category-summary {
+  background: white;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 30px;
+}
+
+.category-summary h3 {
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.category-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.category-card {
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.category-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.category-card.productive {
+  background-color: #f0f9ff;
+  border-color: #3b82f6;
+}
+
+.category-card.browser {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+}
+
+.category-card.server {
+  background-color: #ede9fe;
+  border-color: #8b5cf6;
+}
+
+.category-icon {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+}
+
+.category-card h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #1f2937;
+}
+
+.category-percentage {
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.category-card.productive .category-percentage {
+  color: #3b82f6;
+}
+
+.category-card.browser .category-percentage {
+  color: #f59e0b;
+}
+
+.category-card.server .category-percentage {
+  color: #8b5cf6;
+}
+
+.category-time {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+/* Activity Table Category Badges */
+.activity-category-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.activity-category-badge.productive {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.activity-category-badge.browser {
+  background-color: #fed7aa;
+  color: #92400e;
+}
+
+.activity-category-badge.server {
+  background-color: #e9d5ff;
+  color: #6b21a8;
+}
+
+.activity-category-badge.non-work {
+  background-color: #fecaca;
+  color: #991b1b;
+}
+
+.activity-category-badge.uncategorized {
+  background-color: #e5e7eb;
+  color: #374151;
+}

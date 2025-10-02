@@ -49,18 +49,16 @@ function ActivityTable({ data, formatTime }) {
 
   const getCategoryIcon = (category) => {
     switch (category?.toLowerCase()) {
-      case 'web browsing':
-        return <Globe size={16} color="#4285f4" />;
-      case 'development':
-        return <Code size={16} color="#28a745" />;
-      case 'productivity':
-        return <Briefcase size={16} color="#ffc107" />;
-      case 'communication':
-        return <Play size={16} color="#e91e63" />;
-      case 'other':
-        return <Settings size={16} color="#6c757d" />;
+      case 'productive':
+        return <Code size={16} color="#3b82f6" />;
+      case 'browser':
+        return <Globe size={16} color="#f59e0b" />;
+      case 'server':
+        return <Monitor size={16} color="#8b5cf6" />;
+      case 'non-work':
+        return <Play size={16} color="#ef4444" />;
       default:
-        return <Monitor size={16} color="#6c757d" />;
+        return <Settings size={16} color="#6c757d" />;
     }
   };
 
@@ -182,23 +180,8 @@ function ActivityTable({ data, formatTime }) {
                 </div>
               </td>
               <td style={tdStyle}>
-                <span style={{
-                  padding: '4px 8px',
-                  borderRadius: '12px',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  background: item.category === 'Web Browsing' ? '#e3f2fd' :
-                             item.category === 'Development' ? '#e8f5e8' :
-                             item.category === 'Productivity' ? '#fff3cd' :
-                             item.category === 'Communication' ? '#fce4ec' :
-                             '#f8f9fa',
-                  color: item.category === 'Web Browsing' ? '#1976d2' :
-                         item.category === 'Development' ? '#388e3c' :
-                         item.category === 'Productivity' ? '#f57c00' :
-                         item.category === 'Communication' ? '#c2185b' :
-                         '#6c757d'
-                }}>
-                  {item.category}
+                <span className={`activity-category-badge ${item.category || 'uncategorized'}`}>
+                  {item.category || 'Uncategorized'}
                 </span>
               </td>
               <td style={tdStyle}>

@@ -487,6 +487,72 @@ function DeveloperDashboard({ developer, onBack }) {
       {/* Tab Content */}
       {!loading && activeTab === 'activity' && activityData.length > 0 && (
         <>
+          {/* Category Summary - NEW */}
+          <div className="category-summary">
+            <h3>Activity Categories</h3>
+            <div className="category-cards">
+              <div className="category-card productive">
+                <div className="category-icon">💻</div>
+                <h4>Productive</h4>
+                <p className="category-percentage">
+                  {(() => {
+                    const productiveTime = activityData
+                      .filter(item => item.category === 'productive')
+                      .reduce((sum, item) => sum + (item.duration || 0), 0);
+                    const percentage = totalTime > 0 ? (productiveTime / totalTime * 100).toFixed(1) : 0;
+                    return `${percentage}%`;
+                  })()}
+                </p>
+                <p className="category-time">
+                  {formatTime(activityData
+                    .filter(item => item.category === 'productive')
+                    .reduce((sum, item) => sum + (item.duration || 0), 0)
+                  )}
+                </p>
+              </div>
+              
+              <div className="category-card browser">
+                <div className="category-icon">🌐</div>
+                <h4>Browser</h4>
+                <p className="category-percentage">
+                  {(() => {
+                    const browserTime = activityData
+                      .filter(item => item.category === 'browser')
+                      .reduce((sum, item) => sum + (item.duration || 0), 0);
+                    const percentage = totalTime > 0 ? (browserTime / totalTime * 100).toFixed(1) : 0;
+                    return `${percentage}%`;
+                  })()}
+                </p>
+                <p className="category-time">
+                  {formatTime(activityData
+                    .filter(item => item.category === 'browser')
+                    .reduce((sum, item) => sum + (item.duration || 0), 0)
+                  )}
+                </p>
+              </div>
+              
+              <div className="category-card server">
+                <div className="category-icon">☁️</div>
+                <h4>Server</h4>
+                <p className="category-percentage">
+                  {(() => {
+                    const serverTime = activityData
+                      .filter(item => item.category === 'server')
+                      .reduce((sum, item) => sum + (item.duration || 0), 0);
+                    const percentage = totalTime > 0 ? (serverTime / totalTime * 100).toFixed(1) : 0;
+                    return `${percentage}%`;
+                  })()}
+                </p>
+                <p className="category-time">
+                  {formatTime(activityData
+                    .filter(item => item.category === 'server')
+                    .reduce((sum, item) => sum + (item.duration || 0), 0)
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+          
           {/* Live Daily Hours Report */}
           <LiveDailyHoursReport activityData={activityData} startDate={startDate} endDate={endDate} />
           
