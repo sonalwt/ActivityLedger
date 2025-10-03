@@ -1,0 +1,243 @@
+/* Team Productivity Summary Styles */
+.team-productivity-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.card-header-custom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.icon-header {
+  width: 20px;
+  height: 20px;
+  color: #3b82f6;
+}
+
+.date-range-select {
+  min-width: 120px;
+}
+
+/* Loading States */
+.loading-placeholder {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.loading-header {
+  height: 16px;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  width: 25%;
+  margin-bottom: 16px;
+}
+
+.loading-stat {
+  height: 80px;
+  background-color: #e5e7eb;
+  border-radius: 8px;
+}
+
+/* Stat Cards */
+.stat-card {
+  padding: 20px;
+  border-radius: 8px;
+  height: 100%;
+  transition: transform 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+}
+
+.stat-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-details {
+  flex: 1;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.stat-icon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.4;
+}
+
+/* Color variants for stat cards */
+.stat-card-blue {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+
+.stat-card-blue .stat-icon {
+  color: #60a5fa;
+}
+
+.stat-card-green {
+  background-color: #d1fae5;
+  color: #059669;
+}
+
+.stat-card-green .stat-icon {
+  color: #34d399;
+}
+
+.stat-card-purple {
+  background-color: #e9d5ff;
+  color: #7c3aed;
+}
+
+.stat-card-purple .stat-icon {
+  color: #a78bfa;
+}
+
+.stat-card-orange {
+  background-color: #fed7aa;
+  color: #ea580c;
+}
+
+.stat-card-orange .stat-icon {
+  color: #fb923c;
+}
+
+/* Developer Activity Section */
+.developer-activity {
+  margin-top: 24px;
+}
+
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.developer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.developer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.developer-item:last-child {
+  border-bottom: none;
+}
+
+.developer-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-active {
+  background-color: #10b981;
+}
+
+.status-idle {
+  background-color: #f59e0b;
+}
+
+.status-inactive {
+  background-color: #9ca3af;
+}
+
+.developer-name {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.developer-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hours-worked {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.productivity-percentage {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.high-productivity {
+  color: #059669;
+}
+
+.medium-productivity {
+  color: #d97706;
+}
+
+.low-productivity {
+  color: #dc2626;
+}
+
+/* Animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .5;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .stat-card {
+    padding: 16px;
+  }
+  
+  .stat-value {
+    font-size: 1.25rem;
+  }
+  
+  .developer-stats {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+}
