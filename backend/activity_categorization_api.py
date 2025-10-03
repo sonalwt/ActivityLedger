@@ -35,19 +35,8 @@ async def get_categorized_activities(
         
         # Fetch activities from database
         query = text("""
-            SELECT 
-                id,
-                developer_id,
-                application_name,
-                window_title,
-                duration,
-                timestamp,
-                url,
-                file_path,
-                project_name,
-                project_type,
-                category
-            FROM activity_data
+            SELECT *
+            FROM activity_records
             WHERE developer_id = :dev_id
             AND timestamp >= :start_date
             AND timestamp <= :end_date
@@ -192,7 +181,7 @@ async def update_activity_categories(
         # Fetch activities
         query = text("""
             SELECT id, window_title, application_name
-            FROM activity_data
+            FROM activity_records
             WHERE developer_id = :dev_id
             AND timestamp >= :start_date
             AND timestamp <= :end_date
@@ -216,7 +205,7 @@ async def update_activity_categories(
             
             # Update database
             update_query = text("""
-                UPDATE activity_data
+                UPDATE activity_records
                 SET 
                     category = :category,
                     subcategory = :subcategory,
@@ -274,7 +263,7 @@ async def get_category_summary(
                 COUNT(*) as activity_count,
                 SUM(duration) as total_duration,
                 COUNT(DISTINCT developer_id) as developer_count
-            FROM activity_data
+            FROM activity_records
             WHERE timestamp >= :start_date
             AND timestamp <= :end_date
             GROUP BY category
