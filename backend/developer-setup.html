@@ -219,13 +219,13 @@
 $DEVELOPER_NAME = "${developerName}"
 $API_TOKEN = "${apiToken}"
 # Using HTTP to avoid 308 redirect issues
-$SERVER_URL = "http://api-timesheet.firsteconomy.com/api/sync"
+$SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
 function Send-ActivityData {
     try {
         Write-Host "$LOCAL_AW/buckets"
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets" -Method GET -TimeoutSec 10
+        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
         $buckets = $bucketsResponse.PSObject.Properties.Name
         Write-Host "Found $($buckets.Count) ActivityWatch buckets"
         
