@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Developer Productivity Dashboard</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1><i class="fas fa-chart-line"></i> Developer Productivity Dashboard</h1>
+                    <p class="header-subtitle">Track and analyze developer activities in real-time</p>
+                </div>
+                <div class="header-right">
+                    <div class="date-selector">
+                        <input type="date" id="dateSelector" class="date-input">
+                    </div>
+                    <div class="developer-selector">
+                        <select id="developerSelector" class="developer-select">
+                            <option value="">Select Developer</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content -->
+        <main class="dashboard-main">
+            <!-- Key Metrics -->
+            <section class="metrics-section">
+                <div class="metric-card productivity-score">
+                    <div class="metric-icon">
+                        <i class="fas fa-rocket"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3>Productivity Score</h3>
+                        <div class="metric-value">
+                            <span id="productivityScore">--</span>%
+                        </div>
+                        <div class="metric-trend">
+                            <i class="fas fa-arrow-up"></i> 
+                            <span>+5% from yesterday</span>
+                        </div>
+                    </div>
+                    <div class="productivity-ring">
+                        <canvas id="productivityRing"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card total-time">
+                    <div class="metric-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3>Total Active Time</h3>
+                        <div class="metric-value">
+                            <span id="totalTime">--</span> <small>mins</small>
+                        </div>
+                        <div class="metric-subtext">Today's tracked time</div>
+                    </div>
+                </div>
+
+                <div class="metric-card top-category">
+                    <div class="metric-icon">
+                        <i class="fas fa-trophy"></i>
+                    </div>
+                    <div class="metric-content">
+                        <h3>Top Category</h3>
+                        <div class="metric-value" id="topCategory">--</div>
+                        <div class="metric-subtext" id="topCategoryTime">-- mins</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Section -->
+            <section class="charts-section">
+                <!-- Category Distribution Chart -->
+                <div class="chart-card category-chart">
+                    <div class="chart-header">
+                        <h2><i class="fas fa-chart-bar"></i> Activity Distribution</h2>
+                        <div class="chart-actions">
+                            <button class="btn-icon" onclick="refreshDashboard()">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Weekly Productivity Trend -->
+                <div class="chart-card trend-chart">
+                    <div class="chart-header">
+                        <h2><i class="fas fa-chart-line"></i> Weekly Productivity Trend</h2>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Category Details Section -->
+            <section class="details-section">
+                <h2><i class="fas fa-list-ul"></i> Category Breakdown</h2>
+                <div class="category-details" id="categoryDetails">
+                    <!-- Dynamic content will be inserted here -->
+                </div>
+            </section>
+
+            <!-- Activity Timeline -->
+            <section class="timeline-section">
+                <h2><i class="fas fa-stream"></i> Recent Activities</h2>
+                <div class="timeline" id="activityTimeline">
+                    <div class="timeline-placeholder">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Loading activity timeline...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Loading dashboard data...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
