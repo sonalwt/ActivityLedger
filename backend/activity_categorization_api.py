@@ -35,7 +35,18 @@ async def get_categorized_activities(
         
         # Fetch activities from database
         query = text("""
-            SELECT *
+            SELECT 
+                id,
+                developer_id,
+                application_name,
+                window_title,
+                duration,
+                timestamp,
+                url,
+                file_path,
+                project_name,
+                project_type,
+                category
             FROM activity_records
             WHERE developer_id = :dev_id
             AND timestamp >= :start_date

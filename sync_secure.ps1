@@ -1,11 +1,53 @@
-# ActivityWatch Sync Script - Using HTTP due to server redirect
-$DEVELOPER_NAME = "mrunali"
-$API_TOKEN = "[PASTE_THE_GENERATED_TOKEN_HERE]"
-# Using HTTP to avoid 308 redirect issues
+# ActivityWatch Sync Script - Using Secure Credentials
 $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
 
+# Function to get secure credentials
+function Get-SecureCredentials {
+    $credentials = @{
+        DeveloperName = $null
+        ApiToken = $null
+    }
+    
+    # Get developer name from registry
+    try {
+        $credentials.DeveloperName = (Get-ItemProperty -Path "HKCU:\Software\TimesheetSync" -Name "DeveloperName" -ErrorAction Stop).DeveloperName
+        Write-Host "Loaded developer name: $($credentials.DeveloperName)" -ForegroundColor Green
+    } catch {
+        Write-Host "No saved developer name found!" -ForegroundColor Red
+        Write-Host "Please run manage_credentials.bat first to set up your credentials." -ForegroundColor Yellow
+        return $null
+    }
+    
+    # Get API token from secure storage
+    $tokenPath = "$env:APPDATA\TimesheetSync\token.secure"
+    if (Test-Path $tokenPath) {
+        try {
+            $encryptedToken = Get-Content $tokenPath
+            $secureToken = ConvertTo-SecureString $encryptedToken
+            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+            $credentials.ApiToken = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            Write-Host "Loaded API token: [SECURED]" -ForegroundColor Green
+        } catch {
+            Write-Host "Could not decrypt API token!" -ForegroundColor Red
+            Write-Host "Please run manage_credentials.bat to reset your credentials." -ForegroundColor Yellow
+            return $null
+        }
+    } else {
+        Write-Host "No saved API token found!" -ForegroundColor Red
+        Write-Host "Please run manage_credentials.bat first to set up your credentials." -ForegroundColor Yellow
+        return $null
+    }
+    
+    return $credentials
+}
+
 function Send-ActivityData {
+    param(
+        [string]$DeveloperName,
+        [string]$ApiToken
+    )
+    
     try {
         Write-Host "$LOCAL_AW/buckets"
         $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
@@ -50,13 +92,9 @@ function Send-ActivityData {
         if ($allEvents.Count -gt 0) {
             Write-Host "Sending $($allEvents.Count) events to server..." -ForegroundColor Cyan
             
-            # Debug: Show first event structure
-            Write-Host "First event structure:" -ForegroundColor Yellow
-            Write-Host ($allEvents[0] | ConvertTo-Json -Depth 3) -ForegroundColor Yellow
-            
             $payload = @{
-                name = $DEVELOPER_NAME
-                token = $API_TOKEN  
+                name = $DeveloperName
+                token = $ApiToken
                 data = $allEvents
                 timestamp = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
             }
@@ -84,15 +122,28 @@ function Send-ActivityData {
     }
 }
 
+# Main execution
 Write-Host "========================================"
-Write-Host "ActivityWatch Sync for $DEVELOPER_NAME"
+Write-Host "ActivityWatch Sync - Secure Mode"
+Write-Host "========================================"
+
+# Get secure credentials
+$credentials = Get-SecureCredentials
+if (-not $credentials) {
+    Write-Host ""
+    Write-Host "Exiting due to missing credentials." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Configuration loaded from secure storage"
 Write-Host "Server: $SERVER_URL"
 Write-Host "========================================"
 Write-Host "Press Ctrl+C to stop"
 Write-Host ""
 
 while ($true) {
-    Send-ActivityData
+    Send-ActivityData -DeveloperName $credentials.DeveloperName -ApiToken $credentials.ApiToken
     $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
     Write-Host ""
     Write-Host "Waiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray

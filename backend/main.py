@@ -102,9 +102,13 @@ app.include_router(productivity_router, tags=["productivity"])
 from activity_categorization_api import router as categorization_router
 app.include_router(categorization_router, tags=["activity-categorization"])
 
-# Add project assignment endpoints
-from project_assignment_api import router as project_assignment_router
-app.include_router(project_assignment_router, tags=["project-assignment"])
+# Add diagnostic endpoint
+from diagnostic_endpoint import router as diagnostic_router
+app.include_router(diagnostic_router, tags=["diagnostic"])
+
+# Add fixed sync endpoint
+from fixed_sync_endpoint import router as fixed_sync_router
+app.include_router(fixed_sync_router, tags=["sync"])
 
 # Add real data endpoints
 
@@ -166,50 +170,51 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already registered")
     return crud.create_user(db=db, user=user)
 
-@app.post("/api/sync")
-async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
-    try:
-        name = sync_data.get("name")
-        token = sync_data.get("token")
-        data = sync_data.get("data", [])
-        timestamp = sync_data.get("timestamp")
-        
-        # Validate developer exists
-        developer = db.execute(
-            text("SELECT developer_id FROM developers WHERE api_token = :token"),
-            {"token": token}
-        ).fetchone()
-        
-        if not developer:
-            return {"error": "Invalid token"}
-        
-        developer_id = developer[0]
-        
-        # Save activity records
-        for event in data:
-            # Extract event details
-            duration = event.get("duration", 0)
-            event_data = json.dumps(event.get("data", {}))
-            event_timestamp = event.get("timestamp", timestamp)
-            
-            # Insert into database
-            db.execute(text("""
-                INSERT INTO activity_records 
-                (developer_id, timestamp, duration, activity_data, created_at)
-                VALUES (:dev_id, :timestamp, :duration, :data, NOW())
-            """), {
-                "dev_id": developer_id,
-                "timestamp": event_timestamp,
-                "duration": duration,
-                "data": event_data
-            })
-        
-        db.commit()
-        return {"success": True, "received": len(data)}
-        
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
+# DISABLED - Using fixed_sync_endpoint instead
+# @app.post("/api/sync")
+# async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
+#     try:
+#         name = sync_data.get("name")
+#         token = sync_data.get("token")
+#         data = sync_data.get("data", [])
+#         timestamp = sync_data.get("timestamp")
+#         
+#         # Validate developer exists
+#         developer = db.execute(
+#             text("SELECT developer_id FROM developers WHERE api_token = :token"),
+#             {"token": token}
+#         ).fetchone()
+#         
+#         if not developer:
+#             return {"error": "Invalid token"}
+#         
+#         developer_id = developer[0]
+#         
+#         # Save activity records
+#         for event in data:
+#             # Extract event details
+#             duration = event.get("duration", 0)
+#             event_data = json.dumps(event.get("data", {}))
+#             event_timestamp = event.get("timestamp", timestamp)
+#             
+#             # Insert into database
+#             db.execute(text("""
+#                 INSERT INTO activity_records 
+#                 (developer_id, timestamp, duration, activity_data, created_at)
+#                 VALUES (:dev_id, :timestamp, :duration, :data, NOW())
+#             """), {
+#                 "dev_id": developer_id,
+#                 "timestamp": event_timestamp,
+#                 "duration": duration,
+#                 "data": event_data
+#             })
+#         
+#         db.commit()
+#         return {"success": True, "received": len(data)}
+#         
+#     except Exception as e:
+#         db.rollback()
+#         return {"error": str(e)}
 
 
 @app.post("/token", response_model=schemas.Token)
