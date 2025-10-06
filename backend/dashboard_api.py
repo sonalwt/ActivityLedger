@@ -29,9 +29,10 @@ analyzer = ActivityAnalyzer(DB_CONFIG)
 def index():
     return render_template('dashboard.html')
 
-@app.route('/api/dashboard/<int:developer_id>')
+@app.route('/api/dashboard/<developer_id>')
 def get_dashboard_data(developer_id):
     """Get dashboard data for a specific developer"""
+    # developer_id comes as string from route
     date_str = request.args.get('date')
     
     if date_str:
@@ -48,9 +49,10 @@ def get_dashboard_data(developer_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/productivity/<int:developer_id>/weekly')
+@app.route('/api/productivity/<developer_id>/weekly')
 def get_weekly_productivity(developer_id):
     """Get weekly productivity trend"""
+    # developer_id comes as string from route
     try:
         from datetime import timedelta
         end_date = datetime.now().date()
@@ -82,10 +84,12 @@ def get_weekly_productivity(developer_id):
 def get_developers():
     """Get list of all developers"""
     query = """
-    SELECT DISTINCT developer_id, developer_name 
-    FROM activity_records 
-    WHERE developer_name IS NOT NULL
-    ORDER BY developer_name
+    SELECT DISTINCT 
+        developer_id,
+        developer_id as name
+    FROM activity_records
+    WHERE developer_id IS NOT NULL AND developer_id != ''
+    ORDER BY developer_id
     """
     
     try:
@@ -93,7 +97,7 @@ def get_developers():
             with conn.cursor() as cursor:
                 cursor.execute(query)
                 developers = [
-                    {'id': row[0], 'name': row[1]} 
+                    {'id': row[0], 'name': f'Developer {row[0]}'} 
                     for row in cursor.fetchall()
                 ]
         return jsonify(developers)

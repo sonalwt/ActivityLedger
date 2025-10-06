@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.activity_analyzer import ActivityAnalyzer
+from backend.activity_analyzer_fixed import ActivityAnalyzer
 
 # Load environment variables
 load_dotenv()
@@ -38,10 +38,11 @@ analyzer = ActivityAnalyzer(DB_CONFIG)
 def index():
     return render_template('dashboard.html')
 
-@app.route('/api/dashboard/<developer_id>')
+@app.route('/api/dashboard/<path:developer_id>')
 def get_dashboard_data(developer_id):
     """Get dashboard data for a specific developer"""
-    # developer_id is already a string from the route
+    # Ensure developer_id is treated as string
+    developer_id = str(developer_id)
     date_str = request.args.get('date')
     
     if date_str:
@@ -56,13 +57,16 @@ def get_dashboard_data(developer_id):
         data = analyzer.get_dashboard_data(developer_id, date)
         return jsonify(data)
     except Exception as e:
-        print(f"Dashboard error: {e}")
+        print(f"Dashboard error for developer '{developer_id}': {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/productivity/<developer_id>/weekly')
+@app.route('/api/productivity/<path:developer_id>/weekly')
 def get_weekly_productivity(developer_id):
     """Get weekly productivity trend"""
-    # developer_id is already a string from the route
+    # Ensure developer_id is treated as string
+    developer_id = str(developer_id)
     try:
         from datetime import timedelta
         end_date = datetime.now().date()
@@ -88,44 +92,78 @@ def get_weekly_productivity(developer_id):
             'scores': scores
         })
     except Exception as e:
-        print(f"Weekly productivity error: {e}")
+        print(f"Weekly productivity error for developer '{developer_id}': {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/developers')
 def get_developers():
-    """Get list of all developers"""
-    # Query to get unique developer_ids from the activity_records table
+    """Get list of all developers - Fixed for VARCHAR developer_id"""
+    # Use CAST to ensure string comparison
     query = """
     SELECT DISTINCT 
-        developer_id,
-        developer_id as name
+        CAST(developer_id AS VARCHAR) as id,
+        CAST(developer_id AS VARCHAR) as display_name
     FROM activity_records
-    WHERE developer_id IS NOT NULL AND developer_id != ''
-    ORDER BY developer_id
+    WHERE developer_id IS NOT NULL 
+        AND CAST(developer_id AS VARCHAR) != ''
+        AND LENGTH(TRIM(CAST(developer_id AS VARCHAR))) > 0
+    ORDER BY CAST(developer_id AS VARCHAR)
     """
     
     try:
         with analyzer.get_connection() as conn:
             with conn.cursor() as cursor:
+                print("Executing developers query...")
                 cursor.execute(query)
                 rows = cursor.fetchall()
+                print(f"Found {len(rows)} developers")
                 
-                # Process the results
                 developers = []
                 for row in rows:
-                    dev_id = row[0]
-                    # Try to extract a readable name if possible
+                    dev_id = str(row[0])  # Ensure it's a string
                     name = f"Developer {dev_id}"
                     
                     developers.append({
-                        'id': dev_id,  # Keep as string
+                        'id': dev_id,
                         'name': name
                     })
+                    print(f"  - Developer: {dev_id}")
                 
         return jsonify(developers)
     except Exception as e:
         print(f"Error fetching developers: {e}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        
+        # Try a simpler query as fallback
+        try:
+            print("Trying fallback query...")
+            with analyzer.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Even simpler query - just get raw data
+                    cursor.execute("""
+                        SELECT DISTINCT developer_id::text 
+                        FROM activity_records 
+                        WHERE developer_id IS NOT NULL
+                        ORDER BY 1
+                    """)
+                    
+                    developers = []
+                    for row in cursor.fetchall():
+                        if row[0]:  # Check not null
+                            dev_id = str(row[0])
+                            developers.append({
+                                'id': dev_id,
+                                'name': f'Developer {dev_id}'
+                            })
+                    
+                    print(f"Fallback query found {len(developers)} developers")
+                    return jsonify(developers)
+        except Exception as e2:
+            print(f"Fallback query also failed: {e2}")
+            return jsonify({'error': f'Database error: {str(e2)}'}), 500
 
 @app.route('/api/test-connection')
 def test_connection():
@@ -140,14 +178,15 @@ def test_connection():
                 cursor.execute("SELECT COUNT(*) FROM activity_records")
                 count = cursor.fetchone()[0]
                 
-                # Get sample developer IDs
+                # Get sample developer IDs with proper casting
                 cursor.execute("""
-                    SELECT DISTINCT developer_id 
+                    SELECT DISTINCT CAST(developer_id AS VARCHAR) as dev_id
                     FROM activity_records 
                     WHERE developer_id IS NOT NULL 
+                    ORDER BY 1
                     LIMIT 5
                 """)
-                sample_devs = [row[0] for row in cursor.fetchall()]
+                sample_devs = [str(row[0]) for row in cursor.fetchall()]
                 
                 # Check data type of developer_id column
                 cursor.execute("""
@@ -166,32 +205,35 @@ def test_connection():
                     'developer_id_type': data_type[0] if data_type else 'unknown'
                 })
     except Exception as e:
+        import traceback
         return jsonify({
             'status': 'error',
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         }), 500
 
-@app.route('/api/sample-data/<developer_id>')
+@app.route('/api/sample-data/<path:developer_id>')
 def get_sample_data(developer_id):
     """Get sample data for a developer to debug issues"""
+    developer_id = str(developer_id)  # Ensure string
     try:
         query = """
-        SELECT developer_id, app, title, timestamp, duration
+        SELECT CAST(developer_id AS VARCHAR), app, title, timestamp, duration
         FROM activity_records
-        WHERE developer_id = %s
+        WHERE CAST(developer_id AS VARCHAR) = %s
         ORDER BY timestamp DESC
         LIMIT 10
         """
         
         with analyzer.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(query, (str(developer_id),))
+                cursor.execute(query, (developer_id,))
                 rows = cursor.fetchall()
                 
                 data = []
                 for row in rows:
                     data.append({
-                        'developer_id': row[0],
+                        'developer_id': str(row[0]),
                         'app': row[1],
                         'title': row[2],
                         'timestamp': row[3].isoformat() if row[3] else None,
@@ -204,7 +246,11 @@ def get_sample_data(developer_id):
                     'data': data
                 })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('API_PORT', 5001))
@@ -218,5 +264,6 @@ if __name__ == '__main__':
     print(f"  Dashboard: http://localhost:{port}/")
     print(f"  Test Connection: http://localhost:{port}/api/test-connection")
     print(f"  Developers List: http://localhost:{port}/api/developers")
+    print("\nIMPORTANT: This version handles VARCHAR developer_id fields correctly")
     
     app.run(debug=debug, port=port, host='0.0.0.0')

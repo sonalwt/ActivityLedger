@@ -63,10 +63,11 @@ class Developer(Base):
     last_sync = Column(DateTime(timezone=True), nullable=True)
     
     # Add relationship to activity records
-    activities = relationship("ActivityRecord", 
-                            primaryjoin="Developer.developer_id==ActivityRecord.developer_id",
-                            foreign_keys="ActivityRecord.developer_id",
-                            backref="developer")
+    # Disable this relationship as it's causing type mismatch errors
+    # activities = relationship("ActivityRecord", 
+    #                         primaryjoin="Developer.developer_id==ActivityRecord.developer_id",
+    #                         foreign_keys="ActivityRecord.developer_id",
+    #                         backref="developer")
 
 
 # Enhanced model for dynamic developer discovery

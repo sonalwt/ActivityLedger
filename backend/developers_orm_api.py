@@ -1,7 +1,7 @@
 # API endpoint using SQLAlchemy ORM relationships
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, String, cast
 from typing import List
 from datetime import datetime, timezone, timedelta
 from database import get_db
@@ -15,31 +15,43 @@ router = APIRouter()
 async def get_developers_using_orm(db: Session = Depends(get_db)):
     """Get all developers using SQLAlchemy ORM with relationships"""
     try:
-        # Query developers with their activity counts using proper joins
-        from sqlalchemy import func
+        # Use raw SQL to avoid type mismatch issues
+        from sqlalchemy import text
         
-        # Subquery to get activity counts
-        activity_counts = db.query(
-            ActivityRecord.developer_id,
-            func.count(ActivityRecord.id).label('activity_count'),
-            func.max(ActivityRecord.timestamp).label('last_activity')
-        ).group_by(ActivityRecord.developer_id).subquery()
+        query = text("""
+            SELECT 
+                d.id,
+                d.developer_id,
+                d.name,
+                d.email,
+                d.active,
+                d.created_at,
+                d.last_sync,
+                COALESCE(ac.activity_count, 0) as activity_count,
+                ac.last_activity
+            FROM developers d
+            LEFT JOIN (
+                SELECT 
+                    developer_id,
+                    COUNT(*) as activity_count,
+                    MAX(timestamp) as last_activity
+                FROM activity_records
+                WHERE developer_id IS NOT NULL
+                GROUP BY developer_id
+            ) ac ON d.developer_id = ac.developer_id
+            WHERE d.active = true
+        """)
         
-        # Main query joining developers with activity counts
-        developers_with_stats = db.query(
-            Developer,
-            func.coalesce(activity_counts.c.activity_count, 0).label('activity_count'),
-            activity_counts.c.last_activity
-        ).outerjoin(
-            activity_counts,
-            Developer.developer_id == activity_counts.c.developer_id
-        ).filter(
-            Developer.active == True
-        ).all()
+        result = db.execute(query)
+        developers_with_stats = result.fetchall()
         
         developer_list = []
         
-        for developer, activity_count, last_activity in developers_with_stats:
+        for row in developers_with_stats:
+            # Unpack row data
+            (dev_id, developer_id, name, email, active, 
+             created_at, last_sync, activity_count, last_activity) = row
+            
             # Determine status based on last activity
             status = "offline"
             last_seen = None
@@ -57,24 +69,24 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                     status = "idle"
             
             developer_list.append({
-                "id": developer.developer_id or f"dev_{developer.id}",
-                "name": developer.name,
-                "hostname": developer.name,
+                "id": developer_id or f"dev_{dev_id}",
+                "name": name,
+                "hostname": name,
                 "host": "unknown",
                 "port": 5600,
                 "status": status,
                 "source": "database",
                 "description": f"Developer with {activity_count} activities",
-                "device_id": developer.developer_id or f"dev_{developer.id}",
+                "device_id": developer_id or f"dev_{dev_id}",
                 "activity_count": activity_count,
                 "last_seen": last_seen.isoformat() if last_seen else (
-                    developer.created_at.isoformat() if developer.created_at else None
+                    created_at.isoformat() if created_at else None
                 ),
                 "version": "N/A",
                 "bucket_count": 0,
-                "email": developer.email,
-                "created_at": developer.created_at.isoformat() if developer.created_at else None,
-                "active": developer.active
+                "email": email,
+                "created_at": created_at.isoformat() if created_at else None,
+                "active": active
             })
         
         return {
@@ -112,7 +124,8 @@ async def get_developer_activities(
             Developer.name.label('developer_name')
         ).join(
             Developer,
-            ActivityRecord.developer_id == Developer.developer_id
+            ActivityRecord.developer_id == Developer.developer_id,
+            isouter=True
         ).filter(
             ActivityRecord.developer_id == developer_id
         ).order_by(
@@ -156,24 +169,34 @@ async def get_developer_activities(
 async def get_developers_with_stats(db: Session = Depends(get_db)):
     """Get developers with aggregated statistics using ORM"""
     try:
-        # Use ORM to get developers with activity stats
-        developers_with_stats = db.query(
-            Developer,
-            func.count(ActivityRecord.id).label('activity_count'),
-            func.max(ActivityRecord.timestamp).label('last_activity'),
-            func.sum(ActivityRecord.duration).label('total_duration')
-        ).outerjoin(
-            ActivityRecord,
-            Developer.developer_id == ActivityRecord.developer_id
-        ).group_by(
-            Developer.id
-        ).filter(
-            Developer.active == True
-        ).all()
+        # Use raw SQL to avoid type mismatch issues
+        from sqlalchemy import text
+        
+        query = text("""
+            SELECT 
+                d.developer_id,
+                d.name,
+                d.email,
+                d.created_at,
+                COUNT(ar.id) as activity_count,
+                MAX(ar.timestamp) as last_activity,
+                COALESCE(SUM(ar.duration), 0) as total_duration
+            FROM developers d
+            LEFT JOIN activity_records ar ON d.developer_id = ar.developer_id
+            WHERE d.active = true
+            GROUP BY d.developer_id, d.name, d.email, d.created_at
+        """)
+        
+        result = db.execute(query)
+        developers_with_stats = result.fetchall()
         
         developer_list = []
         
-        for dev, activity_count, last_activity, total_duration in developers_with_stats:
+        for row in developers_with_stats:
+            # Unpack row data
+            (developer_id, name, email, created_at,
+             activity_count, last_activity, total_duration) = row
+            
             # Calculate status
             status = "offline"
             if last_activity:
@@ -184,15 +207,15 @@ async def get_developers_with_stats(db: Session = Depends(get_db)):
                     status = "idle"
             
             developer_list.append({
-                "id": dev.developer_id,
-                "name": dev.name,
-                "email": dev.email,
+                "id": developer_id,
+                "name": name,
+                "email": email,
                 "status": status,
                 "activity_count": activity_count or 0,
                 "total_duration_seconds": float(total_duration or 0),
                 "total_duration_hours": round(float(total_duration or 0) / 3600, 2),
                 "last_activity": last_activity.isoformat() if last_activity else None,
-                "created_at": dev.created_at.isoformat() if dev.created_at else None
+                "created_at": created_at.isoformat() if created_at else None
             })
         
         return {

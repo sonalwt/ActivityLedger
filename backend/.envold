@@ -1,9 +1,0 @@
-# PostgreSQL Database Configuration
-DATABASE_URL=postgresql://postgres:asdf1234@localhost:5432/timesheet
-# JWT Authentication Settings
-SECRET_KEY=8d872b448f6bee30a8ab0e8f19fcfb6a
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# ActivityWatch Configuration
-ACTIVITYWATCH_HOST=http://localhost:5600

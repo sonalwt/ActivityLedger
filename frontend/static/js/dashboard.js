@@ -49,7 +49,7 @@ async function loadDevelopers() {
         // Auto-select first developer
         if (developers.length > 0) {
             selector.value = developers[0].id;
-            currentDeveloperId = developers[0].id;
+            currentDeveloperId = developers[0].id;  // Keep as string
             loadDashboardData();
         }
     } catch (error) {
@@ -61,7 +61,7 @@ async function loadDevelopers() {
 // Setup event listeners
 function setupEventListeners() {
     document.getElementById('developerSelector').addEventListener('change', function(e) {
-        currentDeveloperId = e.target.value;
+        currentDeveloperId = e.target.value;  // This is already a string
         if (currentDeveloperId) {
             loadDashboardData();
         }
