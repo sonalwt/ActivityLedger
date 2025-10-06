@@ -32,13 +32,13 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
             FROM developers d
             LEFT JOIN (
                 SELECT 
-                    developer_id,
+                    developer_id::VARCHAR as developer_id,
                     COUNT(*) as activity_count,
                     MAX(timestamp) as last_activity
                 FROM activity_records
                 WHERE developer_id IS NOT NULL
                 GROUP BY developer_id
-            ) ac ON d.developer_id = ac.developer_id
+            ) ac ON d.developer_id::VARCHAR = ac.developer_id::VARCHAR
             WHERE d.active = true
         """)
         
@@ -182,7 +182,7 @@ async def get_developers_with_stats(db: Session = Depends(get_db)):
                 MAX(ar.timestamp) as last_activity,
                 COALESCE(SUM(ar.duration), 0) as total_duration
             FROM developers d
-            LEFT JOIN activity_records ar ON d.developer_id = ar.developer_id
+            LEFT JOIN activity_records ar ON d.developer_id::VARCHAR = ar.developer_id::VARCHAR
             WHERE d.active = true
             GROUP BY d.developer_id, d.name, d.email, d.created_at
         """)

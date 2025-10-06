@@ -782,6 +782,16 @@
   border-color: #8b5cf6;
 }
 
+.category-card.uncategorized {
+  background-color: #f3f4f6;
+  border-color: #6b7280;
+}
+
+.category-card.non-work {
+  background-color: #fee2e2;
+  border-color: #ef4444;
+}
+
 .category-icon {
   font-size: 32px;
   margin-bottom: 8px;
@@ -810,6 +820,14 @@
 
 .category-card.server .category-percentage {
   color: #8b5cf6;
+}
+
+.category-card.uncategorized .category-percentage {
+  color: #6b7280;
+}
+
+.category-card.non-work .category-percentage {
+  color: #ef4444;
 }
 
 .category-time {

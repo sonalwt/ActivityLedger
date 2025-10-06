@@ -177,6 +177,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [isTopActivitiesOpen, setIsTopActivitiesOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('activity');
+  const [categoryBreakdown, setCategoryBreakdown] = useState(null);
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -186,8 +187,8 @@ function DeveloperDashboard({ developer, onBack }) {
       let response;
       
       if (developer) {
-        // Use new API for specific developer
-        response = await axios.get(`${API_BASE}/activity-data/${developer.id}`, {
+        // Use enhanced API for specific developer with categorization
+        response = await axios.get(`${API_BASE}/api/activity-data/${developer.id}`, {
           params: {
             start_date: startDate.toISOString(),
             end_date: endDate.toISOString()
@@ -207,6 +208,11 @@ function DeveloperDashboard({ developer, onBack }) {
       setActivityData(response.data.data || []);
       setTotalTime(response.data.total_time || 0);
       setLastUpdated(new Date());
+      
+      // Store category breakdown if available
+      if (response.data.category_breakdown) {
+        setCategoryBreakdown(response.data.category_breakdown);
+      }
       
       if (fetchFromAW) {
         toast.success('Activity data synced from ActivityWatch!');
@@ -402,6 +408,7 @@ function DeveloperDashboard({ developer, onBack }) {
             />
           </div>
           
+          {/* ActivityWatch sync button removed
           <button
             onClick={() => fetchActivityData(true)}
             disabled={loading}
@@ -410,6 +417,7 @@ function DeveloperDashboard({ developer, onBack }) {
             <RefreshCw size={16} className={loading ? 'spinning' : ''} />
             Sync from ActivityWatch
           </button>
+          */}
         </div>
       </div>
 
@@ -495,27 +503,18 @@ function DeveloperDashboard({ developer, onBack }) {
       {/* Tab Content */}
       {!loading && activeTab === 'activity' && activityData.length > 0 && (
         <>
-          {/* Category Summary - NEW */}
+          {/* Category Summary - Using API data */}
           <div className="category-summary">
             <h3>Activity Categories</h3>
             <div className="category-cards">
               <div className="category-card productive">
                 <div className="category-icon">💻</div>
-                <h4>Productive</h4>
+                <h4>Productivity</h4>
                 <p className="category-percentage">
-                  {(() => {
-                    const productiveTime = activityData
-                      .filter(item => item.category === 'productive')
-                      .reduce((sum, item) => sum + (item.duration || 0), 0);
-                    const percentage = totalTime > 0 ? (productiveTime / totalTime * 100).toFixed(1) : 0;
-                    return `${percentage}%`;
-                  })()}
+                  {categoryBreakdown?.productivity?.percentage || 0}%
                 </p>
                 <p className="category-time">
-                  {formatTime(activityData
-                    .filter(item => item.category === 'productive')
-                    .reduce((sum, item) => sum + (item.duration || 0), 0)
-                  )}
+                  {categoryBreakdown?.productivity?.hours || 0}h
                 </p>
               </div>
               
@@ -523,19 +522,10 @@ function DeveloperDashboard({ developer, onBack }) {
                 <div className="category-icon">🌐</div>
                 <h4>Browser</h4>
                 <p className="category-percentage">
-                  {(() => {
-                    const browserTime = activityData
-                      .filter(item => item.category === 'browser')
-                      .reduce((sum, item) => sum + (item.duration || 0), 0);
-                    const percentage = totalTime > 0 ? (browserTime / totalTime * 100).toFixed(1) : 0;
-                    return `${percentage}%`;
-                  })()}
+                  {categoryBreakdown?.browser?.percentage || 0}%
                 </p>
                 <p className="category-time">
-                  {formatTime(activityData
-                    .filter(item => item.category === 'browser')
-                    .reduce((sum, item) => sum + (item.duration || 0), 0)
-                  )}
+                  {categoryBreakdown?.browser?.hours || 0}h
                 </p>
               </div>
               
@@ -543,19 +533,32 @@ function DeveloperDashboard({ developer, onBack }) {
                 <div className="category-icon">☁️</div>
                 <h4>Server</h4>
                 <p className="category-percentage">
-                  {(() => {
-                    const serverTime = activityData
-                      .filter(item => item.category === 'server')
-                      .reduce((sum, item) => sum + (item.duration || 0), 0);
-                    const percentage = totalTime > 0 ? (serverTime / totalTime * 100).toFixed(1) : 0;
-                    return `${percentage}%`;
-                  })()}
+                  {categoryBreakdown?.server?.percentage || 0}%
                 </p>
                 <p className="category-time">
-                  {formatTime(activityData
-                    .filter(item => item.category === 'server')
-                    .reduce((sum, item) => sum + (item.duration || 0), 0)
-                  )}
+                  {categoryBreakdown?.server?.hours || 0}h
+                </p>
+              </div>
+              
+              <div className="category-card uncategorized">
+                <div className="category-icon">❓</div>
+                <h4>Uncategorized</h4>
+                <p className="category-percentage">
+                  {categoryBreakdown?.uncategorized?.percentage || 0}%
+                </p>
+                <p className="category-time">
+                  {categoryBreakdown?.uncategorized?.hours || 0}h
+                </p>
+              </div>
+              
+              <div className="category-card non-work">
+                <div className="category-icon">🎮</div>
+                <h4>Non-Work</h4>
+                <p className="category-percentage">
+                  {categoryBreakdown?.['non-work']?.percentage || 0}%
+                </p>
+                <p className="category-time">
+                  {categoryBreakdown?.['non-work']?.hours || 0}h
                 </p>
               </div>
             </div>
@@ -689,6 +692,7 @@ function DeveloperDashboard({ developer, onBack }) {
             <p className="no-data-text">
               No activity data found for the selected date range.
             </p>
+            {/* ActivityWatch sync button removed
             <button
               onClick={() => fetchActivityData(true)}
               className="btn btn-primary"
@@ -696,6 +700,7 @@ function DeveloperDashboard({ developer, onBack }) {
               <RefreshCw size={16} />
               Sync from ActivityWatch
             </button>
+            */}
           </div>
         </div>
       )}

@@ -110,6 +110,10 @@ app.include_router(categorization_router, tags=["activity-categorization"])
 from fixed_sync_endpoint import router as fixed_sync_router
 app.include_router(fixed_sync_router, tags=["sync"])
 
+# Add enhanced activity API with categorization
+from enhanced_activity_api import router as enhanced_activity_router
+app.include_router(enhanced_activity_router, tags=["activity"])
+
 # Add real data endpoints
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -1,33 +1,29 @@
-// CategoryBreakdown.js - Display activities categorized by type
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { Monitor, Globe, Server, Activity, AlertCircle } from 'lucide-react';
+import { FolderOpen, Clock, Activity, TrendingUp, Layers } from 'lucide-react';
 import './CategoryBreakdown.css';
 
 const CategoryBreakdown = ({ developerId, dateRange }) => {
   const [categoryData, setCategoryData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
-
+  
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
-  // Define colors for each category
-  const CATEGORY_COLORS = {
-    productive: '#10B981',  // Green
-    browser: '#3B82F6',     // Blue
-    server: '#8B5CF6',      // Purple
-    uncategorized: '#6B7280', // Gray
-    'non-work': '#EF4444'   // Red
+  const categoryIcons = {
+    'productivity': '💻',
+    'browser': '🌐',
+    'server': '☁️',
+    'non-work': '🎮',
+    'uncategorized': '❓'
   };
 
-  const CATEGORY_ICONS = {
-    productive: <Monitor size={20} />,
-    browser: <Globe size={20} />,
-    server: <Server size={20} />,
-    uncategorized: <AlertCircle size={20} />,
-    'non-work': <Activity size={20} />
+  const categoryColors = {
+    'productivity': '#10b981',
+    'browser': '#3b82f6',
+    'server': '#8b5cf6',
+    'non-work': '#ef4444',
+    'uncategorized': '#6b7280'
   };
 
   useEffect(() => {
@@ -36,200 +32,157 @@ const CategoryBreakdown = ({ developerId, dateRange }) => {
 
   const fetchCategoryData = async () => {
     setLoading(true);
-    setError(null);
-    
     try {
-      const response = await axios.get(`${API_BASE}/api/activity-categories/${developerId}`, {
-        params: {
-          start_date: dateRange.start,
-          end_date: dateRange.end
+      const response = await axios.get(
+        `${API_BASE}/api/activity-categories/${developerId}`,
+        {
+          params: {
+            start_date: dateRange.start,
+            end_date: dateRange.end
+          }
         }
-      });
-
+      );
+      
       setCategoryData(response.data);
-    } catch (err) {
-      console.error('Error fetching category data:', err);
-      setError('Failed to fetch categorized activities');
+      // Auto-select productivity category
+      setSelectedCategory('productivity');
+    } catch (error) {
+      console.error('Error fetching category data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDuration = (hours) => {
-    if (hours < 1) {
-      return `${Math.round(hours * 60)}m`;
+  const formatDuration = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else {
+      return `${minutes}m`;
     }
-    return `${hours.toFixed(1)}h`;
   };
 
   if (loading) {
     return (
-      <div className="category-breakdown-loading">
+      <div className="category-loading">
         <div className="spinner"></div>
-        <p>Analyzing activities...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="category-breakdown-error">
-        <AlertCircle size={48} color="#EF4444" />
-        <p>{error}</p>
-        <button onClick={fetchCategoryData} className="retry-button">
-          Retry
-        </button>
+        <p>Loading category data...</p>
       </div>
     );
   }
 
   if (!categoryData) {
-    return null;
+    return (
+      <div className="category-empty">
+        <FolderOpen size={48} />
+        <p>No category data available</p>
+      </div>
+    );
   }
-
-  const { statistics, top_activities_by_category, productivity_score, total_duration_hours } = categoryData;
-
-  // Prepare data for pie chart
-  const pieData = Object.entries(statistics)
-    .filter(([category, stats]) => stats.duration_hours > 0)
-    .map(([category, stats]) => ({
-      name: category.charAt(0).toUpperCase() + category.slice(1).replace('-', ' '),
-      value: stats.duration_hours,
-      percentage: stats.percentage,
-      count: stats.count
-    }));
-
-  // Prepare data for bar chart
-  const barData = Object.entries(statistics).map(([category, stats]) => ({
-    category: category.charAt(0).toUpperCase() + category.slice(1).replace('-', ' '),
-    hours: stats.duration_hours,
-    activities: stats.count
-  }));
 
   return (
     <div className="category-breakdown-container">
-      <div className="category-header">
-        <h2>Activity Categories</h2>
-        <div className="productivity-score">
-          <span className="score-label">Productivity Score</span>
-          <span className={`score-value ${productivity_score >= 80 ? 'high' : productivity_score >= 60 ? 'medium' : 'low'}`}>
-            {productivity_score}%
-          </span>
-        </div>
-      </div>
-
-      <div className="category-summary">
-        <div className="summary-item">
-          <span className="summary-label">Total Time</span>
-          <span className="summary-value">{formatDuration(total_duration_hours)}</span>
-        </div>
-        {Object.entries(statistics).map(([category, stats]) => (
-          <div key={category} className="summary-item">
-            <div className="category-label">
-              {CATEGORY_ICONS[category]}
-              <span>{category.charAt(0).toUpperCase() + category.slice(1).replace('-', ' ')}</span>
+      {/* Category Overview Cards */}
+      <div className="category-overview-grid">
+        {Object.entries(categoryData.summary).map(([category, data]) => (
+          <div 
+            key={category}
+            className={`category-overview-card ${selectedCategory === category ? 'active' : ''}`}
+            onClick={() => setSelectedCategory(category)}
+            style={{ borderColor: categoryColors[category] }}
+          >
+            <div className="category-card-header">
+              <span className="category-icon">{categoryIcons[category]}</span>
+              <h3>{category.charAt(0).toUpperCase() + category.slice(1).replace('-', ' ')}</h3>
             </div>
-            <span className="summary-value" style={{ color: CATEGORY_COLORS[category] }}>
-              {formatDuration(stats.duration_hours)} ({stats.percentage.toFixed(1)}%)
-            </span>
+            
+            <div className="category-card-stats">
+              <div className="stat-item">
+                <span className="stat-value" style={{ color: categoryColors[category] }}>
+                  {data.percentage}%
+                </span>
+                <span className="stat-label">of total time</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{data.hours}h</span>
+                <span className="stat-label">total</span>
+              </div>
+            </div>
           </div>
         ))}
       </div>
 
-      <div className="charts-grid">
-        <div className="chart-container">
-          <h3>Time Distribution</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percentage }) => `${name} ${percentage.toFixed(1)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {pieData.map((entry, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
-                    fill={CATEGORY_COLORS[entry.name.toLowerCase().replace(' ', '-')]} 
-                    onClick={() => setSelectedCategory(entry.name.toLowerCase().replace(' ', '-'))}
-                    style={{ cursor: 'pointer' }}
-                  />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => formatDuration(value)} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Selected Category Details */}
+      {selectedCategory && categoryData.categories[selectedCategory] && (
+        <div className="category-details">
+          <h2 className="category-details-title">
+            {categoryIcons[selectedCategory]} {selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1).replace('-', ' ')} Activities
+          </h2>
 
-        <div className="chart-container">
-          <h3>Activity Count by Category</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={barData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="category" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="activities" fill="#8B5CF6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="top-activities-section">
-        <h3>Top Activities by Category</h3>
-        <div className="category-tabs">
-          {Object.keys(top_activities_by_category).map((category) => (
-            <button
-              key={category}
-              className={`category-tab ${selectedCategory === category ? 'active' : ''}`}
-              onClick={() => setSelectedCategory(category)}
-              style={{ 
-                borderColor: selectedCategory === category ? CATEGORY_COLORS[category] : 'transparent',
-                color: selectedCategory === category ? CATEGORY_COLORS[category] : '#6B7280'
-              }}
-            >
-              {CATEGORY_ICONS[category]}
-              {category.charAt(0).toUpperCase() + category.slice(1).replace('-', ' ')}
-            </button>
-          ))}
-        </div>
-
-        {selectedCategory && top_activities_by_category[selectedCategory] && (
-          <div className="activities-list">
-            {top_activities_by_category[selectedCategory].length === 0 ? (
-              <p className="no-activities">No activities in this category</p>
-            ) : (
-              top_activities_by_category[selectedCategory].map((activity, index) => (
-                <div key={index} className="activity-item">
-                  <div className="activity-info">
-                    <div className="activity-title">{activity.window_title || 'Untitled'}</div>
-                    <div className="activity-details">
-                      <span className="app-name">{activity.application_name}</span>
-                      <span className="subcategory">{activity.subcategory}</span>
-                    </div>
+          {/* Top Applications */}
+          <div className="top-applications">
+            <h3>Top Applications</h3>
+            <div className="applications-list">
+              {categoryData.categories[selectedCategory].top_applications.map((app, index) => (
+                <div key={index} className="application-item">
+                  <div className="app-info">
+                    <span className="app-rank">#{index + 1}</span>
+                    <span className="app-name">{app.name || 'Unknown'}</span>
                   </div>
-                  <div className="activity-stats">
-                    <span className="duration">{formatDuration(activity.duration_hours)}</span>
-                    <div className="confidence-indicator">
-                      <div 
-                        className="confidence-bar"
-                        style={{ 
-                          width: `${activity.confidence * 100}%`,
-                          backgroundColor: activity.confidence > 0.7 ? '#10B981' : activity.confidence > 0.4 ? '#F59E0B' : '#EF4444'
-                        }}
-                      />
-                    </div>
+                  <div className="app-stats">
+                    <span className="app-duration">{formatDuration(app.duration)}</span>
+                    <span className="app-percentage">{app.percentage}%</span>
+                  </div>
+                  <div className="app-progress">
+                    <div 
+                      className="app-progress-bar"
+                      style={{ 
+                        width: `${app.percentage}%`,
+                        backgroundColor: categoryColors[selectedCategory]
+                      }}
+                    />
                   </div>
                 </div>
-              ))
-            )}
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Recent Activities */}
+          <div className="recent-activities">
+            <h3>Recent Activities</h3>
+            <div className="activities-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>Window Title</th>
+                    <th>Duration</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryData.categories[selectedCategory].activities.slice(0, 20).map((activity) => (
+                    <tr key={activity.id}>
+                      <td className="app-cell">
+                        <span className="app-name-badge">{activity.application_name}</span>
+                      </td>
+                      <td className="title-cell" title={activity.window_title}>
+                        {activity.window_title}
+                      </td>
+                      <td className="duration-cell">{formatDuration(activity.duration)}</td>
+                      <td className="time-cell">
+                        {new Date(activity.timestamp).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
