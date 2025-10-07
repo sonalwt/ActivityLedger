@@ -114,6 +114,10 @@ app.include_router(fixed_sync_router, tags=["sync"])
 from enhanced_activity_api import router as enhanced_activity_router
 app.include_router(enhanced_activity_router, tags=["activity"])
 
+# Add debug endpoint for activity data
+from debug_activity_endpoint import router as debug_activity_router
+app.include_router(debug_activity_router, tags=["debug"])
+
 # Add real data endpoints
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")

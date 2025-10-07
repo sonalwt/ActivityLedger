@@ -187,13 +187,22 @@ function DeveloperDashboard({ developer, onBack }) {
       let response;
       
       if (developer) {
+        // Debug: Log developer object to see its structure
+        console.log('Developer object:', developer);
+        
+        // Use developer_id or id based on what's available
+        const developerId = developer.developer_id || developer.id;
+        console.log('Using developer ID:', developerId);
+        
         // Use enhanced API for specific developer with categorization
-        response = await axios.get(`${API_BASE}/api/activity-data/${developer.id}`, {
+        response = await axios.get(`${API_BASE}/api/activity-data/${developerId}`, {
           params: {
             start_date: startDate.toISOString(),
             end_date: endDate.toISOString()
           }
         });
+        
+        console.log('Activity data response:', response.data);
       } else {
         // Fallback to old API
         const endpoint = fetchFromAW ? '/activity-data' : '/activity-summary';
@@ -212,6 +221,7 @@ function DeveloperDashboard({ developer, onBack }) {
       // Store category breakdown if available
       if (response.data.category_breakdown) {
         setCategoryBreakdown(response.data.category_breakdown);
+        console.log('Category breakdown:', response.data.category_breakdown);
       }
       
       if (fetchFromAW) {
@@ -219,6 +229,9 @@ function DeveloperDashboard({ developer, onBack }) {
       }
     } catch (error) {
       console.error('Error fetching activity data:', error);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+      }
       if (error.response?.status === 500 && fetchFromAW) {
         toast.error('Could not connect to ActivityWatch. Make sure it\'s running on localhost:5600');
       } else {
@@ -504,65 +517,67 @@ function DeveloperDashboard({ developer, onBack }) {
       {!loading && activeTab === 'activity' && activityData.length > 0 && (
         <>
           {/* Category Summary - Using API data */}
-          <div className="category-summary">
-            <h3>Activity Categories</h3>
-            <div className="category-cards">
-              <div className="category-card productive">
-                <div className="category-icon">💻</div>
-                <h4>Productivity</h4>
-                <p className="category-percentage">
-                  {categoryBreakdown?.productivity?.percentage || 0}%
-                </p>
-                <p className="category-time">
-                  {categoryBreakdown?.productivity?.hours || 0}h
-                </p>
-              </div>
-              
-              <div className="category-card browser">
-                <div className="category-icon">🌐</div>
-                <h4>Browser</h4>
-                <p className="category-percentage">
-                  {categoryBreakdown?.browser?.percentage || 0}%
-                </p>
-                <p className="category-time">
-                  {categoryBreakdown?.browser?.hours || 0}h
-                </p>
-              </div>
-              
-              <div className="category-card server">
-                <div className="category-icon">☁️</div>
-                <h4>Server</h4>
-                <p className="category-percentage">
-                  {categoryBreakdown?.server?.percentage || 0}%
-                </p>
-                <p className="category-time">
-                  {categoryBreakdown?.server?.hours || 0}h
-                </p>
-              </div>
-              
-              <div className="category-card uncategorized">
-                <div className="category-icon">❓</div>
-                <h4>Uncategorized</h4>
-                <p className="category-percentage">
-                  {categoryBreakdown?.uncategorized?.percentage || 0}%
-                </p>
-                <p className="category-time">
-                  {categoryBreakdown?.uncategorized?.hours || 0}h
-                </p>
-              </div>
-              
-              <div className="category-card non-work">
-                <div className="category-icon">🎮</div>
-                <h4>Non-Work</h4>
-                <p className="category-percentage">
-                  {categoryBreakdown?.['non-work']?.percentage || 0}%
-                </p>
-                <p className="category-time">
-                  {categoryBreakdown?.['non-work']?.hours || 0}h
-                </p>
+          {developer && categoryBreakdown && (
+            <div className="category-summary">
+              <h3>Activity Categories</h3>
+              <div className="category-cards">
+                <div className="category-card productive">
+                  <div className="category-icon">💻</div>
+                  <h4>Productivity</h4>
+                  <p className="category-percentage">
+                    {categoryBreakdown?.productivity?.percentage || 0}%
+                  </p>
+                  <p className="category-time">
+                    {categoryBreakdown?.productivity?.hours || 0}h
+                  </p>
+                </div>
+                
+                <div className="category-card browser">
+                  <div className="category-icon">🌐</div>
+                  <h4>Browser</h4>
+                  <p className="category-percentage">
+                    {categoryBreakdown?.browser?.percentage || 0}%
+                  </p>
+                  <p className="category-time">
+                    {categoryBreakdown?.browser?.hours || 0}h
+                  </p>
+                </div>
+                
+                <div className="category-card server">
+                  <div className="category-icon">☁️</div>
+                  <h4>Server</h4>
+                  <p className="category-percentage">
+                    {categoryBreakdown?.server?.percentage || 0}%
+                  </p>
+                  <p className="category-time">
+                    {categoryBreakdown?.server?.hours || 0}h
+                  </p>
+                </div>
+                
+                <div className="category-card uncategorized">
+                  <div className="category-icon">❓</div>
+                  <h4>Uncategorized</h4>
+                  <p className="category-percentage">
+                    {categoryBreakdown?.uncategorized?.percentage || 0}%
+                  </p>
+                  <p className="category-time">
+                    {categoryBreakdown?.uncategorized?.hours || 0}h
+                  </p>
+                </div>
+                
+                <div className="category-card non-work">
+                  <div className="category-icon">🎮</div>
+                  <h4>Non-Work</h4>
+                  <p className="category-percentage">
+                    {categoryBreakdown?.['non-work']?.percentage || 0}%
+                  </p>
+                  <p className="category-time">
+                    {categoryBreakdown?.['non-work']?.hours || 0}h
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
           
           {/* Live Daily Hours Report */}
           <LiveDailyHoursReport activityData={activityData} startDate={startDate} endDate={endDate} />
