@@ -140,12 +140,15 @@ def categorize_activity(activity: dict) -> str:
 @router.get("/api/activity-data/{developer_id}")
 def get_activity_data(
     developer_id: str,
-    start_date: datetime = Query(..., description="Start date in ISO format"),
-    end_date: datetime = Query(..., description="End date in ISO format"),
+    start_date: str = Query(..., description="Start date in ISO format"),
+    end_date: str = Query(..., description="End date in ISO format"),
+    db: Session = Depends(get_db)
 ):
-    db = get_db()
-
     try:
+        # Convert date strings to datetime
+        start = datetime.fromisoformat(start_date.replace("Z", ""))
+        end = datetime.fromisoformat(end_date.replace("Z", ""))
+
         query = text("""
             SELECT activity_data, created_at 
             FROM activity_records 
@@ -156,47 +159,48 @@ def get_activity_data(
 
         result = db.execute(query, {
             "dev": developer_id,
-            "start": start_date,
-            "end": end_date
+            "start": start,
+            "end": end
         }).fetchall()
 
-        all_activities = []
-        total_time_seconds = 0
+        # Categorization buckets
+        categorized_data = {
+            "productivity": [],
+            "server": [],
+            "browser": [],
+            "other": []
+        }
+
+        # Keywords
+        productivity_keywords = ["code.exe", "cpanel", "shareplex", "filezilla"]
+        server_keywords = ["aws", "google", "gcp", "termius", "azure"]
+        browser_keywords = ["youtube", "gmail", "research", "stackoverflow", "github"]
 
         for row in result:
-            activities_json = row["activity_data"]  # JSON array
-            for act in activities_json:
-                act["category"] = categorize_activity(act)
-                all_activities.append(act)
-                total_time_seconds += act.get("duration", 0)
+            activities = row["activity_data"]  # JSON array
+            for act in activities:
+                app_name = str(act.get("app", "")).lower()
+                title = str(act.get("title", "")).lower()
 
-        # Optional: Build category breakdown for frontend
-        category_breakdown = {
-            "productivity": {"hours": 0, "percentage": 0},
-            "browser": {"hours": 0, "percentage": 0},
-            "server": {"hours": 0, "percentage": 0},
-            "non-work": {"hours": 0, "percentage": 0},
-            "uncategorized": {"hours": 0, "percentage": 0}
-        }
+                category = "other"  # default
 
-        for act in all_activities:
-            cat = act["category"]
-            category_breakdown[cat]["hours"] += act.get("duration", 0) / 3600  # convert sec to hours
+                if any(key in app_name for key in productivity_keywords):
+                    category = "productivity"
+                elif "chrome.exe" in app_name and any(key in title for key in server_keywords):
+                    category = "server"
+                elif any(key in title for key in browser_keywords):
+                    category = "browser"
 
-        total_hours = sum(cat["hours"] for cat in category_breakdown.values())
-        for cat in category_breakdown:
-            if total_hours > 0:
-                category_breakdown[cat]["percentage"] = round((category_breakdown[cat]["hours"] / total_hours) * 100, 1)
+                categorized_data[category].append({
+                    "timestamp": row["created_at"],
+                    "app": app_name,
+                    "title": title,
+                    "duration": act.get("duration", 0)
+                })
 
-        return {
-            "data": all_activities,
-            "total_time": total_time_seconds,
-            "category_breakdown": category_breakdown
-        }
+        return categorized_data
 
     except Exception as e:
-        print("Error fetching activity data:", e)
         raise HTTPException(status_code=500, detail=str(e))
-
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
