@@ -1,150 +1,19 @@
-// DeveloperDashboard.js - Fully updated with FastAPI integration and date filters
+// DeveloperDashboard.js - Updated with Pie Chart, Top 5 Activities, and Productivity
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import ActivityChart from './ActivityChart';
-import ActivityTable from './ActivityTable';
-import ProductivityMetrics from './ProductivityMetrics';
-import ProjectBreakdown from './ProjectBreakdown';
-import CategoryBreakdown from './CategoryBreakdown';
-import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FolderOpen } from 'lucide-react';
+import { Calendar, RefreshCw, Activity, Clock, ArrowLeft } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './DeveloperDashboard.css';
 
-// Live Daily Hours Component
-const LiveDailyHoursReport = ({ activityData }) => {
-  const calculateDailyHours = () => {
-    const dailyData = {};
+// Existing Components
+import LiveDailyHoursReport from './LiveDailyHoursReport';
+import LiveProductivityDashboard from './LiveProductivityDashboard';
 
-    activityData.forEach(activity => {
-      if (!activity.timestamp) return;
-
-      const date = new Date(activity.timestamp).toISOString().split('T')[0];
-      if (!dailyData[date]) {
-        dailyData[date] = { total: 0, activities: 0 };
-      }
-      dailyData[date].total += activity.duration || 0;
-      dailyData[date].activities += 1;
-    });
-
-    return Object.entries(dailyData).map(([date, data]) => ({
-      date,
-      total_hours: data.total / 3600,
-      activities: data.activities,
-      color: data.total / 3600 >= 8 ? '#10b981' : 
-             data.total / 3600 >= 6 ? '#f59e0b' : 
-             data.total / 3600 >= 4 ? '#f97316' : '#ef4444'
-    })).sort((a, b) => new Date(a.date) - new Date(b.date));
-  };
-
-  const dailyHours = calculateDailyHours();
-  const totalHours = dailyHours.reduce((sum, day) => sum + day.total_hours, 0);
-  const avgHours = dailyHours.length > 0 ? totalHours / dailyHours.length : 0;
-
-  return (
-    <div className="report-card">
-      <h3>📅 Daily Hours Report</h3>
-      <div className="report-stats-grid">
-        <div className="report-stat-item">
-          <div className="report-stat-value">{totalHours.toFixed(1)}h</div>
-          <div className="report-stat-label">Total Hours</div>
-        </div>
-        <div className="report-stat-item green">
-          <div className="report-stat-value">{avgHours.toFixed(1)}h</div>
-          <div className="report-stat-label">Average/Day</div>
-        </div>
-      </div>
-      <div className="daily-hours-list">
-        {dailyHours.map(day => {
-          const hourClass = day.total_hours >= 8 ? 'excellent' : 
-                           day.total_hours >= 6 ? 'good' : 
-                           day.total_hours >= 4 ? 'fair' : 'low';
-          return (
-            <div key={day.date} className={`daily-hour-item ${hourClass}`}>
-              <div>
-                <span className="daily-hour-date">{format(new Date(day.date), 'MMM d, yyyy')}</span>
-                <span className="daily-hour-activities">({day.activities} activities)</span>
-              </div>
-              <div className={`daily-hour-value ${hourClass}`}>{day.total_hours.toFixed(1)}h</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-// Live Productivity Component
-const LiveProductivityDashboard = ({ activityData }) => {
-  const calculateProductivity = () => {
-    const totalTime = activityData.reduce((sum, activity) => sum + (activity.duration || 0), 0);
-    const workTime = activityData
-      .filter(activity => ['productivity', 'development', 'browser', 'server'].includes(activity.category))
-      .reduce((sum, activity) => sum + (activity.duration || 0), 0);
-
-    const productivityScore = totalTime > 0 ? (workTime / totalTime) * 100 : 0;
-
-    const categories = ['productivity', 'browser', 'server', 'non-work', 'uncategorized'].map(cat => {
-      const categoryTime = activityData
-        .filter(activity => activity.category === cat)
-        .reduce((sum, activity) => sum + (activity.duration || 0), 0);
-      return {
-        name: cat,
-        time: categoryTime / 3600,
-        percentage: totalTime > 0 ? (categoryTime / totalTime) * 100 : 0
-      };
-    });
-
-    return {
-      totalTime: totalTime / 3600,
-      workTime: workTime / 3600,
-      productivityScore: Math.round(productivityScore),
-      categories
-    };
-  };
-
-  const productivity = calculateProductivity();
-
-  return (
-    <div className="productivity-card">
-      <h3>📊 Productivity Analysis</h3>
-      <div className="productivity-metrics">
-        <div className="productivity-metric primary">
-          <div className="metric-value primary">{productivity.productivityScore}%</div>
-          <div className="metric-label">Productivity Score</div>
-        </div>
-        <div className="productivity-metric success">
-          <div className="metric-value success">{productivity.workTime.toFixed(1)}h</div>
-          <div className="metric-label">Work Time</div>
-        </div>
-        <div className="productivity-metric warning">
-          <div className="metric-value warning">{productivity.totalTime.toFixed(1)}h</div>
-          <div className="metric-label">Total Time</div>
-        </div>
-      </div>
-
-      <div className="category-breakdown">
-        <h4>Category Breakdown</h4>
-        {productivity.categories.map(category => {
-          const categoryClass = category.name.toLowerCase().replace(/\s+/g, '-');
-          return (
-            <div key={category.name} className="category-item">
-              <div className="category-header">
-                <span className="category-name">{category.name}</span>
-                <span className="category-stats">{category.time.toFixed(1)}h ({category.percentage.toFixed(1)}%)</span>
-              </div>
-              <div className="category-progress">
-                <div className={`category-progress-bar ${categoryClass}`} style={{ width: `${category.percentage}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#6b7280'];
 
 function DeveloperDashboard({ developer, onBack }) {
   const [activityData, setActivityData] = useState([]);
@@ -154,7 +23,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const [totalTime, setTotalTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [categoryBreakdown, setCategoryBreakdown] = useState(null);
-  const [activeTab, setActiveTab] = useState('activity');
+  const [activeTab, setActiveTab] = useState('activity'); // tabs: activity | top5
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -180,9 +49,6 @@ function DeveloperDashboard({ developer, onBack }) {
       setTotalTime(total_time);
       setCategoryBreakdown(category_data);
       setLastUpdated(new Date());
-
-      console.log('Fetched activity data:', data);
-      console.log('Category breakdown:', category_data);
 
     } catch (error) {
       console.error('Error fetching activity data:', error);
@@ -212,6 +78,19 @@ function DeveloperDashboard({ developer, onBack }) {
     if (item.application_name) return { project: item.application_name.replace('.exe', ''), type: 'Work' };
     return { project: 'General Work', type: 'Work' };
   };
+
+  // Calculate Category Breakdown Pie Chart
+  const pieData = ['productivity', 'browser', 'server', 'non-work', 'uncategorized'].map(cat => {
+    const total = activityData
+      .filter(a => a.category === cat)
+      .reduce((sum, a) => sum + (a.duration || 0), 0);
+    return { name: cat, value: total };
+  }).filter(d => d.value > 0);
+
+  // Calculate Top 5 Activities
+  const top5Activities = [...activityData]
+    .sort((a, b) => (b.duration || 0) - (a.duration || 0))
+    .slice(0, 5);
 
   return (
     <div className="developer-dashboard">
@@ -249,24 +128,65 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       </div>
 
+      <div className="tabs">
+        <button className={activeTab === 'activity' ? 'active' : ''} onClick={() => setActiveTab('activity')}>Category Breakdown</button>
+        <button className={activeTab === 'top5' ? 'active' : ''} onClick={() => setActiveTab('top5')}>Top 5 Activities</button>
+      </div>
+
+      {!loading && activeTab === 'activity' && (
+        <div className="category-tab">
+          <h3>Category Breakdown</h3>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`}>
+                  {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                </Pie>
+                <Tooltip formatter={value => formatTime(value)} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="activity-list">
+            {['productivity', 'browser', 'server', 'non-work', 'uncategorized'].map(cat => {
+              const acts = activityData.filter(a => a.category === cat);
+              if (acts.length === 0) return null;
+              return (
+                <div key={cat} className="category-section">
+                  <h4>{cat.charAt(0).toUpperCase() + cat.slice(1)}</h4>
+                  {acts.map((act, idx) => (
+                    <div key={idx} className="activity-item">
+                      <span>{format(new Date(act.timestamp), 'MMM d, yyyy HH:mm')}</span> - 
+                      <span>{act.project_name || 'General Work'}</span> - 
+                      <span>{act.detailed_activity}</span> - 
+                      <span>{formatTime(act.duration)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!loading && activeTab === 'top5' && (
+        <div className="top5-tab">
+          <h3>Top 5 Time-Consuming Activities</h3>
+          {top5Activities.map((act, idx) => (
+            <div key={idx} className="top-activity-item">
+              <strong>{idx+1}. {act.detailed_activity}</strong>
+              <div>Project: {act.project_name || 'General Work'}</div>
+              <div>Category: {act.category}</div>
+              <div>Duration: {formatTime(act.duration)}</div>
+              <div>Timestamp: {format(new Date(act.timestamp), 'MMM d, yyyy HH:mm')}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {!loading && (
         <>
-          {categoryBreakdown && (
-            <div className="category-summary">
-              <h3>Activity Categories</h3>
-              <div className="category-cards">
-                {['productivity', 'browser', 'server', 'uncategorized', 'non-work'].map(cat => (
-                  <div key={cat} className={`category-card ${cat}`}>
-                    <div className="category-icon">{cat === 'productivity' ? '💻' : cat === 'browser' ? '🌐' : cat === 'server' ? '☁️' : cat === 'non-work' ? '🎮' : '❓'}</div>
-                    <h4>{cat.charAt(0).toUpperCase() + cat.slice(1)}</h4>
-                    <p className="category-percentage">{categoryBreakdown[cat]?.percentage || 0}%</p>
-                    <p className="category-time">{categoryBreakdown[cat]?.hours || 0}h</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <LiveDailyHoursReport activityData={activityData} />
           <LiveProductivityDashboard activityData={activityData} />
         </>

@@ -36,22 +36,30 @@ analyzer = ActivityAnalyzer(DB_CONFIG)
 
 # --- Categorize activity ---
 def categorize_activity(activity: dict) -> str:
-    app_name = (activity.get("app") or "").lower()
-    title = (activity.get("title") or "").lower()
+    app_name = (activity.get("application_name") or "").lower()
+    title = (activity.get("window_title") or "").lower()
+    urls = [url.lower() for url in activity.get("urls") or []]
 
-    productivity_apps = ["code.exe", "cpanel", "shareplex", "filezilla"]
-    server_keywords = ["aws", "google", "gcp", "termius", "azure"]
-    browser_keywords = ["youtube", "gmail", "research", "stackoverflow", "github"]
+    if any(x in title for x in ["lock", "locked"]) or any(x in app_name for x in ["lockapp", "logonui"]):
+        return "non-work"
+    if any(x in title for x in ["youtube", "netflix", "spotify", "music"]):
+        return "non-work"
 
-    if any(k in app_name for k in productivity_apps):
+    productivity_apps = ["vscode", "code.exe", "pycharm", "intellij", "sublime", "atom", "notepad++", "vim", "emacs", "notion", "jira", "trello", "figma", "photoshop"]
+    if any(x in app_name for x in productivity_apps):
         return "productivity"
-    if "chrome.exe" in app_name and any(k in title for k in server_keywords):
-        return "server"
-    if any(k in title for k in browser_keywords):
-        return "browser"
-    return "other"
 
-# --- API: Get activity data ---
+    server_keywords = ["aws", "azure", "gcp", "plesk", "cpanel", "whm", "directadmin", "webmin", "ssh", "putty", "filezilla", "localhost", "127.0.0.1", "digitalocean", "linode"]
+    if any(x in app_name for x in server_keywords) or any(any(kw in url for kw in server_keywords) for url in urls):
+        return "server"
+
+    browser_apps = ["chrome.exe", "firefox.exe", "edge.exe", "brave.exe"]
+    if any(x in app_name for x in browser_apps):
+        return "browser"
+
+    return "uncategorized"
+
+
 @app.get("/api/activity-data/{developer_id}")
 def get_activity_data(
     developer_id: str,
@@ -59,9 +67,10 @@ def get_activity_data(
     end_date: str = Query(..., description="End date in ISO format")
 ):
     try:
-        start = datetime.fromisoformat(start_date.replace("Z", ""))
-        end = datetime.fromisoformat(end_date.replace("Z", ""))
+        start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
 
+        session = SessionLocal()
         query = text("""
             SELECT activity_data, created_at
             FROM activity_records
@@ -69,71 +78,47 @@ def get_activity_data(
               AND created_at BETWEEN :start AND :end
             ORDER BY created_at ASC
         """)
-
-        session = SessionLocal()
         result = session.execute(query, {"dev": developer_id, "start": start, "end": end}).fetchall()
         session.close()
 
         all_activities = []
-        total_time_seconds = 0
-        category_breakdown = {
-            "productivity": 0, "server": 0, "browser": 0, "non-work": 0, "uncategorized": 0
-        }
 
         for row in result:
             activities = row["activity_data"]
             if isinstance(activities, str):
                 activities = json.loads(activities)
+
             for act in activities:
+                project_name = act.get("project_name") or act.get("window_title") or "General Work"
+                project_type = act.get("project_type") or "General"
+                project_file = act.get("project_file") or act.get("application_name") or "Unknown"
+                detailed_activity = act.get("detailed_activity") or act.get("window_title") or project_name
                 category = categorize_activity(act)
-                category_breakdown[category] += act.get("duration", 0)
-                total_time_seconds += act.get("duration", 0)
+
                 all_activities.append({
-                    "timestamp": row["created_at"].isoformat(),
-                    "app": act.get("app"),
-                    "title": act.get("title"),
+                    "developer_id": developer_id,
+                    "developer_name": developer_id.replace("_", " ").title(),
+                    "application_name": act.get("application_name"),
+                    "window_title": act.get("window_title"),
                     "duration": act.get("duration", 0),
-                    "category": category
+                    "timestamp": row["created_at"].isoformat(),
+                    "category": category,
+                    "detailed_activity": detailed_activity,
+                    "url": act.get("url") or "",
+                    "file_path": act.get("file_path") or "",
+                    "project_name": project_name,
+                    "project_type": project_type,
+                    "project_file": project_file,
+                    "subcategory": act.get("subcategory") or "general",
+                    "category_confidence": act.get("category_confidence") or 0
                 })
 
-        total_hours = sum(category_breakdown.values())
-        for cat in category_breakdown:
-            category_breakdown[cat] = {
-                "hours": round(category_breakdown[cat]/3600, 2),
-                "percentage": round((category_breakdown[cat]/total_hours)*100,1) if total_hours>0 else 0
-            }
-
-        return {
-            "data": all_activities,
-            "total_time": total_time_seconds,
-            "category_breakdown": category_breakdown
-        }
+        return {"data": all_activities}
 
     except Exception as e:
+        print("Error fetching activity data:", e)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# --- API: Get all developers ---
-@app.get("/api/developers")
-def get_developers():
-    try:
-        query = text("""
-            SELECT DISTINCT developer_id
-            FROM activity_records
-            WHERE developer_id IS NOT NULL AND developer_id != ''
-            ORDER BY developer_id
-        """)
-        session = SessionLocal()
-        result = session.execute(query).fetchall()
-        session.close()
-
-        developers = [{"id": row[0], "name": f"Developer {row[0]}"} for row in result]
-        return developers
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
+        
 # --- API: Weekly productivity ---
 @app.get("/api/productivity/{developer_id}/weekly")
 def get_weekly_productivity(developer_id: str):
