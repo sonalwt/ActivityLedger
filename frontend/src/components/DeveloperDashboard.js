@@ -1,4 +1,4 @@
-// DeveloperDashboard.js - Your original dashboard with live data fixes
+// DeveloperDashboard.js - Fully updated with FastAPI integration and date filters
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -10,17 +10,17 @@ import ActivityTable from './ActivityTable';
 import ProductivityMetrics from './ProductivityMetrics';
 import ProjectBreakdown from './ProjectBreakdown';
 import CategoryBreakdown from './CategoryBreakdown';
-import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FileText, FolderOpen } from 'lucide-react';
+import { Calendar, RefreshCw, Activity, Clock, ChevronDown, ChevronUp, ArrowLeft, BarChart2, Briefcase, FolderOpen } from 'lucide-react';
 import './DeveloperDashboard.css';
 
 // Live Daily Hours Component
-const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
+const LiveDailyHoursReport = ({ activityData }) => {
   const calculateDailyHours = () => {
     const dailyData = {};
-    
+
     activityData.forEach(activity => {
       if (!activity.timestamp) return;
-      
+
       const date = new Date(activity.timestamp).toISOString().split('T')[0];
       if (!dailyData[date]) {
         dailyData[date] = { total: 0, activities: 0 };
@@ -46,22 +46,16 @@ const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
   return (
     <div className="report-card">
       <h3>📅 Daily Hours Report</h3>
-      
       <div className="report-stats-grid">
         <div className="report-stat-item">
-          <div className="report-stat-value">
-            {totalHours.toFixed(1)}h
-          </div>
+          <div className="report-stat-value">{totalHours.toFixed(1)}h</div>
           <div className="report-stat-label">Total Hours</div>
         </div>
         <div className="report-stat-item green">
-          <div className="report-stat-value">
-            {avgHours.toFixed(1)}h
-          </div>
+          <div className="report-stat-value">{avgHours.toFixed(1)}h</div>
           <div className="report-stat-label">Average/Day</div>
         </div>
       </div>
-
       <div className="daily-hours-list">
         {dailyHours.map(day => {
           const hourClass = day.total_hours >= 8 ? 'excellent' : 
@@ -71,13 +65,9 @@ const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
             <div key={day.date} className={`daily-hour-item ${hourClass}`}>
               <div>
                 <span className="daily-hour-date">{format(new Date(day.date), 'MMM d, yyyy')}</span>
-                <span className="daily-hour-activities">
-                  ({day.activities} activities)
-                </span>
+                <span className="daily-hour-activities">({day.activities} activities)</span>
               </div>
-              <div className={`daily-hour-value ${hourClass}`}>
-                {day.total_hours.toFixed(1)}h
-              </div>
+              <div className={`daily-hour-value ${hourClass}`}>{day.total_hours.toFixed(1)}h</div>
             </div>
           );
         })}
@@ -89,28 +79,29 @@ const LiveDailyHoursReport = ({ activityData, startDate, endDate }) => {
 // Live Productivity Component
 const LiveProductivityDashboard = ({ activityData }) => {
   const calculateProductivity = () => {
-    const workCategories = ['Development', 'Web Browsing', 'Productivity'];
     const totalTime = activityData.reduce((sum, activity) => sum + (activity.duration || 0), 0);
     const workTime = activityData
-      .filter(activity => workCategories.includes(activity.category))
+      .filter(activity => ['productivity', 'development', 'browser', 'server'].includes(activity.category))
       .reduce((sum, activity) => sum + (activity.duration || 0), 0);
-    
+
     const productivityScore = totalTime > 0 ? (workTime / totalTime) * 100 : 0;
-    
+
+    const categories = ['productivity', 'browser', 'server', 'non-work', 'uncategorized'].map(cat => {
+      const categoryTime = activityData
+        .filter(activity => activity.category === cat)
+        .reduce((sum, activity) => sum + (activity.duration || 0), 0);
+      return {
+        name: cat,
+        time: categoryTime / 3600,
+        percentage: totalTime > 0 ? (categoryTime / totalTime) * 100 : 0
+      };
+    });
+
     return {
       totalTime: totalTime / 3600,
       workTime: workTime / 3600,
       productivityScore: Math.round(productivityScore),
-      categories: workCategories.map(category => {
-        const categoryTime = activityData
-          .filter(activity => activity.category === category)
-          .reduce((sum, activity) => sum + (activity.duration || 0), 0);
-        return {
-          name: category,
-          time: categoryTime / 3600,
-          percentage: totalTime > 0 ? (categoryTime / totalTime) * 100 : 0
-        };
-      })
+      categories
     };
   };
 
@@ -119,24 +110,17 @@ const LiveProductivityDashboard = ({ activityData }) => {
   return (
     <div className="productivity-card">
       <h3>📊 Productivity Analysis</h3>
-      
       <div className="productivity-metrics">
         <div className="productivity-metric primary">
-          <div className="metric-value primary">
-            {productivity.productivityScore}%
-          </div>
+          <div className="metric-value primary">{productivity.productivityScore}%</div>
           <div className="metric-label">Productivity Score</div>
         </div>
         <div className="productivity-metric success">
-          <div className="metric-value success">
-            {productivity.workTime.toFixed(1)}h
-          </div>
+          <div className="metric-value success">{productivity.workTime.toFixed(1)}h</div>
           <div className="metric-label">Work Time</div>
         </div>
         <div className="productivity-metric warning">
-          <div className="metric-value warning">
-            {productivity.totalTime.toFixed(1)}h
-          </div>
+          <div className="metric-value warning">{productivity.totalTime.toFixed(1)}h</div>
           <div className="metric-label">Total Time</div>
         </div>
       </div>
@@ -149,15 +133,10 @@ const LiveProductivityDashboard = ({ activityData }) => {
             <div key={category.name} className="category-item">
               <div className="category-header">
                 <span className="category-name">{category.name}</span>
-                <span className="category-stats">
-                  {category.time.toFixed(1)}h ({category.percentage.toFixed(1)}%)
-                </span>
+                <span className="category-stats">{category.time.toFixed(1)}h ({category.percentage.toFixed(1)}%)</span>
               </div>
               <div className="category-progress">
-                <div 
-                  className={`category-progress-bar ${categoryClass === 'development' ? 'development' : categoryClass === 'web-browsing' ? 'browsing' : 'productivity'}`}
-                  style={{ width: `${category.percentage}%` }}
-                />
+                <div className={`category-progress-bar ${categoryClass}`} style={{ width: `${category.percentage}%` }} />
               </div>
             </div>
           );
@@ -169,99 +148,53 @@ const LiveProductivityDashboard = ({ activityData }) => {
 
 function DeveloperDashboard({ developer, onBack }) {
   const [activityData, setActivityData] = useState([]);
-  const [topWindowTitles, setTopWindowTitles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(startOfDay(new Date()));
   const [endDate, setEndDate] = useState(endOfDay(new Date()));
   const [totalTime, setTotalTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [isTopActivitiesOpen, setIsTopActivitiesOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('activity');
   const [categoryBreakdown, setCategoryBreakdown] = useState(null);
+  const [activeTab, setActiveTab] = useState('activity');
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
-  const fetchActivityData = async (fetchFromAW = false) => {
+  const fetchActivityData = async () => {
     setLoading(true);
     try {
-      let response;
-      
-      if (developer) {
-        // Debug: Log developer object to see its structure
-        console.log('Developer object:', developer);
-        
-        // Use developer_id or id based on what's available
-        const developerId = developer.developer_id || developer.id;
-        console.log('Using developer ID:', developerId);
-        
-        // Use enhanced API for specific developer with categorization
-        response = await axios.get(`${API_BASE}/api/activity-data/${developerId}`, {
-          params: {
-            start_date: startDate.toISOString(),
-            end_date: endDate.toISOString()
-          }
-        });
-        
-        console.log('Activity data response:', response.data);
-      } else {
-        // Fallback to old API
-        const endpoint = fetchFromAW ? '/activity-data' : '/activity-summary';
-        response = await axios.get(`${API_BASE}${endpoint}`, {
-          params: {
-            start_date: startDate.toISOString(),
-            end_date: endDate.toISOString()
-          }
-        });
-      }
+      if (!developer) return;
 
-      setActivityData(response.data.data || []);
-      setTotalTime(response.data.total_time || 0);
+      const developerId = developer.developer_id || developer.id;
+
+      const response = await axios.get(`${API_BASE}/api/activity-data/${developerId}`, {
+        params: {
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString()
+        }
+      });
+
+      const data = response.data.data || [];
+      const total_time = response.data.total_time || 0;
+      const category_data = response.data.category_breakdown || null;
+
+      setActivityData(data);
+      setTotalTime(total_time);
+      setCategoryBreakdown(category_data);
       setLastUpdated(new Date());
-      
-      // Store category breakdown if available
-      if (response.data.category_breakdown) {
-        setCategoryBreakdown(response.data.category_breakdown);
-        console.log('Category breakdown:', response.data.category_breakdown);
-      }
-      
-      if (fetchFromAW) {
-        toast.success('Activity data synced from ActivityWatch!');
-      }
+
+      console.log('Fetched activity data:', data);
+      console.log('Category breakdown:', category_data);
+
     } catch (error) {
       console.error('Error fetching activity data:', error);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-      }
-      if (error.response?.status === 500 && fetchFromAW) {
-        toast.error('Could not connect to ActivityWatch. Make sure it\'s running on localhost:5600');
-      } else {
-        toast.error('Failed to fetch activity data');
-      }
+      toast.error('Failed to fetch activity data');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchTopWindowTitles = async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/top-window-titles`, {
-        params: {
-          start_date: startDate.toISOString(),
-          end_date: endDate.toISOString(),
-          limit: 30
-        }
-      });
-
-      setTopWindowTitles(response.data.top_window_titles || []);
-    } catch (error) {
-      console.error('Error fetching top window titles:', error);
-    }
-  };
-
   useEffect(() => {
-    fetchActivityData(false);
-    if (!developer) {
-      fetchTopWindowTitles();
+    if (developer) {
+      fetchActivityData();
     }
   }, [startDate, endDate, developer]);
 
@@ -269,168 +202,31 @@ function DeveloperDashboard({ developer, onBack }) {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m ${secs}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${secs}s`;
-    } else {
-      return `${secs}s`;
-    }
-  };
-
-  const formatDecimalHoursToHoursMinutes = (decimalHoursString) => {
-    const numericValue = parseFloat(decimalHoursString.replace(/[^\d.]/g, ''));
-    
-    if (isNaN(numericValue)) return decimalHoursString;
-    
-    const hours = Math.floor(numericValue);
-    const minutes = Math.round((numericValue - hours) * 60);
-    
-    if (hours > 0 && minutes > 0) {
-      return `${hours}h ${minutes}m`;
-    } else if (hours > 0) {
-      return `${hours}h`;
-    } else if (minutes > 0) {
-      return `${minutes}m`;
-    } else {
-      return '0m';
-    }
-  };
-
-  const isWorkRelatedActivity = (item) => {
-    const appName = (item.application_name || '').toLowerCase();
-    const windowTitle = (item.window_title || '').toLowerCase();
-    const category = (item.category || '').toLowerCase();
-    
-    const workApps = [
-      'cursor', 'vscode', 'visual studio', 'pycharm', 'intellij', 'sublime', 'atom', 'vim', 'emacs', 'notepad++',
-      'filezilla', 'winscp', 'putty', 'ssh', 'terminal',
-      'plesk', 'cpanel', 'whm', 'directadmin', 'webmin',
-      'datagrip', 'pgadmin', 'phpmyadmin', 'mysql', 'postgresql', 'mongodb',
-      'postman', 'insomnia', 'git', 'github', 'gitlab', 'docker', 'kubernetes',
-      'figma', 'photoshop', 'illustrator', 'canva',
-      'notion', 'obsidian', 'trello', 'asana', 'jira', 'confluence'
-    ];
-    
-    const isWorkApp = workApps.some(workApp => appName.includes(workApp));
-    const isWorkCategory = ['development', 'database', 'productivity'].includes(category);
-    const isWorkBrowser = category === 'browser' && item.urls && item.urls.length > 0 && 
-      item.urls.some(url => {
-        const domain = url.toLowerCase();
-        return domain.includes('github') || domain.includes('stackoverflow') || 
-               domain.includes('docs.') || domain.includes('api.') ||
-               domain.includes('developer') || domain.includes('tutorial') ||
-               domain.includes('plesk') || domain.includes('cpanel') ||
-               domain.includes('aws') || domain.includes('azure') || domain.includes('gcp');
-      });
-    
-    const isSystemLock = windowTitle.includes('lock') || windowTitle.includes('locked') || 
-                        appName.includes('lockapp') || appName.includes('logonui');
-    const isEntertainment = category === 'entertainment' || 
-                           windowTitle.includes('youtube') || windowTitle.includes('netflix') ||
-                           windowTitle.includes('spotify') || windowTitle.includes('music');
-    
-    return (isWorkApp || isWorkCategory || isWorkBrowser) && !isSystemLock && !isEntertainment;
+    if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;
+    if (minutes > 0) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
   };
 
   const extractProjectInfo = (item) => {
-    if (item.project_name) {
-      return { 
-        project: item.project_name, 
-        type: item.project_type || 'Work',
-        file: item.project_file || 'Activity'
-      };
-    }
-    
-    const appName = (item.application_name || '').toLowerCase();
-    const windowTitle = item.window_title || '';
-    
-    const isSystemLock = windowTitle.toLowerCase().includes('lock') || windowTitle.toLowerCase().includes('locked') || 
-                        appName.includes('lockapp') || appName.includes('logonui');
-    const isEntertainment = item.category === 'entertainment' || 
-                           windowTitle.toLowerCase().includes('youtube') || windowTitle.toLowerCase().includes('netflix') ||
-                           windowTitle.toLowerCase().includes('spotify') || windowTitle.toLowerCase().includes('music');
-    
-    if (isSystemLock || isEntertainment) {
-      return null;
-    }
-    
-    if (appName.includes('cursor') || appName.includes('vscode') || appName.includes('code')) {
-      const idePattern = /^(.+?)\s*-\s*(.+?)\s*-\s*(Visual Studio Code|Cursor|Code)/i;
-      const ideMatch = windowTitle.match(idePattern);
-      
-      if (ideMatch) {
-        return { project: ideMatch[2].trim(), type: 'Development' };
-      }
-    }
-    
-    if (item.application_name && item.application_name.length > 3) {
-      return { 
-        project: item.application_name.replace('.exe', ''), 
-        type: 'Work' 
-      };
-    }
-    
+    if (item.project_name) return { project: item.project_name, type: item.project_type || 'Work' };
+    if (item.application_name) return { project: item.application_name.replace('.exe', ''), type: 'Work' };
     return { project: 'General Work', type: 'Work' };
   };
-
-  // All inline styles removed - now using CSS classes
 
   return (
     <div className="developer-dashboard">
       <div className="dev-dashboard-header">
         <div className="header-left">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="back-button"
-            >
-              <ArrowLeft size={16} />
-              Back
-            </button>
-          )}
-          <h1 className="dev-dashboard-title">
-            <Activity size={36} color="#667eea" />
-            {developer ? `${developer.name}'s Dashboard` : 'Activity Dashboard'}
-          </h1>
+          {onBack && <button onClick={onBack} className="back-button"><ArrowLeft size={16} />Back</button>}
+          <h1 className="dev-dashboard-title"><Activity size={36} color="#667eea" />{developer ? `${developer.name}'s Dashboard` : 'Activity Dashboard'}</h1>
         </div>
-        
         <div className="dashboard-controls">
           <div className="date-picker-wrapper">
             <Calendar size={20} color="#667eea" />
-            <DatePicker
-              selected={startDate}
-              onChange={setStartDate}
-              selectsStart
-              startDate={startDate}
-              endDate={endDate}
-              placeholderText="Start Date"
-              dateFormat="MMM d, yyyy"
-            />
+            <DatePicker selected={startDate} onChange={setStartDate} selectsStart startDate={startDate} endDate={endDate} dateFormat="MMM d, yyyy" />
             <span>to</span>
-            <DatePicker
-              selected={endDate}
-              onChange={setEndDate}
-              selectsEnd
-              startDate={startDate}
-              endDate={endDate}
-              minDate={startDate}
-              placeholderText="End Date"
-              dateFormat="MMM d, yyyy"
-            />
+            <DatePicker selected={endDate} onChange={setEndDate} selectsEnd startDate={startDate} endDate={endDate} minDate={startDate} dateFormat="MMM d, yyyy" />
           </div>
-          
-          {/* ActivityWatch sync button removed
-          <button
-            onClick={() => fetchActivityData(true)}
-            disabled={loading}
-            className="btn btn-primary"
-          >
-            <RefreshCw size={16} className={loading ? 'spinning' : ''} />
-            Sync from ActivityWatch
-          </button>
-          */}
         </div>
       </div>
 
@@ -438,287 +234,45 @@ function DeveloperDashboard({ developer, onBack }) {
         <div className="stat-card">
           <Clock size={32} color="#667eea" className="stat-icon" />
           <h3>Total Time</h3>
-          <p className="stat-value">
-            {formatTime(totalTime)}
-          </p>
+          <p className="stat-value">{formatTime(totalTime)}</p>
         </div>
-        
         <div className="stat-card">
           <Activity size={32} color="#28a745" className="stat-icon" />
           <h3>Active Projects</h3>
-          <p className="stat-value green">
-            {(() => {
-              const uniqueProjects = new Set();
-              activityData.forEach(item => {
-                const projectInfo = extractProjectInfo(item);
-                if (projectInfo && projectInfo.project) {
-                  uniqueProjects.add(projectInfo.project);
-                }
-              });
-              return uniqueProjects.size;
-            })()}
-          </p>
-          <p className="stat-subtitle">
-            in selected period
-          </p>
+          <p className="stat-value green">{new Set(activityData.map(item => extractProjectInfo(item).project)).size}</p>
+          <p className="stat-subtitle">in selected period</p>
         </div>
-        
         <div className="stat-card">
           <RefreshCw size={32} color="#ffc107" className="stat-icon" />
           <h3>Last Updated</h3>
-          <p className="stat-value yellow">
-            {lastUpdated ? format(lastUpdated, 'MMM d, yyyy HH:mm') : 'Never'}
-          </p>
+          <p className="stat-value yellow">{lastUpdated ? format(lastUpdated, 'MMM d, yyyy HH:mm') : 'Never'}</p>
         </div>
       </div>
 
-      {loading && (
-        <div className="loading-spinner-container">
-          <div className="spinner loading-spinner"></div>
-          <p className="loading-text">Loading activity data...</p>
-        </div>
-      )}
-
-      {/* Tab Navigation */}
-      {developer && (
-        <div className="tab-navigation">
-          <button
-            className={`tab-button ${activeTab === 'activity' ? 'active' : ''}`}
-            onClick={() => setActiveTab('activity')}
-          >
-            <Activity size={16} />
-            Activity Data
-          </button>
-          <button
-            className={`tab-button ${activeTab === 'productivity' ? 'active' : ''}`}
-            onClick={() => setActiveTab('productivity')}
-          >
-            <BarChart2 size={16} />
-            Productivity
-          </button>
-          <button
-            className={`tab-button ${activeTab === 'projects' ? 'active' : ''}`}
-            onClick={() => setActiveTab('projects')}
-          >
-            <Briefcase size={16} />
-            Projects
-          </button>
-          <button
-            className={`tab-button ${activeTab === 'categories' ? 'active' : ''}`}
-            onClick={() => setActiveTab('categories')}
-          >
-            <FolderOpen size={16} />
-            Categories
-          </button>
-        </div>
-      )}
-
-      {/* Tab Content */}
-      {!loading && activeTab === 'activity' && activityData.length > 0 && (
+      {!loading && (
         <>
-          {/* Category Summary - Using API data */}
-          {developer && categoryBreakdown && (
+          {categoryBreakdown && (
             <div className="category-summary">
               <h3>Activity Categories</h3>
               <div className="category-cards">
-                <div className="category-card productive">
-                  <div className="category-icon">💻</div>
-                  <h4>Productivity</h4>
-                  <p className="category-percentage">
-                    {categoryBreakdown?.productivity?.percentage || 0}%
-                  </p>
-                  <p className="category-time">
-                    {categoryBreakdown?.productivity?.hours || 0}h
-                  </p>
-                </div>
-                
-                <div className="category-card browser">
-                  <div className="category-icon">🌐</div>
-                  <h4>Browser</h4>
-                  <p className="category-percentage">
-                    {categoryBreakdown?.browser?.percentage || 0}%
-                  </p>
-                  <p className="category-time">
-                    {categoryBreakdown?.browser?.hours || 0}h
-                  </p>
-                </div>
-                
-                <div className="category-card server">
-                  <div className="category-icon">☁️</div>
-                  <h4>Server</h4>
-                  <p className="category-percentage">
-                    {categoryBreakdown?.server?.percentage || 0}%
-                  </p>
-                  <p className="category-time">
-                    {categoryBreakdown?.server?.hours || 0}h
-                  </p>
-                </div>
-                
-                <div className="category-card uncategorized">
-                  <div className="category-icon">❓</div>
-                  <h4>Uncategorized</h4>
-                  <p className="category-percentage">
-                    {categoryBreakdown?.uncategorized?.percentage || 0}%
-                  </p>
-                  <p className="category-time">
-                    {categoryBreakdown?.uncategorized?.hours || 0}h
-                  </p>
-                </div>
-                
-                <div className="category-card non-work">
-                  <div className="category-icon">🎮</div>
-                  <h4>Non-Work</h4>
-                  <p className="category-percentage">
-                    {categoryBreakdown?.['non-work']?.percentage || 0}%
-                  </p>
-                  <p className="category-time">
-                    {categoryBreakdown?.['non-work']?.hours || 0}h
-                  </p>
-                </div>
+                {['productivity', 'browser', 'server', 'uncategorized', 'non-work'].map(cat => (
+                  <div key={cat} className={`category-card ${cat}`}>
+                    <div className="category-icon">{cat === 'productivity' ? '💻' : cat === 'browser' ? '🌐' : cat === 'server' ? '☁️' : cat === 'non-work' ? '🎮' : '❓'}</div>
+                    <h4>{cat.charAt(0).toUpperCase() + cat.slice(1)}</h4>
+                    <p className="category-percentage">{categoryBreakdown[cat]?.percentage || 0}%</p>
+                    <p className="category-time">{categoryBreakdown[cat]?.hours || 0}h</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
-          
-          {/* Live Daily Hours Report */}
-          <LiveDailyHoursReport activityData={activityData} startDate={startDate} endDate={endDate} />
-          
-          {/* Live Productivity Analysis */}
+
+          <LiveDailyHoursReport activityData={activityData} />
           <LiveProductivityDashboard activityData={activityData} />
-          
-          <div className="content-grid">
-            <div className="chart-container">
-              <h3>Activity Distribution</h3>
-              <ActivityChart data={activityData} />
-            </div>
-            
-            <div className="chart-container">
-              <h3>
-                Project Details
-                <span style={{ fontSize: '14px', color: '#666', fontWeight: 'normal', marginLeft: '8px' }}>
-                  ({format(startDate, 'MMM d')} - {format(endDate, 'MMM d, yyyy')})
-                </span>
-              </h3>
-              
-              {/* Only show top window titles for original dashboard (no developer prop) */}
-              {!developer && topWindowTitles.length > 0 && (
-                <div className="window-titles-section">
-                  <h4>
-                    🏆 Top Window Titles from ActivityWatch
-                    <span className="live-data-badge">
-                      Live Data
-                    </span>
-                  </h4>
-                  
-                  <div className="window-titles-grid">
-                    {topWindowTitles.map((title, index) => {
-                      const projectType = title.project_info?.project_type || 'Work';
-                      const projectTypeClass = projectType.toLowerCase().replace(/\s+/g, '-');
-                      return (
-                        <div key={index} className="window-title-item">
-                          <div className="window-title-info">
-                            <div className="window-title-header">
-                              <span className={`project-type-badge ${projectTypeClass}`}>
-                                {projectType}
-                              </span>
-                              <span className="project-name">
-                                {title.project_info?.project_name || title.application_name}
-                              </span>
-                            </div>
-                            
-                            <div className="window-title-details">
-                              📄 {title.project_info?.file_name || title.window_title}
-                            </div>
-                            
-                            <div className="application-info">
-                              💻 {title.application_name} • {title.activity_count} activities
-                            </div>
-                          </div>
-                          
-                          <div className="window-title-duration">
-                            <div className="duration-value">
-                              {formatDecimalHoursToHoursMinutes(title.duration_formatted)}
-                            </div>
-                            <div className="last-seen-time">
-                              Last: {new Date(title.last_seen).toLocaleTimeString()}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {/* Top Activities - Accordion */}
-          <div className="chart-container">
-            <div 
-              className={`accordion-header ${isTopActivitiesOpen ? 'open' : ''}`}
-              onClick={() => setIsTopActivitiesOpen(!isTopActivitiesOpen)}
-            >
-              <h3>Top Activities</h3>
-              <div className="accordion-icon">
-                {isTopActivitiesOpen ? 
-                  <ChevronUp size={20} color="#667eea" /> : 
-                  <ChevronDown size={20} color="#667eea" />
-                }
-              </div>
-            </div>
-            
-            {isTopActivitiesOpen && (
-              <div className="accordion-content">
-                <ActivityTable data={activityData.filter(item => isWorkRelatedActivity(item))} formatTime={formatTime} showUrls={true} showDetails={false} />
-              </div>
-            )}
-          </div>
         </>
       )}
 
-      {/* Productivity Tab Content */}
-      {!loading && activeTab === 'productivity' && developer && (
-        <ProductivityMetrics 
-          developerId={developer.developer_id || developer.id} 
-          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
-        />
-      )}
-
-      {/* Projects Tab Content */}
-      {!loading && activeTab === 'projects' && developer && (
-        <ProjectBreakdown 
-          developerId={developer.developer_id || developer.id} 
-          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
-        />
-      )}
-
-      {/* Categories Tab Content */}
-      {!loading && activeTab === 'categories' && developer && (
-        <CategoryBreakdown 
-          developerId={developer.developer_id || developer.id} 
-          dateRange={{ start: startDate.toISOString(), end: endDate.toISOString() }}
-        />
-      )}
-
-      {!loading && activityData.length === 0 && (
-        <div className="chart-container">
-          <div className="no-data-container">
-            <Activity size={64} color="#ccc" className="no-data-icon" />
-            <h3>No Activity Data</h3>
-            <p className="no-data-text">
-              No activity data found for the selected date range.
-            </p>
-            {/* ActivityWatch sync button removed
-            <button
-              onClick={() => fetchActivityData(true)}
-              className="btn btn-primary"
-            >
-              <RefreshCw size={16} />
-              Sync from ActivityWatch
-            </button>
-            */}
-          </div>
-        </div>
-      )}
+      {loading && <div className="loading-spinner-container"><div className="spinner loading-spinner"></div><p className="loading-text">Loading activity data...</p></div>}
     </div>
   );
 }
