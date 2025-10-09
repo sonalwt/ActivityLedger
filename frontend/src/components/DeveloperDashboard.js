@@ -11,7 +11,7 @@ function DeveloperDashboard({ developer }) {
   const [endDate, setEndDate] = useState(endOfDay(new Date()));
   const [categoryBreakdown, setCategoryBreakdown] = useState(null);
 
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   const fetchActivityData = async () => {
     if (!developer) return;
@@ -19,7 +19,7 @@ function DeveloperDashboard({ developer }) {
     try {
       const developerId = developer.id || developer.developer_id;
 
-      const res = await axios.get(`${API_BASE}/api/activity-data/${developerId}`, {
+      const res = await axios.get(`${API_BASE}/activity-data/${developerId}`, {
         params: { start_date: startDate.toISOString(), end_date: endDate.toISOString() }
       });
 
