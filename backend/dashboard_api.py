@@ -1,8 +1,9 @@
-from flask import Flask, jsonify, request, render_template
-from flask_cors import CORS
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-import os
-import sys
+import json
 def extract_app_from_activity_json(activity_data):
 
 
@@ -11,18 +12,22 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.activity_analyzer import ActivityAnalyzer
 
-app = Flask(__name__, 
-            template_folder='../frontend/templates',
-            static_folder='../frontend/static')
-CORS(app)
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # adjust to your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Database configuration - update with your credentials
 DB_CONFIG = {
     'host': 'localhost',
     'port': 5432,
-    'database': 'timesheet_db',
+    'database': 'timesheet',
     'user': 'postgres',
-    'password': 'your_password'
+    'password': 'asdf1234'
 }
 
 analyzer = ActivityAnalyzer(DB_CONFIG)
@@ -136,71 +141,64 @@ def categorize_activity(activity: dict) -> str:
     # Fallback
     return "uncategorized"
 
-# Endpoint
-@router.get("/api/activity-data/{developer_id}")
+# Endpoint@app.get("/api/activity-data/{developer_id}")
 def get_activity_data(
     developer_id: str,
     start_date: str = Query(..., description="Start date in ISO format"),
-    end_date: str = Query(..., description="End date in ISO format"),
-    db: Session = Depends(get_db)
+    end_date: str = Query(..., description="End date in ISO format")
 ):
     try:
-        # Convert date strings to datetime
         start = datetime.fromisoformat(start_date.replace("Z", ""))
         end = datetime.fromisoformat(end_date.replace("Z", ""))
 
         query = text("""
-            SELECT activity_data, created_at 
-            FROM activity_records 
+            SELECT activity_data, created_at
+            FROM activity_records
             WHERE developer_id = :dev
-            AND created_at BETWEEN :start AND :end
+              AND created_at BETWEEN :start AND :end
             ORDER BY created_at ASC
         """)
 
-        result = db.execute(query, {
-            "dev": developer_id,
-            "start": start,
-            "end": end
-        }).fetchall()
+        session = SessionLocal()
+        result = session.execute(query, {"dev": developer_id, "start": start, "end": end}).fetchall()
+        session.close()
 
-        # Categorization buckets
-        categorized_data = {
-            "productivity": [],
-            "server": [],
-            "browser": [],
-            "other": []
-        }
-
-        # Keywords
+        # Categorization rules
         productivity_keywords = ["code.exe", "cpanel", "shareplex", "filezilla"]
         server_keywords = ["aws", "google", "gcp", "termius", "azure"]
         browser_keywords = ["youtube", "gmail", "research", "stackoverflow", "github"]
 
+        all_activities = []
+
         for row in result:
-            activities = row["activity_data"]  # JSON array
+            activities = row["activity_data"]
+            if isinstance(activities, str):
+                activities = json.loads(activities)  # convert string JSON to Python list
+
             for act in activities:
                 app_name = str(act.get("app", "")).lower()
                 title = str(act.get("title", "")).lower()
 
-                category = "other"  # default
-
-                if any(key in app_name for key in productivity_keywords):
+                category = "other"
+                if any(k in app_name for k in productivity_keywords):
                     category = "productivity"
-                elif "chrome.exe" in app_name and any(key in title for key in server_keywords):
+                elif "chrome.exe" in app_name and any(k in title for k in server_keywords):
                     category = "server"
-                elif any(key in title for key in browser_keywords):
+                elif any(k in title for k in browser_keywords):
                     category = "browser"
 
-                categorized_data[category].append({
-                    "timestamp": row["created_at"],
-                    "app": app_name,
-                    "title": title,
-                    "duration": act.get("duration", 0)
+                all_activities.append({
+                    "timestamp": row["created_at"].isoformat(),
+                    "app": act.get("app"),
+                    "title": act.get("title"),
+                    "duration": act.get("duration", 0),
+                    "category": category
                 })
 
-        return categorized_data
+        return {"data": all_activities}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
