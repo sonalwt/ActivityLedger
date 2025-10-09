@@ -1,8 +1,114 @@
-# Update your dashboard_api.py with this dynamic solution
+from flask import Flask, jsonify, request, render_template
+from flask_cors import CORS
+from datetime import datetime
+import os
+import sys
+def extract_app_from_activity_json(activity_data):
+
+
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from backend.activity_analyzer import ActivityAnalyzer
+
+app = Flask(__name__, 
+            template_folder='../frontend/templates',
+            static_folder='../frontend/static')
+CORS(app)
+
+# Database configuration - update with your credentials
+DB_CONFIG = {
+    'host': 'localhost',
+    'port': 5432,
+    'database': 'timesheet_db',
+    'user': 'postgres',
+    'password': 'your_password'
+}
+
+analyzer = ActivityAnalyzer(DB_CONFIG)
+
+@app.route('/')
+def index():
+    return render_template('dashboard.html')
+
+@app.route('/api/dashboard/<developer_id>')
+def get_dashboard_data(developer_id):
+    """Get dashboard data for a specific developer"""
+    # developer_id comes as string from route
+    date_str = request.args.get('date')
+    
+    if date_str:
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+    else:
+        date = None
+    
+    try:
+        data = analyzer.get_dashboard_data(developer_id, date)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/productivity/<developer_id>/weekly')
+def get_weekly_productivity(developer_id):
+    """Get weekly productivity trend"""
+    # developer_id comes as string from route
+    try:
+        from datetime import timedelta
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=6)
+        
+        weekly_data = []
+        dates = []
+        scores = []
+        
+        current_date = start_date
+        while current_date <= end_date:
+            activities, total_duration = analyzer.get_developer_activities(
+                developer_id, current_date, current_date
+            )
+            score = analyzer.calculate_productivity_score(activities, total_duration)
+            
+            dates.append(current_date.strftime('%a'))
+            scores.append(score)
+            current_date += timedelta(days=1)
+        
+        return jsonify({
+            'dates': dates,
+            'scores': scores
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/developers')
+def get_developers():
+    """Get list of all developers"""
+    query = """
+    SELECT DISTINCT 
+        developer_id,
+        developer_id as name
+    FROM activity_records
+    WHERE developer_id IS NOT NULL AND developer_id != ''
+    ORDER BY developer_id
+    """
+    
+    try:
+        with analyzer.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                developers = [
+                    {'id': row[0], 'name': f'Developer {row[0]}'} 
+                    for row in cursor.fetchall()
+                ]
+        return jsonify(developers)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/activity-data/<developer_name>')
 def get_developer_activity_data(developer_name):
-    """Get activity data for a developer by name (handles various name formats)"""
+    """Get activity data - simplified since we know the exact format"""
     try:
         from datetime import datetime, timedelta
         import json
@@ -12,94 +118,24 @@ def get_developer_activity_data(developer_name):
         start_date = datetime.strptime(date_str, '%Y-%m-%d')
         end_date = start_date + timedelta(days=1)
         
+        print(f"Looking for developer: '{developer_name}' on date: {date_str}")
+        
         with get_db_connection() as conn:
-            # First, let's find what exact name format is in the database
-            # Convert frontend format (riddhi.dhakhara) to possible database formats
+            # Since we know the database has 'riddhidhakhara' (no spaces, lowercase)
+            # Just use the name directly!
             
-            # Split the name
-            name_parts = developer_name.split('.')
+            # First, verify the developer exists
+            check = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM activity_records
+                WHERE developer_id = ?
+                AND DATE(timestamp) = DATE(?)
+            """, (developer_name, start_date)).fetchone()
             
-            # Generate possible name formats
-            possible_formats = [
-                developer_name,                                    # riddhi.dhakhara
-                developer_name.replace('.', '_'),                  # riddhi_dhakhara
-                developer_name.replace('.', ' '),                  # riddhi dhakhara
-                ' '.join(name_parts),                             # riddhi dhakhara
-                ' '.join(name_parts).title(),                     # Riddhi Dhakhara
-                ' '.join(name_parts).upper(),                     # RIDDHI DHAKHARA
-                ' '.join(name_parts).lower(),                     # riddhi dhakhara
-                ''.join(name_parts),                              # riddhidhakhara
-                ''.join(name_parts).title(),                      # RiddhiDhakhara
-                developer_name.title(),                           # Riddhi.Dhakhara
-            ]
+            print(f"Found {check['count']} records for {developer_name} on {date_str}")
             
-            # Try to find the exact format used in activity_records
-            actual_developer_name = None
-            for format_name in possible_formats:
-                check_result = conn.execute(
-                    """
-                    SELECT DISTINCT developer_id 
-                    FROM activity_records 
-                    WHERE LOWER(developer_id) = LOWER(?)
-                    LIMIT 1
-                    """,
-                    (format_name,)
-                ).fetchone()
-                
-                if check_result:
-                    actual_developer_name = check_result['developer_id']
-                    break
-            
-            # If still not found, try partial matching
-            if not actual_developer_name and name_parts:
-                first_name = name_parts[0]
-                check_result = conn.execute(
-                    """
-                    SELECT DISTINCT developer_id 
-                    FROM activity_records 
-                    WHERE LOWER(developer_id) LIKE LOWER(?)
-                    LIMIT 1
-                    """,
-                    (f'%{first_name}%',)
-                ).fetchone()
-                
-                if check_result:
-                    actual_developer_name = check_result['developer_id']
-            
-            if not actual_developer_name:
-                # Log available developer names for debugging
-                available_devs = conn.execute("""
-                    SELECT DISTINCT developer_id 
-                    FROM activity_records 
-                    ORDER BY developer_id
-                    LIMIT 20
-                """).fetchall()
-                
-                print(f"Developer '{developer_name}' not found. Available developers:")
-                for dev in available_devs:
-                    print(f"  - {dev['developer_id']}")
-                
-                # Return empty data
-                return jsonify({
-                    'developer_name': developer_name,
-                    'actual_name': None,
-                    'date': date_str,
-                    'total_activities': 0,
-                    'total_hours': 0,
-                    'activities_by_category': {
-                        'productivity': [],
-                        'server': [],
-                        'unproductive': [],
-                        'browser': [],
-                        'system': [],
-                        'other': []
-                    },
-                    'message': f'Developer {developer_name} not found in activity records'
-                })
-            
-            # Now fetch activities with the correct developer name
-            activities = conn.execute(
-                """
+            # Get activities - use exact match
+            activities = conn.execute("""
                 SELECT 
                     id,
                     activity_data,
@@ -108,15 +144,16 @@ def get_developer_activity_data(developer_name):
                     duration,
                     timestamp,
                     category,
-                    productive
+                    productive,
+                    developer_id
                 FROM activity_records
-                WHERE developer_id = ? 
+                WHERE developer_id = ?
                 AND timestamp >= ? 
                 AND timestamp < ?
                 ORDER BY timestamp DESC
-                """,
-                (actual_developer_name, start_date, end_date)
-            ).fetchall()
+            """, (developer_name, start_date, end_date)).fetchall()
+            
+            print(f"Query returned {len(activities)} activities")
             
             # Initialize categories
             activities_by_category = {
@@ -139,19 +176,11 @@ def get_developer_activity_data(developer_name):
                     else:
                         data = activity_data
                     
-                    # Try different JSON structures
                     if 'app' in data:
                         return data['app']
                     elif 'data' in data and isinstance(data['data'], dict):
                         if 'app' in data['data']:
                             return data['data']['app']
-                        elif 'current_window' in data['data']:
-                            window_data = data['data']['current_window']
-                            if 'app' in window_data:
-                                return window_data['app']
-                    elif 'current_window' in data and 'app' in data['current_window']:
-                        return data['current_window']['app']
-                    
                     return None
                 except:
                     return None
@@ -160,37 +189,20 @@ def get_developer_activity_data(developer_name):
                 # Extract app name from JSON
                 app_name = extract_app_from_json(activity['activity_data']) if activity['activity_data'] else None
                 
-                # Determine category
-                if activity['category']:
-                    category = activity['category']
-                else:
-                    app_lower = (app_name or '').lower()
-                    title_lower = (activity['window_title'] or '').lower()
-                    
-                    if any(x in app_lower for x in ['code', 'cursor', 'terminal', 'pycharm']):
-                        category = 'productivity'
-                    elif any(x in app_lower for x in ['chrome', 'firefox', 'edge', 'brave']):
-                        if any(x in title_lower for x in ['aws', 'azure', 'github', 'localhost']):
-                            category = 'server'
-                        elif any(x in title_lower for x in ['youtube', 'facebook', 'instagram']):
-                            category = 'unproductive'
-                        else:
-                            category = 'browser'
-                    elif 'explorer' in app_lower:
-                        category = 'system'
-                    else:
-                        category = 'other'
+                # Use existing category or determine new one
+                category = activity['category'] if activity['category'] else 'other'
                 
+                # Ensure category exists in our dict
                 if category not in activities_by_category:
                     category = 'other'
                 
-                # Add activity to category
+                # Add to appropriate category
                 activity_data = {
                     'id': activity['id'],
                     'application_name': app_name or 'Unknown',
                     'window_title': activity['window_title'] or '',
                     'url': activity['url'] or '',
-                    'duration': float(activity['duration']) if activity['duration'] else 60.0,
+                    'duration': float(activity['duration']) if activity['duration'] else 0,
                     'timestamp': activity['timestamp'].isoformat() if activity['timestamp'] else None,
                     'category': category
                 }
@@ -198,7 +210,7 @@ def get_developer_activity_data(developer_name):
                 activities_by_category[category].append(activity_data)
                 
                 # Calculate totals
-                duration = float(activity['duration']) if activity['duration'] else 60.0
+                duration = float(activity['duration']) if activity['duration'] else 0
                 total_duration += duration
                 
                 if category in ['productivity', 'server']:
@@ -209,10 +221,10 @@ def get_developer_activity_data(developer_name):
             
             return jsonify({
                 'developer_name': developer_name,
-                'actual_name': actual_developer_name,
+                'actual_name': developer_name,
                 'date': date_str,
                 'total_activities': len(activities),
-                'total_hours': total_duration / 3600,
+                'total_hours': total_duration / 3600,  # Convert seconds to hours
                 'productive_hours': productive_duration / 3600,
                 'productivity_percentage': round(productivity_percentage, 2),
                 'activities_by_category': activities_by_category,
@@ -246,34 +258,34 @@ def get_developer_activity_data(developer_name):
             }
         }), 200
 
-# Also update the developers endpoint to return names in the format your frontend expects
+# Update developers endpoint to return exact names
 @app.route('/api/developers-orm')
 def get_developers_orm():
-    """Get all developers - dynamic based on what's in activity_records"""
+    """Get all developers - return exact names as in database"""
     try:
         with get_db_connection() as conn:
-            # Get unique developer names from activity_records
-            developer_names = conn.execute("""
-                SELECT DISTINCT developer_id as name, COUNT(*) as activity_count
+            # Get unique developer names exactly as they are
+            result = conn.execute("""
+                SELECT DISTINCT developer_id, COUNT(*) as activity_count
                 FROM activity_records
-                WHERE developer_id IS NOT NULL
+                WHERE developer_id IS NOT NULL AND developer_id != ''
                 GROUP BY developer_id
                 ORDER BY developer_id
             """).fetchall()
             
-            # Format for frontend compatibility
             developers = []
-            for idx, dev in enumerate(developer_names):
-                name = dev['name']
-                # Convert to frontend format (e.g., "Riddhi Dhakhara" -> "riddhi.dhakhara")
-                formatted_id = name.lower().replace(' ', '.')
+            for idx, row in enumerate(result):
+                developer_id = row['developer_id']
+                
+                # For display, convert to title case
+                display_name = ' '.join(word.capitalize() for word in developer_id.replace('.', ' ').split())
                 
                 developers.append({
-                    'id': formatted_id,  # Frontend expects this format
-                    'name': name,        # Actual name in database
-                    'email': f'{formatted_id}@company.com',  # Generated email
+                    'id': developer_id,  # Use exact database format: riddhidhakhara
+                    'name': display_name,  # Display as: Riddhidhakhara
+                    'email': f'{developer_id}@company.com',
                     'team_id': 1,
-                    'activity_count': dev['activity_count']
+                    'activity_count': row['activity_count']
                 })
             
             return jsonify(developers)
@@ -281,25 +293,42 @@ def get_developers_orm():
         print(f"Error in get_developers_orm: {str(e)}")
         return jsonify([]), 200
 
-# Add a debug endpoint to check name formats
-@app.route('/api/debug/developer-names')
-def debug_developer_names():
-    """Debug endpoint to see actual developer names in database"""
+# Add debug endpoint to verify data
+@app.route('/api/debug/check-developer/<developer_name>')
+def check_developer(developer_name):
+    """Debug endpoint to check developer data"""
     try:
         with get_db_connection() as conn:
-            names = conn.execute("""
-                SELECT DISTINCT developer_id, COUNT(*) as count
+            # Check exact match
+            exact = conn.execute("""
+                SELECT developer_id, COUNT(*) as count, 
+                       MIN(timestamp) as first_activity,
+                       MAX(timestamp) as last_activity
                 FROM activity_records
-                WHERE developer_id IS NOT NULL
+                WHERE developer_id = ?
                 GROUP BY developer_id
-                ORDER BY count DESC
-                LIMIT 50
-            """).fetchall()
+            """, (developer_name,)).fetchone()
             
-            return jsonify([{
-                'database_name': name['developer_id'],
-                'frontend_format': name['developer_id'].lower().replace(' ', '.'),
-                'record_count': name['count']
-            } for name in names])
+            # Check similar
+            similar = conn.execute("""
+                SELECT DISTINCT developer_id
+                FROM activity_records
+                WHERE developer_id LIKE ?
+                LIMIT 10
+            """, (f'%{developer_name[:5]}%',)).fetchall()
+            
+            return jsonify({
+                'searched_for': developer_name,
+                'exact_match': {
+                    'found': exact is not None,
+                    'count': exact['count'] if exact else 0,
+                    'first_activity': str(exact['first_activity']) if exact else None,
+                    'last_activity': str(exact['last_activity']) if exact else None
+                },
+                'similar_names': [row['developer_id'] for row in similar]
+            })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5001)
