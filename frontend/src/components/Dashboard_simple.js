@@ -11,7 +11,7 @@ const Dashboard = () => {
   const [totalTime, setTotalTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
   
-  const API_BASE = 'http://localhost:8000';
+  const API_BASE = 'https://api-timesheet.firsteconomy.com';
 
   useEffect(() => {
     fetchActivityData();

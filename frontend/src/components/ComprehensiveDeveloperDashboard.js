@@ -20,7 +20,7 @@ const ComprehensiveDeveloperDashboard = ({ developer, onBack }) => {
   const [projectData, setProjectData] = useState(null);
   const [activityData, setActivityData] = useState([]);
   
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
 
   useEffect(() => {
     fetchAllData();

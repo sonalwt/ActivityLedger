@@ -6,7 +6,7 @@ function Dashboard() {
 
   const fetchActivities = async () => {
     try {
-      const res = await axios.get("http://localhost:8000/activities");
+      const res = await axios.get("https://api-timesheet.firsteconomy.com/activities");
       setActivities(res.data);
     } catch (error) {
       console.error(error);
