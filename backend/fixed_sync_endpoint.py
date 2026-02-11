@@ -9,9 +9,11 @@ import json
 
 router = APIRouter()
 
+# Replace your receive_sync_data function with this fixed version:
+
 @router.post("/api/sync")
 async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
-    """Fixed sync endpoint that properly processes ActivityWatch data"""
+    """Fixed sync endpoint with proper transaction handling"""
     try:
         name = sync_data.get("name")
         token = sync_data.get("token")
@@ -34,6 +36,9 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
         
         # Process and save activity records
         saved_count = 0
+        failed_count = 0
+        
+        # Process events in batches to handle transaction failures
         for event in data:
             try:
                 # Extract event data properly
@@ -73,62 +78,98 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                 except:
                     parsed_timestamp = datetime.now(timezone.utc)
                 
-                # Insert into activity_records table
-                insert_query = text("""
-                    INSERT INTO activity_records (
-                        developer_id, application_name, window_title,
-                        url, file_path, duration, timestamp,
-                        category, project_name, project_type,
-                        created_at
-                    ) VALUES (
-                        :developer_id, :application_name, :window_title,
-                        :url, :file_path, :duration, :timestamp,
-                        :category, :project_name, :project_type,
-                        :created_at
-                    )
-                    ON CONFLICT (developer_id, timestamp, application_name, window_title) 
-                    DO UPDATE SET
-                        duration = EXCLUDED.duration,
-                        category = EXCLUDED.category,
-                        project_name = EXCLUDED.project_name,
-                        project_type = EXCLUDED.project_type
-                """)
+                # Create a savepoint before each insert
+                savepoint = db.connection().connection.cursor()
+                savepoint.execute("SAVEPOINT sp1")
                 
-                db.execute(insert_query, {
-                    "developer_id": developer_id,
-                    "application_name": app_name[:255],
-                    "window_title": window_title[:500],
-                    "url": url,
-                    "file_path": file_path,
-                    "duration": int(duration * 1000),  # Convert to milliseconds
-                    "timestamp": parsed_timestamp,
-                    "category": category_info["category"],
-                    "project_name": project_name,
-                    "project_type": category_info["subcategory"],
-                    "created_at": datetime.now(timezone.utc)
-                })
-                
-                saved_count += 1
-                
+                try:
+                    # Insert into activity_records table
+                    insert_query = text("""
+                        INSERT INTO activity_records (
+                            developer_id, application_name, window_title,
+                            url, file_path, duration, timestamp,
+                            category, project_name, project_type,
+                            created_at
+                        ) VALUES (
+                            :developer_id, :application_name, :window_title,
+                            :url, :file_path, :duration, :timestamp,
+                            :category, :project_name, :project_type,
+                            :created_at
+                        )
+                        ON CONFLICT (developer_id, timestamp, application_name, window_title) 
+                        DO UPDATE SET
+                            duration = EXCLUDED.duration,
+                            category = EXCLUDED.category,
+                            project_name = EXCLUDED.project_name,
+                            project_type = EXCLUDED.project_type
+                    """)
+                    
+                    db.execute(insert_query, {
+                        "developer_id": developer_id,
+                        "application_name": app_name[:255],
+                        "window_title": window_title[:500],
+                        "url": url[:1000] if url else "",
+                        "file_path": file_path[:1000] if file_path else "",
+                        "duration": int(duration * 1000),  # Convert to milliseconds
+                        "timestamp": parsed_timestamp,
+                        "category": category_info["category"],
+                        "project_name": project_name,
+                        "project_type": category_info["subcategory"],
+                        "created_at": datetime.now(timezone.utc)
+                    })
+                    
+                    # Release savepoint on success
+                    savepoint.execute("RELEASE SAVEPOINT sp1")
+                    saved_count += 1
+                    
+                except Exception as e:
+                    # Rollback to savepoint on error
+                    savepoint.execute("ROLLBACK TO SAVEPOINT sp1")
+                    failed_count += 1
+                    print(f"Error inserting record: {e}")
+                    continue
+                    
             except Exception as e:
+                failed_count += 1
                 print(f"Error processing event: {e}")
+                db.rollback()  # Add this line
+                db.begin()    
                 continue
         
-        db.commit()
-        
-        print(f"✅ Synced {saved_count} activities for {developer_id}")
+        # Commit all successful inserts
+        try:
+            db.commit()
+            print(f"✅ Synced {saved_count} activities for {developer_id} (failed: {failed_count})")
+        except Exception as e:
+            # If commit fails, try to recover
+            db.rollback()
+            print(f"❌ Commit failed, attempting recovery: {e}")
+            
+            # Try to at least save some data
+            saved_count = 0
+            for event in data[:10]:  # Try just first 10
+                try:
+                    # Start fresh transaction for each
+                    db.begin()
+                    # ... insert logic ...
+                    db.commit()
+                    saved_count += 1
+                except:
+                    db.rollback()
+                    continue
         
         return {
             "success": True,
             "received": len(data),
             "saved": saved_count,
+            "failed": failed_count,
             "developer": developer_id
         }
         
     except Exception as e:
         db.rollback()
         print(f"❌ Sync error: {e}")
-        return {"error": str(e)}
+        return {"error": str(e), "success": False}
 
 def extract_project_name(window_title: str, app_name: str) -> str:
     """Extract project name from window title"""

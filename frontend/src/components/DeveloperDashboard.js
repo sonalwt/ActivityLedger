@@ -10,8 +10,8 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import './DeveloperDashboard.css';
 
 // Existing Components
-import LiveDailyHoursReport from './LiveDailyHoursReport';
-import LiveProductivityDashboard from './LiveProductivityDashboard';
+// import LiveDailyHoursReport from './LiveDailyHoursReport';
+// import LiveProductivityDashboard from './LiveProductivityDashboard';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#6b7280'];
 
@@ -185,12 +185,12 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       )}
 
-      {!loading && (
+      {/* {!loading && (
         <>
           <LiveDailyHoursReport activityData={activityData} />
           <LiveProductivityDashboard activityData={activityData} />
         </>
-      )}
+      )} */}
 
       {loading && <div className="loading-spinner-container"><div className="spinner loading-spinner"></div><p className="loading-text">Loading activity data...</p></div>}
     </div>
