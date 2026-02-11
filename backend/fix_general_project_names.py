@@ -96,6 +96,22 @@ with engine.connect() as conn:
     print("2. Analyzing fixable records:")
     print("-" * 80)
 
+    # First show what application names exist for 'general' records
+    print("\n  Application names in 'general' records:")
+    app_names = conn.execute(text("""
+        SELECT application_name, COUNT(*) as cnt
+        FROM activity_records
+        WHERE project_name = 'general'
+        GROUP BY application_name
+        ORDER BY cnt DESC
+        LIMIT 20
+    """)).fetchall()
+    for app_row in app_names:
+        print(f"    {app_row[0] or 'NULL':<40} {app_row[1]:>6} records")
+    print()
+
+    # Fetch ALL 'general' records (not just browser/code)
+    # The extraction functions will handle filtering
     result = conn.execute(text("""
         SELECT
             id,
@@ -103,12 +119,8 @@ with engine.connect() as conn:
             application_name
         FROM activity_records
         WHERE project_name = 'general'
-        AND (
-            application_name ILIKE '%code%'
-            OR application_name ILIKE '%chrome%'
-            OR application_name ILIKE '%firefox%'
-            OR application_name ILIKE '%edge%'
-        )
+        AND window_title IS NOT NULL
+        AND window_title != ''
     """))
 
     fixable_records = []
