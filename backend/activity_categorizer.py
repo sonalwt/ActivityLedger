@@ -1,264 +1,504 @@
 # activity_categorizer.py
 """
-Activity Categorizer - Categorizes activities based on window titles and applications
+Four Categories:
+1) PRODUCTIVE  → IDEs, Office, dev tools, terminals, database tools, AI tools, project folders
+2) BROWSER     → YouTube, Gmail, social, entertainment, shopping, ALL MAIL
+3) SERVER      → AWS, GCP, Azure, SSH, Docker, monitoring, hosting, Firebase
+4) NON-WORK    → Lock screen, idle, AFK, personal media, system utilities
 """
+
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
+
 
 class ActivityCategorizer:
-    """Categorizes activities into Productive, Browser, and Server categories"""
-    
     def __init__(self):
-        # Define patterns for each category
-        self.productive_patterns = [
-            # IDEs and Code Editors
-            r"visual studio", r"vscode", r"vs code", r"cursor", r"sublime", r"atom",
-            r"intellij", r"pycharm", r"webstorm", r"phpstorm", r"rubymine",
-            r"eclipse", r"netbeans", r"vim", r"emacs", r"notepad\+\+",
-            
-            # Development Tools
-            r"git", r"github desktop", r"sourcetree", r"gitkraken",
-            r"docker", r"kubernetes", r"postman", r"insomnia",
-            r"datagrip", r"dbeaver", r"mysql workbench", r"pgadmin",
-            r"mongodb compass", r"redis", r"terminal", r"cmd", r"powershell",
-            r"wsl", r"ubuntu", r"bash", r"zsh",
-            
-            # File Management & Server Tools
-            r"filezilla", r"winscp", r"cyberduck", r"putty", r"ssh",
-            r"ftp", r"sftp", r"scp",
-            
-            # Control Panels
-            r"cpanel", r"plesk", r"whm", r"directadmin", r"webmin",
-            r"phpmyadmin", r"adminer",
-            
-            # Design & Documentation
-            r"figma", r"sketch", r"adobe xd", r"photoshop", r"illustrator",
-            r"notion", r"obsidian", r"confluence", r"jira", r"trello",
-            r"asana", r"monday", r"clickup", r"linear",
-            
-            # Project Files
-            r"\.js$", r"\.ts$", r"\.py$", r"\.php$", r"\.java$", r"\.cs$",
-            r"\.cpp$", r"\.c$", r"\.rb$", r"\.go$", r"\.rs$", r"\.swift$",
-            r"\.html$", r"\.css$", r"\.scss$", r"\.json$", r"\.xml$", r"\.yaml$",
-            r"\.md$", r"\.txt$", r"\.sql$", r"\.sh$", r"\.bat$",
-            
-            # Common project folders
-            r"timesheet", r"project", r"development", r"workspace",
-            r"repos", r"repository", r"src", r"app", r"backend", r"frontend"
+
+        # Known projects/clients - ALWAYS productive
+        self.known_projects = [
+            "radiant_clone", "radiant clone", "radiant-mail", "timesheet",
+            "waaree", "firsteconomy", "first economy",
+            "hdfc", "mahindra", "manulife", "indosolar",
+            "jaypeeinfratechcoin", "scalpe", "nodeserver"
         ]
-        
-        self.browser_patterns = [
-            # Browsers
-            r"chrome", r"firefox", r"edge", r"safari", r"opera", r"brave",
-            
-            # AI/Chat Services
-            r"claude", r"chatgpt", r"chat\.openai", r"bard", r"gemini",
-            r"copilot", r"perplexity", r"phind", r"you\.com",
-            
-            # Development Resources
-            r"stackoverflow", r"github\.com", r"gitlab", r"bitbucket",
-            r"developer\.mozilla", r"w3schools", r"codecademy",
-            r"freecodecamp", r"udemy", r"coursera", r"pluralsight",
-            
-            # Documentation Sites
-            r"docs\.", r"documentation", r"api\.", r"reference",
-            r"tutorial", r"guide", r"manual", r"wiki",
-            
-            # Social & Communication (if in browser)
-            r"gmail", r"outlook", r"slack", r"discord", r"teams",
-            r"twitter", r"linkedin", r"facebook", r"reddit",
-            
-            # Search Engines
-            r"google\.com", r"bing\.com", r"duckduckgo", r"search"
-        ]
-        
-        self.server_patterns = [
-            # Cloud Providers
-            r"aws", r"amazon web services", r"ec2", r"s3", r"lambda",
-            r"cloudformation", r"elasticbeanstalk", r"rds", r"dynamodb",
-            
-            r"gcp", r"google cloud", r"compute engine", r"cloud storage",
-            r"cloud functions", r"bigquery", r"firebase",
-            
-            r"azure", r"microsoft azure", r"azure portal", r"azure devops",
-            
-            r"digitalocean", r"linode", r"vultr", r"heroku", r"netlify",
-            r"vercel", r"cloudflare", r"namecheap", r"godaddy",
-            
-            # Server Management
-            r"ssh", r"rdp", r"remote desktop", r"vnc", r"teamviewer",
-            r"anydesk", r"parsec",
-            
-            # Monitoring & Analytics
-            r"datadog", r"new relic", r"grafana", r"prometheus",
-            r"elastic", r"kibana", r"splunk", r"sentry",
-            
+
+        # 🟦 SERVER keywords (word-boundary safe)
+        self.server_keywords = [
+            # AWS (use longer forms to avoid substring issues)
+            "aws console", "aws.", "ec2", "s3 bucket", "lambda function",
+            "iam ", "cloudwatch", "cloudfront", "route 53", "elasticache",
+            "amazon web services",
+            # Azure
+            "azure", "microsoft azure",
+            # GCP / Firebase
+            "gcp", "google cloud", "firebase", "firestore",
+            # Hosting / DNS
+            "digitalocean", "droplet", "linode", "vultr",
+            "vercel", "netlify", "cloudflare", "godaddy", "namecheap",
+            "heroku", "render.com", "railway.app",
             # CI/CD
-            r"jenkins", r"travis", r"circle ?ci", r"gitlab ci", r"github actions",
-            r"bitbucket pipelines", r"bamboo", r"teamcity",
-            
-            # Container & Orchestration
-            r"kubernetes", r"k8s", r"docker", r"rancher", r"openshift",
-            r"portainer", r"container", r"pod", r"cluster"
+            "jenkins", "github actions", "gitlab ci", "circleci", "travis ci",
+            # Containers
+            "docker", "kubernetes", "k8s",
+            # Monitoring
+            "grafana", "prometheus", "datadog", "new relic", "sentry",
+            "statuscake", "status cake",
+            # Remote access
+            "ssh ", "rdp ", " vnc", "teamviewer", "anydesk", "openvpn",
+            "termius", "putty", "securecrt", "xshell", "mobaxterm",
+            "winscp",
+            # cPanel / hosting panels
+            "cpanel", "whm", "plesk", "directadmin"
         ]
-        
-        # Non-work patterns to exclude
-        self.non_work_patterns = [
-            r"youtube", r"netflix", r"spotify", r"twitch", r"disney",
-            r"hulu", r"prime video", r"music", r"video", r"movie",
-            r"game", r"steam", r"epic games", r"origin", r"battle\.net",
-            r"lock screen", r"locked", r"lockapp", r"screensaver",
-            r"idle", r"afk", r"away"
+
+        # 🟩 PRODUCTIVE apps/tools (checked by app_name or specific indicators)
+        self.productive_apps = [
+            # IDEs
+            "vscode", "code.exe", "cursor", "pycharm", "intellij",
+            "webstorm", "phpstorm", "sublime", "atom", "vim", "nvim",
+            "emacs", "notepad++", "visual studio", "claude code",
+            "android studio", "xcode", "rider", "goland", "rubymine",
+            "clion", "datagrip",
+            # Terminals
+            "windowsterminal", "windows terminal", "powershell",
+            "cmd.exe", "pwsh.exe", "git bash", "mintty", "conemu",
+            "cmder", "hyper", "warp", "alacritty", "wezterm",
+            # Microsoft Office
+            "winword", "excel", "powerpnt", "onenote", "msword",
+            "microsoft word", "microsoft excel", "microsoft powerpoint",
+            "microsoft teams",
+            # Database tools
+            "dbeaver", "pgadmin", "mysql workbench", "mongodb compass",
+            "redis", "sqlitestudio", "navicat", "heidisql",
+            "phpmyadmin", "adminer",
+            # Git tools
+            "github desktop", "gitkraken", "sourcetree", "tortoisegit",
+            "lazygit",
+            # API tools
+            "postman", "insomnia", "hoppscotch",
+            # Design
+            "figma", "adobe xd", "photoshop", "illustrator", "canva",
+            "sketch",
+            # AI tools
+            "chatgpt", "claude", "perplexity", "phind", "copilot",
+            # Communication (work)
+            "slack", "zoom", "microsoft teams", "google meet",
+            # File transfer
+            "filezilla",
+            # Note-taking
+            "notion", "obsidian",
+            # Windows tools
+            "notepad.exe", "calculator"
         ]
-    
-    def categorize_activity(self, window_title: str, app_name: str = "") -> Tuple[str, float]:
-        """
-        Categorize an activity based on window title and application name
-        Returns: (category, confidence_score)
-        """
-        # Combine title and app for analysis
-        combined_text = f"{window_title} {app_name}".lower()
-        
-        # Check if it's non-work activity first
-        if self._matches_patterns(combined_text, self.non_work_patterns):
-            return "non-work", 0.9
-        
-        # Score each category
-        scores = {
-            "productive": self._calculate_score(combined_text, self.productive_patterns),
-            "browser": self._calculate_score(combined_text, self.browser_patterns),
-            "server": self._calculate_score(combined_text, self.server_patterns)
-        }
-        
-        # Get the highest scoring category
-        max_category = max(scores, key=scores.get)
-        max_score = scores[max_category]
-        
-        # If no strong match, try to infer from context
-        if max_score < 0.3:
-            # Check for file extensions
-            if re.search(r'\.(py|js|php|java|cs|cpp|html|css|json|xml|sql)', combined_text):
-                return "productive", 0.7
-            # Check if it's a browser window with development-related content
-            elif any(browser in combined_text for browser in ["chrome", "firefox", "edge"]):
-                if any(dev_term in combined_text for dev_term in ["localhost", "127.0.0.1", ":3000", ":8000", ":5000"]):
-                    return "productive", 0.6
-                else:
-                    return "browser", 0.5
+
+        # 🟩 PRODUCTIVE browser URLs/sites
+        self.productive_sites = [
+            # Code hosting
+            "github.com", "gitlab.com", "bitbucket",
+            # Dev communities
+            "stackoverflow", "stack overflow", "stackexchange",
+            "dev.to", "hashnode",
+            # Package registries
+            "npmjs.com", "pypi.org", "crates.io", "nuget.org",
+            "packagist.org", "rubygems.org",
+            # Documentation
+            "developer.mozilla.org", "mdn web docs",
+            "docs.python.org", "docs.oracle.com",
+            "reactjs.org", "vuejs.org", "angular.io", "nextjs.org",
+            "tailwindcss.com", "getbootstrap.com",
+            "swagger", "readthedocs", "gitbook",
+            # Dev tools
+            "localhost", "127.0.0.1",
+            ":3000", ":8000", ":5000", ":4200", ":8080", ":5173",
+            # PM tools
+            "jira", "trello", "asana", "confluence", "clickup",
+            "linear.app", "basecamp",
+            # AI tools
+            "chat.openai.com", "claude.ai", "perplexity.ai",
+            # CMS
+            "wordpress", "wp-admin"
+        ]
+
+        # Code file extensions
+        self.code_extensions = [
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".php", ".java",
+            ".cpp", ".c", ".h", ".cs", ".rb", ".go", ".rs", ".vue",
+            ".html", ".css", ".scss", ".sass", ".json", ".xml", ".sql",
+            ".swift", ".kt", ".dart", ".sh", ".yaml", ".yml",
+            ".env", ".gitignore", ".dockerfile", ".toml", ".ini"
+        ]
+
+        # 🟧 BROWSER (non-productive) keywords
+        self.browser_keywords = [
+            # Shopping
+            "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
+            "snapdeal", "meesho", "add to cart", "buy online",
+            # Entertainment
+            "youtube", "youtu.be", "netflix", "amazon prime",
+            "primevideo", "hotstar", "spotify", "twitch", "voot",
+            "zee5", "sonyliv", "jiocinema",
+            # Social
+            "facebook", "instagram", "snapchat", "tiktok",
+            "pinterest", "reddit", "twitter", "x.com",
+            "whatsapp web", "telegram web", "linkedin feed",
+            # Search
+            "google.com/search", "bing.com/search",
+            "duckduckgo", "- google search",
+            # Google services (non-work)
+            "google photos", "google maps", "google calendar",
+            # News / non-work
+            "news", "cricket", "sports", "movies", "songs",
+            # Extensions
+            "awesome screenshot"
+        ]
+
+        # 🟥 NON-WORK keywords
+        self.non_work_keywords = [
+            "untitled", "new tab", "blank", "empty",
+            "lockapp.exe", "lockapp", "lock screen", "sessionlock",
+            "windows default lock screen",
+            "idle", "idle-time", "afk", "away",
+            "not active", "userinactive", "no active window",
+            "screensaver", "screen saver", "new incognito tab",
+            # Windows system
+            "program manager", "task manager",
+            "ms-settings", "windows settings", "control panel",
+            # Personal media apps
+            "photos.exe", "microsoft.photos",
+            "movies & tv", "groove music", "windows media player",
+            "vlc media player"
+        ]
+
+        # Personal folders (for File Explorer)
+        self.personal_folders = [
+            "downloads", "documents", "desktop", "pictures",
+            "music", "videos", "recycle bin", "this pc",
+            "onedrive", "dropbox", "appdata"
+        ]
+
+    def categorize_activity(self, window_title: str, app_name: str = "", project_name: str = "") -> Tuple[str, float]:
+        text = f"{window_title} {app_name} {project_name}".lower()
+        window_lower = window_title.lower().strip()
+        app_lower = app_name.lower().strip() if app_name else ""
+
+        # ── Termius -> SERVER (check by app name before project match) ──
+        if "termius" in app_lower:
+            return ("server", 1.0)
+
+        # ── 0a. ALL browser apps -> BROWSER (before project match) ──
+        browser_apps = ["chrome.exe", "google chrome", "firefox", "msedge",
+                        "brave", "opera", "safari", "vivaldi", "arc"]
+        is_browser_app = any(b in app_lower for b in browser_apps)
+        if is_browser_app:
+            # Check server keywords first (AWS, StatusCake, etc. in browser = server)
+            for word in self.server_keywords:
+                if word in text:
+                    return ("server", 0.95)
+            return ("browser", 1.0)
+
+        # ── 0b. Known projects -> ALWAYS PRODUCTIVE (check first!) ──
+        if project_name and any(project in project_name.lower() for project in self.known_projects):
+            return ("productive", 1.0)
+
+        # ── 1. SKIP: Empty/meaningless/idle ──
+        idle_titles = ["untitled", "new tab", "blank", "",
+                       "open folder", "welcome", "walkthrough",
+                       "getting started", "release notes",
+                       "visual studio code"]
+        if window_lower in idle_titles:
+            # If it's an IDE title but has a project name, it's still productive work
+            if window_lower == "visual studio code" and project_name:
+                return ("productive", 1.0)
+            return ("non-work", 1.0)
+
+        # ── 2. EMAIL: Always browser ──
+        email_indicators = ["inbox", "@gmail", "@yahoo", "@outlook", "@hotmail",
+                           "@firsteconomy", "first economy mail", "webmail"]
+        if any(ind in text for ind in email_indicators):
+            # But NOT if it's a code file with "mail" in the path
+            if not any(ext in text for ext in [".py", ".js", ".jsx", ".ts", ".php", ".html"]):
+                return ("browser", 1.0)
+
+        # ── 3. uKnowva/HR portal -> BROWSER ──
+        if "uknowva" in text or "uknowa" in text:
+            return ("browser", 1.0)
+
+        # ── 4. System utilities -> NON-WORK ──
+        system_apps = ["notification center", "shellexperiencehost", "searchhost",
+                       "searchapp", "searchui", "windows shell experience host",
+                       "snipping tool", "snippingtool", "cortana"]
+        if any(app in text for app in system_apps):
+            return ("non-work", 1.0)
+
+        # ── 5. Known projects -> ALWAYS PRODUCTIVE ──
+        if any(project in text for project in self.known_projects):
+            return ("productive", 1.0)
+
+        # ── 6. IDEs & Terminals -> PRODUCTIVE ──
+        ide_indicators = [
+            "vscode", "code.exe", "cursor", "pycharm", "intellij",
+            "webstorm", "phpstorm", "sublime", "atom", " vim ",
+            "emacs", "notepad++", "visual studio", "claude code",
+            "android studio", "xcode", "rider", "goland", "rubymine",
+            "clion", "datagrip"
+        ]
+        if any(ide in text for ide in ide_indicators):
+            return ("productive", 1.0)
+
+        terminal_indicators = [
+            "windowsterminal", "windows terminal", "powershell",
+            "cmd.exe", "pwsh.exe", "git bash", "mintty",
+            "conemu", "cmder", "command prompt"
+        ]
+        if any(t in text for t in terminal_indicators):
+            return ("productive", 1.0)
+
+        # ── 7. Microsoft Office -> PRODUCTIVE ──
+        office_tools = ["winword", "excel", "powerpnt", "onenote", "msword",
+                        "microsoft word", "microsoft excel", "microsoft powerpoint",
+                        "libreoffice", "openoffice"]
+        if any(tool in text for tool in office_tools):
+            return ("productive", 1.0)
+
+        # ── 8. Code file extensions -> PRODUCTIVE ──
+        # Only match extensions at word boundaries (avoid "access" matching ".css")
+        for ext in self.code_extensions:
+            # Check if extension appears as actual file extension (followed by space, end, or dash)
+            pattern = re.escape(ext) + r'(?:\s|$|["\s\-,;])'
+            if re.search(pattern, text):
+                return ("productive", 1.0)
+            # Also match if window title ends with the extension
+            if window_lower.endswith(ext) or f"{ext} " in text:
+                return ("productive", 1.0)
+
+        # ── 9. Database tools -> PRODUCTIVE ──
+        db_tools = ["dbeaver", "pgadmin", "mysql workbench", "mongodb compass",
+                     "sqlitestudio", "navicat", "heidisql", "phpmyadmin",
+                     "adminer", "redis desktop"]
+        if any(db in text for db in db_tools):
+            return ("productive", 1.0)
+
+        # ── 10. Design / API / PM tools -> PRODUCTIVE ──
+        work_tools = ["postman", "insomnia", "figma", "adobe xd", "photoshop",
+                      "illustrator", "canva", "sketch", "filezilla",
+                      "jira", "notion", "trello", "asana", "confluence",
+                      "clickup", "obsidian", "slack", "microsoft teams",
+                      "github desktop", "gitkraken", "sourcetree"]
+        if any(tool in text for tool in work_tools):
+            return ("productive", 1.0)
+
+        # ── 11. AI tools -> PRODUCTIVE ──
+        ai_tools = ["chatgpt", "claude.ai", "perplexity", "phind",
+                     "copilot", "chat.openai"]
+        if any(ai in text for ai in ai_tools):
+            return ("productive", 1.0)
+
+        # ── 12. SERVER keywords ──
+        for word in self.server_keywords:
+            if word in text:
+                return ("server", 0.95)
+
+        # ── 13. File Explorer -> smart check ──
+        if "file explorer" in text:
+            if any(f in text for f in self.personal_folders):
+                return ("non-work", 1.0)
+            return ("productive", 0.85)
+
+        # ── 14. NON-WORK keywords ──
+        for word in self.non_work_keywords:
+            if word in text:
+                return ("non-work", 1.0)
+
+        # ── 15. Browser: productive sites first ──
+        is_browser = any(b in app_lower for b in
+                        ["chrome", "firefox", "msedge", "brave", "opera", "browser"])
+
+        if is_browser:
+            # Check productive sites FIRST
+            for site in self.productive_sites:
+                if site in text:
+                    return ("productive", 0.95)
+
+            # Shopping
+            shopping = ["amazon.in", "amazon.com", "flipkart", "myntra",
+                       "ajio", "meesho", "snapdeal"]
+            if any(s in text for s in shopping):
+                return ("browser", 1.0)
+
+            # Entertainment
+            entertainment = ["youtube", "netflix", "primevideo", "hotstar",
+                           "spotify", "twitch", "voot", "zee5", "sonyliv"]
+            if any(e in text for e in entertainment):
+                return ("browser", 1.0)
+
+            # Social media
+            social = ["facebook", "instagram", "snapchat", "tiktok",
+                     "pinterest", "reddit", "twitter", "x.com"]
+            if any(s in text for s in social):
+                return ("browser", 1.0)
+
+            # Email in browser
+            if "mail" in text or "inbox" in text or "compose" in text:
+                return ("browser", 1.0)
+
+            # Search
+            if "google.com/search" in text or "- google search" in text:
+                return ("browser", 0.95)
+
+            # Google non-work services
+            google_nonwork = ["google photos", "google maps", "google calendar"]
+            if any(g in text for g in google_nonwork):
+                return ("browser", 0.90)
+
+            # News/entertainment keywords
+            nonwork_browsing = ["news", "cricket", "sports", "movies",
+                               "songs", "shopping", "buy online"]
+            if any(n in text for n in nonwork_browsing):
+                return ("browser", 0.90)
+
+            # Generic browser content not caught above
+            return ("browser", 0.85)
+
+        # ── 16. Generic titles -> BROWSER ──
+        generic_titles = ["welcome", "home", "start", "open", "loading",
+                         "page", "open folder"]
+        if window_lower in generic_titles:
+            return ("browser", 1.0)
+
+        # ── 17. Communication apps (Zoom, Meet) -> PRODUCTIVE ──
+        comm_apps = ["zoom", "google meet", "teams"]
+        if any(c in text for c in comm_apps):
+            return ("productive", 0.90)
+
+        # ── 18. Default -> PRODUCTIVE ──
+        # Developer is active on something not caught above
+        return ("productive", 0.90)
+
+    def get_detailed_category(self, window_title: str, app_name: str = "", project_name: str = "") -> Dict:
+        category, confidence = self.categorize_activity(window_title, app_name, project_name)
+        text = f"{window_title} {app_name}".lower()
+
+        if category == "non-work":
+            if "lock" in text:
+                sub = "system-lock"
+            elif "idle" in text or "afk" in text:
+                sub = "idle"
+            elif "file explorer" in text:
+                sub = "file-browsing"
+            elif "task manager" in text:
+                sub = "system"
             else:
-                return "uncategorized", 0.2
-        
-        return max_category, max_score
-    
-    def _matches_patterns(self, text: str, patterns: List[str]) -> bool:
-        """Check if text matches any of the patterns"""
-        for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return True
-        return False
-    
-    def _calculate_score(self, text: str, patterns: List[str]) -> float:
-        """Calculate matching score for a category"""
-        matches = 0
-        for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                matches += 1
-        
-        # Normalize score (0 to 1)
-        return min(matches / 5.0, 1.0)  # Cap at 5 matches for full score
-    
-    def get_detailed_category(self, window_title: str, app_name: str = "") -> Dict:
-        """
-        Get detailed categorization with subcategory
-        """
-        category, confidence = self.categorize_activity(window_title, app_name)
-        
-        # Determine subcategory
-        combined_text = f"{window_title} {app_name}".lower()
-        subcategory = "general"
-        
-        if category == "productive":
-            if re.search(r"(cursor|vscode|visual studio|intellij|pycharm)", combined_text):
-                subcategory = "coding"
-            elif re.search(r"(filezilla|winscp|putty|ssh)", combined_text):
-                subcategory = "server-management"
-            elif re.search(r"(git|github desktop|sourcetree)", combined_text):
-                subcategory = "version-control"
-            elif re.search(r"(mysql|postgres|mongodb|redis)", combined_text):
-                subcategory = "database"
-            elif re.search(r"(figma|photoshop|sketch)", combined_text):
-                subcategory = "design"
-            elif re.search(r"(notion|confluence|jira)", combined_text):
-                subcategory = "documentation"
-                
+                sub = "non-work"
         elif category == "browser":
-            if re.search(r"(claude|chatgpt|bard)", combined_text):
-                subcategory = "ai-assistance"
-            elif re.search(r"(stackoverflow|github\.com)", combined_text):
-                subcategory = "development-research"
-            elif re.search(r"(docs\.|documentation|api\.)", combined_text):
-                subcategory = "documentation"
-            elif re.search(r"(gmail|outlook|slack)", combined_text):
-                subcategory = "communication"
-                
+            if "@" in text or "inbox" in text or "mail" in text:
+                sub = "email"
+            elif "youtube" in text or "netflix" in text or "spotify" in text:
+                sub = "entertainment"
+            elif "amazon" in text or "flipkart" in text or "myntra" in text:
+                sub = "shopping"
+            elif "facebook" in text or "instagram" in text or "twitter" in text:
+                sub = "social-media"
+            elif "google.com/search" in text or "google search" in text:
+                sub = "search"
+            elif "uknowva" in text:
+                sub = "hr-portal"
+            else:
+                sub = "general-browsing"
         elif category == "server":
-            if re.search(r"(aws|ec2|s3)", combined_text):
-                subcategory = "aws"
-            elif re.search(r"(gcp|google cloud)", combined_text):
-                subcategory = "gcp"
-            elif re.search(r"(azure)", combined_text):
-                subcategory = "azure"
-            elif re.search(r"(kubernetes|docker)", combined_text):
-                subcategory = "containers"
-        
+            if "aws" in text or "ec2" in text or "s3" in text:
+                sub = "aws"
+            elif "azure" in text:
+                sub = "azure"
+            elif "gcp" in text or "firebase" in text or "google cloud" in text:
+                sub = "gcp"
+            elif "docker" in text or "kubernetes" in text:
+                sub = "containers"
+            elif "ssh" in text or "putty" in text or "termius" in text:
+                sub = "remote-access"
+            elif "vercel" in text or "netlify" in text or "cloudflare" in text:
+                sub = "hosting"
+            elif "cpanel" in text:
+                sub = "hosting"
+            else:
+                sub = "server-tools"
+        else:  # PRODUCTIVE
+            if any(ide in text for ide in ["vscode", "code.exe", "cursor",
+                                           "visual studio", "pycharm", "intellij"]):
+                sub = "coding"
+            elif any(t in text for t in ["terminal", "powershell", "cmd.exe", "git bash"]):
+                sub = "terminal"
+            elif any(o in text for o in ["winword", "excel", "powerpnt"]):
+                sub = "office"
+            elif "localhost" in text or ":3000" in text or ":8080" in text:
+                sub = "dev-server"
+            elif "postman" in text or "insomnia" in text:
+                sub = "api-testing"
+            elif "figma" in text or "photoshop" in text or "illustrator" in text:
+                sub = "design"
+            elif any(db in text for db in ["dbeaver", "pgadmin", "mysql", "mongodb"]):
+                sub = "database"
+            elif "github" in text or "gitlab" in text or "bitbucket" in text:
+                sub = "version-control"
+            elif "stackoverflow" in text or "stack overflow" in text:
+                sub = "research"
+            elif any(ai in text for ai in ["chatgpt", "claude", "perplexity", "copilot"]):
+                sub = "ai-tools"
+            elif "slack" in text or "teams" in text or "zoom" in text:
+                sub = "communication"
+            elif "file explorer" in text:
+                sub = "file-browsing"
+            elif "jira" in text or "trello" in text or "notion" in text:
+                sub = "project-management"
+            else:
+                sub = "productive-general"
+
         return {
             "category": category,
-            "subcategory": subcategory,
+            "subcategory": sub,
             "confidence": confidence,
             "window_title": window_title,
             "app_name": app_name
         }
-    
+
     def categorize_batch(self, activities: List[Dict]) -> List[Dict]:
-        """
-        Categorize a batch of activities
-        """
         categorized = []
         for activity in activities:
-            window_title = activity.get('window_title', '')
-            app_name = activity.get('application_name', '')
-            
-            category_info = self.get_detailed_category(window_title, app_name)
-            
-            # Add category info to activity
-            activity['category'] = category_info['category']
-            activity['subcategory'] = category_info['subcategory']
-            activity['category_confidence'] = category_info['confidence']
-            
+            info = self.get_detailed_category(
+                activity.get("window_title", ""),
+                activity.get("application_name", "")
+            )
+            activity.update(info)
             categorized.append(activity)
-        
         return categorized
 
 
-# Example usage
 if __name__ == "__main__":
     categorizer = ActivityCategorizer()
-    
-    # Test cases
+
     test_cases = [
-        ("timesheet_new - Cursor", "Cursor.exe"),
-        ("Chrome - Claude", "chrome.exe"),
-        ("AWS EC2 Dashboard", "chrome.exe"),
-        ("localhost:3000 - React App", "chrome.exe"),
-        ("Netflix - Watching Movie", "chrome.exe"),
-        ("Termius - Node Server", "Termius.exe"),
-        ("main.py - Visual Studio Code", "Code.exe"),
-        ("GitHub - microsoft/vscode", "chrome.exe")
+        ("Document1 - Microsoft Word", "WINWORD.EXE"),
+        ("Snipping Tool Overlay", "SnippingTool.exe"),
+        ("Online Shopping - Amazon.in", "chrome.exe"),
+        ("Luxury Dealz - ankita@firsteconomy.com - First Economy Mail", "chrome.exe"),
+        ("[Claude Code] radiant_clone\\src\\Mail.jsx", "Code.exe"),
+        ("Welcome", "chrome.exe"),
+        ("YouTube - Google Chrome", "chrome.exe"),
+        ("index.js - myproject - Visual Studio Code", "Code.exe"),
+        ("Radiant-mail - Usage and billing - Firebase console", "chrome.exe"),
+        ("Downloads - File Explorer", "explorer.exe"),
+        ("scalpe - File Explorer", "explorer.exe"),
+        ("Search", "SearchHost.exe"),
+        ("PS D:\\projects> npm start", "WindowsTerminal.exe"),
+        ("pgAdmin 4", "pgAdmin4.exe"),
+        ("npmjs.com - express", "chrome.exe"),
+        ("developer.mozilla.org - Array.map()", "chrome.exe"),
+        ("Slack - #general", "Slack.exe"),
     ]
-    
+
+    print("Testing categorization:")
+    print("-" * 70)
     for title, app in test_cases:
-        result = categorizer.get_detailed_category(title, app)
-        print(f"\nTitle: {title}")
-        print(f"App: {app}")
-        print(f"Category: {result['category']} ({result['subcategory']})")
-        print(f"Confidence: {result['confidence']:.2f}")
+        info = categorizer.get_detailed_category(title, app)
+        print(f"  {title}")
+        print(f"  {app} -> {info['category'].upper()} ({info['subcategory']})")
+        print("-" * 70)

@@ -158,8 +158,21 @@ function DeveloperDashboard({ developer, onBack }) {
 
 
 
-  const formatActivityTitle = (title) => {
-    if (title)
+  const IDE_NAMES = ['visual studio code', 'code', 'cursor', 'pycharm', 'intellij'];
+
+  const formatActivityTitle = (title, projectName, filePath) => {
+    // Derive file name from file_path if available
+    const fileName = filePath ? filePath.split(/[/\\]/).pop() : '';
+
+    if (!title || !title.trim()) {
+      // No title — use file name, then project name
+      return fileName || projectName || 'Unknown';
+    }
+    // If title is just an IDE name, show "IDE - fileName" or "IDE - projectName"
+    if (IDE_NAMES.includes(title.trim().toLowerCase())) {
+      const detail = fileName || projectName;
+      return detail ? `${title.trim()} - ${detail}` : title;
+    }
     return title
       .replace(/ - Google Chrome$/, '')
       .replace(/ - Mozilla Firefox$/, '')
@@ -272,7 +285,7 @@ function DeveloperDashboard({ developer, onBack }) {
 
         <div className="stat-card">
           <Activity size={32} />
-          <h3>Productivity</h3>
+          <h3>Work Activity</h3>
           <p>{productivity.score}%</p>
         </div>
 
@@ -336,7 +349,7 @@ function DeveloperDashboard({ developer, onBack }) {
                       .map((act, j) => (
                         <div key={j} className="category-activity-item">
                           <div className="activity-info">
-                            <div className="activity-title">{formatActivityTitle(act.window_title)}</div>
+                            <div className="activity-title">{formatActivityTitle(act.window_title, act.project_name, act.file_path)}</div>
                             {act.timestamp && (
                               <div className="activity-date">
                                 {formatActivityDate(act.timestamp)}
@@ -387,7 +400,7 @@ function DeveloperDashboard({ developer, onBack }) {
                   <td>
                     <div className="activity-details">
                       <div className="activity-title">
-                        {act.window_title || "No title"}
+                        {formatActivityTitle(act.window_title, act.project_name, act.file_path) || "No title"}
                         {act.activity_count > 1 && (
                           <span className="activity-count">({act.activity_count}x)</span>
                         )}

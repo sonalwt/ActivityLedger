@@ -1,8 +1,8 @@
 # API endpoint using SQLAlchemy ORM relationships
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, String, cast
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from database import get_db
 from models import Developer, ActivityRecord
@@ -31,10 +31,10 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                 ac.last_activity
             FROM developers d
             LEFT JOIN (
-                SELECT 
+                SELECT
                     developer_id::VARCHAR as developer_id,
                     COUNT(*) as activity_count,
-                    MAX(timestamp) as last_activity
+                    MAX(CASE WHEN category IN ('productive', 'server', 'browser') THEN timestamp END) as last_activity
                 FROM activity_records
                 WHERE developer_id IS NOT NULL
                 GROUP BY developer_id
@@ -166,64 +166,85 @@ async def get_developer_activities(
 
 
 @router.get("/api/developers-with-stats")
-async def get_developers_with_stats(db: Session = Depends(get_db)):
-    """Get developers with aggregated statistics using ORM"""
+async def get_developers_with_stats(
+    db: Session = Depends(get_db),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    range_days: int = Query(7)
+):
     try:
-        # Use raw SQL to avoid type mismatch issues
-        from sqlalchemy import text
-        
-        query = text("""
-            SELECT 
-                d.developer_id,
-                d.name,
-                d.email,
-                d.created_at,
-                COUNT(ar.id) as activity_count,
-                MAX(ar.timestamp) as last_activity,
-                COALESCE(SUM(ar.duration), 0) as total_duration
-            FROM developers d
-            LEFT JOIN activity_records ar ON d.developer_id::VARCHAR = ar.developer_id::VARCHAR
-            WHERE d.active = true
-            GROUP BY d.developer_id, d.name, d.email, d.created_at
-        """)
-        
-        result = db.execute(query)
-        developers_with_stats = result.fetchall()
-        
-        developer_list = []
-        
-        for row in developers_with_stats:
-            # Unpack row data
-            (developer_id, name, email, created_at,
-             activity_count, last_activity, total_duration) = row
-            
-            # Calculate status
-            status = "offline"
-            if last_activity:
-                time_diff = datetime.now(timezone.utc) - last_activity.replace(tzinfo=timezone.utc)
-                if time_diff.total_seconds() < 1800:
-                    status = "online"
-                elif time_diff.total_seconds() < 86400:
-                    status = "idle"
-            
-            developer_list.append({
-                "id": developer_id,
-                "name": name,
-                "email": email,
-                "status": status,
-                "activity_count": activity_count or 0,
-                "total_duration_seconds": float(total_duration or 0),
-                "total_duration_hours": round(float(total_duration or 0) / 3600, 2),
-                "last_activity": last_activity.isoformat() if last_activity else None,
-                "created_at": created_at.isoformat() if created_at else None
+        now = datetime.now(timezone.utc)
+
+        # Parse end_date
+        if end_date:
+            end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        else:
+            end = now
+
+        # Parse start_date
+        if start_date:
+            start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        else:
+            start = end - timedelta(days=range_days)
+
+        # Fetch all activity records for all developers in range
+        rows = db.query(ActivityRecord).filter(
+            ActivityRecord.timestamp >= start,
+            ActivityRecord.timestamp <= end
+        ).order_by(ActivityRecord.timestamp.asc()).all()
+
+        # Group by developer
+        developer_map = {}
+        for act in rows:
+            dev = act.developer_id
+            if dev not in developer_map:
+                developer_map[dev] = []
+            developer_map[dev].append(act)
+
+        results = []
+        team_total_seconds = 0
+
+        for developer in db.query(Developer).filter(Developer.active == True).all():
+
+            dev_id = developer.developer_id
+            acts = developer_map.get(dev_id, [])
+
+            # === ACTUAL WORK HOURS CALC (same function you already use) ===
+            work_seconds, daily_breakdown = calculate_actual_work_hours([
+                type("Row", (), {
+                    "timestamp": a.timestamp,
+                    "duration": a.duration,
+                    "application_name": a.application_name,
+                    "window_title": a.window_title
+                })() for a in acts
+            ])
+
+            team_total_seconds += work_seconds
+
+            # Format
+            hours = int(work_seconds // 3600)
+            minutes = int((work_seconds % 3600) // 60)
+
+            results.append({
+                "id": dev_id,
+                "name": developer.name,
+                "email": developer.email,
+                "actual_work_seconds": work_seconds,
+                "actual_work_display": f"{hours}h {minutes}m",
+                "productivity_percentage": round(
+                    (work_seconds / (range_days * 8 * 3600)) * 100, 2
+                ) if work_seconds else 0,
+                "last_activity": max([a.timestamp for a in acts]).isoformat() if acts else None,
+                "activity_count": len(acts)
             })
-        
+
         return {
-            "developers": developer_list,
-            "total_count": len(developer_list),
-            "method": "orm_with_aggregation"
+            "developers": results,
+            "total_hours_seconds": team_total_seconds,
+            "total_hours_display": f"{round(team_total_seconds/3600,2)}h",
+            "avg_hours_per_dev": round((team_total_seconds / max(len(results), 1)) / 3600, 2),
+            "range_days": range_days
         }
-        
+
     except Exception as e:
-        logger.error(f"Error getting developers with stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))

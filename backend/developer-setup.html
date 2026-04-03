@@ -18,438 +18,254 @@
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
-        }
+        h1 { text-align: center; margin-bottom: 30px; color: #333; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 6px; font-weight: bold; }
         input[type="text"] {
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-        input[type="text"]:focus {
-            border-color: #4CAF50;
-            outline: none;
+            width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 4px;
+            font-size: 16px; box-sizing: border-box;
         }
         .generate-btn {
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px 30px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            width: 100%;
-            margin-top: 20px;
+            width: 100%; padding: 12px; font-size: 16px; cursor: pointer;
+            background-color: #4CAF50; border: none; border-radius: 4px; color: white;
         }
-        .generate-btn:hover {
-            background-color: #45a049;
-        }
-        .generate-btn:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        .instructions {
-            background-color: #e7f3ff;
-            padding: 15px;
-            border-radius: 4px;
-            margin-top: 20px;
-            display: none;
-        }
-        .step {
-            margin: 10px 0;
-            padding: 10px;
-            background: #f9f9f9;
-            border-left: 4px solid #4CAF50;
-        }
-        .download-section {
-            background: #f0f8f0;
-            padding: 20px;
-            border-radius: 4px;
-            margin-top: 20px;
-            display: none;
-        }
+        .generate-btn:hover { background-color: #45a049; }
+        .download-section, .instructions { margin-top: 20px; display: none; }
         .download-btn {
-            background-color: #2196F3;
-            color: white;
-            padding: 10px 20px;
-            text-decoration: none;
-            border-radius: 4px;
-            display: inline-block;
-            margin: 5px;
+            background: #2196F3; color: white; padding: 10px 20px; border-radius: 4px;
+            display: inline-block; margin: 6px; text-align: center; text-decoration: none;
+            cursor: pointer;
         }
-        .download-btn:hover {
-            background-color: #1976D2;
+        .download-btn:hover { background: #1976D2; }
+        .download-btn.secondary { background: #607D8B; }
+        .download-btn.secondary:hover { background: #455A64; }
+        .step {
+            background: #f7f7f7; border-left: 4px solid #4CAF50;
+            padding: 10px; margin-top: 12px;
         }
         .warning {
-            background-color: #fff3cd;
-            color: #856404;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 20px 0;
-            border: 1px solid #ffeaa7;
+            background: #fff3cd; border-left: 4px solid #ffc107;
+            padding: 10px; margin-top: 12px;
         }
-        #macLinuxInstructions, #windowsInstructions {
-            display: none;
-        }
+        code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+        .status-check { margin-top: 15px; padding: 10px; background: #e8f5e9; border-radius: 4px; display: none; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>ActivityWatch Sync Setup</h1>
-        
-        
+<div class="container">
+    <h1>ActivityWatch Sync Setup</h1>
 
-        <form id="setupForm">
-            <div class="form-group">
-                <label for="developerName">Your Developer Name:</label>
-                <input type="text" id="developerName" placeholder="e.g. johnsmith" required>
-            </div>
-
-            <div class="form-group">
-                <label for="apiToken">API Token (provided by admin):</label>
-                <input type="text" id="apiToken" placeholder="AWToken_..." required>
-            </div>
-
-            <button type="submit" class="generate-btn">Generate Setup Files</button>
-        </form>
-
-        <div id="downloadSection" class="download-section">
-            <h3>Download Your Setup Files</h3>
-            <p id="downloadMessage">Click the buttons below to download your customized setup files:</p>
-            
-            <div id="windowsDownloads">
-                <a id="downloadPS1" class="download-btn" download="sync.ps1">Download sync.ps1 (PowerShell)</a>
-                <a id="downloadBat" class="download-btn" download="start_sync.bat">Download start_sync.bat</a>
-            </div>
-            
-            <div id="macLinuxDownloads" style="display: none;">
-                <a id="downloadSH" class="download-btn" download="sync.sh">Download sync.sh (Bash)</a>
-            </div>
+    <form id="setupForm">
+        <div class="form-group">
+            <label for="developerName">Your Developer Name:</label>
+            <input type="text" id="developerName" placeholder="e.g. johnsmith" required>
         </div>
 
-        <div id="instructions" class="instructions">
-            <h3>Setup Instructions</h3>
-            
-            <div class="step" id="windowsInstructions">
-                <strong>Windows Instructions:</strong>
-                <ol>
-                    <li>Download both <code>sync.ps1</code> and <code>start_sync.bat</code> files</li>
-                    <li>Save them to a folder like <code>C:\ActivityWatchSync\</code></li>
-                    <li>Double-click <code>start_sync.bat</code> to start syncing</li>
-                    <li>For auto-start: Press <code>Win + R</code>, type <code>shell:startup</code>, copy the bat file there</li>
-                </ol>
-            </div>
-            
-            <div class="step" id="macLinuxInstructions">
-                <strong>Mac/Linux Instructions:</strong>
-                <ol>
-                    <li>Download <code>sync.sh</code></li>
-                    <li>Open Terminal and navigate to download folder</li>
-                    <li>Make it executable: <code>chmod +x sync.sh</code></li>
-                    <li>Run it: <code>./sync.sh</code></li>
-                    <li>For auto-start, add to your system's startup applications</li>
-                </ol>
-            </div>
+        <div class="form-group">
+            <label for="apiToken">API Token (provided by admin):</label>
+            <input type="text" id="apiToken" placeholder="AWToken_..." required>
+        </div>
 
-            <div class="step">
-                <strong>Verification:</strong>
-                <br>The sync will run every 5 minutes and send your ActivityWatch data to the server automatically.
-                <br>You should see confirmation messages in the console window.
-            </div>
+        <button type="submit" class="generate-btn">Generate Setup Files</button>
+    </form>
+
+    <div id="downloadSection" class="download-section">
+        <h3>Download Your Setup Files</h3>
+        <p id="downloadMessage"></p>
+
+        <div id="windowsDownloads">
+            <a id="downloadPS1" class="download-btn" download="sync.ps1">1. Download sync.ps1</a>
+            <a id="downloadVBS" class="download-btn" download="AW-Sync.vbs">2. Download AW-Sync.vbs</a>
+            <br><br>
+            <a id="downloadBat" class="download-btn secondary" download="run_sync_visible.bat">Optional: Visible Runner (for testing)</a>
         </div>
     </div>
 
-    <script>
-        // Detect operating system
-        function detectOS() {
-            const userAgent = window.navigator.userAgent;
-            const platform = window.navigator.platform;
-            const macosPlatforms = ['Macintosh', 'MacIntel', 'MacPPC', 'Mac68K'];
-            const windowsPlatforms = ['Win32', 'Win64', 'Windows', 'WinCE'];
-            const iosPlatforms = ['iPhone', 'iPad', 'iPod'];
+    <div id="instructions" class="instructions">
+        <h3>Setup Instructions (2 Easy Steps)</h3>
 
-            if (macosPlatforms.includes(platform)) {
-                return 'Mac';
-            } else if (iosPlatforms.includes(platform)) {
-                return 'iOS';
-            } else if (windowsPlatforms.includes(platform)) {
-                return 'Windows';
-            } else if (/Android/.test(userAgent)) {
-                return 'Android';
-            } else if (/Linux/.test(platform)) {
-                return 'Linux';
-            }
-            return 'Unknown';
-        }
+        <div class="step">
+            <strong>Step 1: Save Files Together</strong>
+            <ol>
+                <li>Create a folder: <code>C:\ActivityWatchSync\</code></li>
+                <li>Save <strong>sync.ps1</strong> into this folder</li>
+                <li>Save <strong>AW-Sync.vbs</strong> into the <strong>same</strong> folder</li>
+            </ol>
+        </div>
 
-        document.getElementById('setupForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const developerName = document.getElementById('developerName').value.trim();
-            const apiToken = document.getElementById('apiToken').value.trim();
-            
-            if (!developerName || !apiToken) {
-                alert('Please fill in both fields');
-                return;
-            }
+        <div class="step">
+            <strong>Step 2: Add to Windows Startup</strong>
+            <ol>
+                <li>Press <code>Win + R</code></li>
+                <li>Type <code>shell:startup</code> and press Enter</li>
+                <li>Copy <strong>AW-Sync.vbs</strong> into the Startup folder</li>
+                <li>Done! Sync will auto-start on next login</li>
+            </ol>
+        </div>
 
-            if (!apiToken.startsWith('AWToken_')) {
-                alert('API token must start with "AWToken_"');
-                return;
-            }
+        <div class="warning">
+            <strong>Important:</strong> Keep <code>sync.ps1</code> in <code>C:\ActivityWatchSync\</code> — the VBS file looks for it there.
+            <br>If you want a different folder, edit the path in AW-Sync.vbs.
+        </div>
 
-            const os = detectOS();
-            
-            // Generate PowerShell content for Windows - UPDATED VERSION
-            const powershellContent = `# ActivityWatch Sync Script - Using HTTP
+        <div class="step">
+            <strong>How to verify it's running:</strong>
+            <ul>
+                <li>Open Task Manager (Ctrl+Shift+Esc)</li>
+                <li>Go to "Details" tab</li>
+                <li>Look for <code>powershell.exe</code> running</li>
+                <li>Or check the dashboard for your activity data</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <strong>To test manually:</strong> Double-click <code>run_sync_visible.bat</code> to see sync output in a window.
+        </div>
+    </div>
+
+    <div id="statusCheck" class="status-check">
+        <strong>Server Status:</strong> <span id="serverStatus">Checking...</span>
+    </div>
+</div>
+
+<script>
+// Check server status on page load
+fetch('https://api-timesheet.firsteconomy.com/api/sync/health')
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById('statusCheck').style.display = 'block';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:green">Online ✓</span>';
+    })
+    .catch(e => {
+        document.getElementById('statusCheck').style.display = 'block';
+        document.getElementById('serverStatus').innerHTML = '<span style="color:orange">Could not reach server</span>';
+    });
+
+document.getElementById('setupForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const developerName = document.getElementById('developerName').value.trim();
+    const apiToken = document.getElementById('apiToken').value.trim();
+
+    if (!developerName || !apiToken) { alert("Please fill all fields"); return; }
+    if (!apiToken.startsWith("AWToken_")) { alert("Token must start with AWToken_"); return; }
+
+    // PowerShell sync script
+    const ps1 = `# ActivityWatch Sync Script for ${developerName}
+# This script runs in background and syncs every 5 minutes
+
 $DEVELOPER_NAME = "${developerName}"
 $API_TOKEN = "${apiToken}"
-# Using HTTP to avoid 308 redirect issues
 $SERVER_URL = "https://api-timesheet.firsteconomy.com/api/sync"
 $LOCAL_AW = "http://localhost:5600/api/0"
+$LOG_FILE = "$env:LOCALAPPDATA\\ActivityWatchSync\\sync.log"
+
+# Create log directory
+$logDir = Split-Path $LOG_FILE
+if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+
+function Write-Log($msg) {
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$timestamp - $msg" | Out-File -Append -FilePath $LOG_FILE
+}
 
 function Send-ActivityData {
     try {
-        Write-Host "$LOCAL_AW/buckets"
-        $bucketsResponse = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 10
-        $buckets = $bucketsResponse.PSObject.Properties.Name
-        Write-Host "Found $($buckets.Count) ActivityWatch buckets"
-        
-        $endTime = (Get-Date).ToUniversalTime()
-        $startTime = $endTime.AddMinutes(-6)
-        $startISO = $startTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-        $endISO = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-        
+        # Check if ActivityWatch is running
+        $buckets = Invoke-RestMethod -Uri "$LOCAL_AW/buckets/" -Method GET -TimeoutSec 5
+        $bucketNames = $buckets.PSObject.Properties.Name
+
+        $end = (Get-Date).ToUniversalTime()
+        $start = $end.AddMinutes(-6)
+        $startISO = $start.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        $endISO = $end.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
         $allEvents = @()
-        foreach ($bucket in $buckets) {
+        foreach ($bucket in $bucketNames) {
             try {
-                $eventsUrl = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
-                $events = Invoke-RestMethod -Uri $eventsUrl -Method GET -TimeoutSec 10
+                $url = "$LOCAL_AW/buckets/$bucket/events?start=$startISO&end=$endISO"
+                $events = Invoke-RestMethod -Uri $url -Method GET -TimeoutSec 10
                 if ($events -and $events.Count -gt 0) {
                     $allEvents += $events
-                    Write-Host ("  - " + $bucket + ": " + $events.Count + " events") -ForegroundColor DarkGray
                 }
-            } catch {
-                # Skip bucket if error
-            }
+            } catch { }
         }
-        
+
         if ($allEvents.Count -gt 0) {
-            Write-Host "Sending $($allEvents.Count) events to server..." -ForegroundColor Cyan
-            
             $payload = @{
                 name = $DEVELOPER_NAME
-                token = $API_TOKEN  
+                token = $API_TOKEN
                 data = $allEvents
-                timestamp = $endTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                timestamp = $endISO
+            } | ConvertTo-Json -Depth 10 -Compress
+
+            $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $payload -ContentType "application/json" -TimeoutSec 15
+
+            if ($response.success) {
+                Write-Log "Synced $($allEvents.Count) events successfully"
+            } else {
+                Write-Log "Sync failed: $($response.error)"
             }
-            
-            $jsonPayload = $payload | ConvertTo-Json -Depth 10
-            
-            # Using Invoke-RestMethod without redirect handling
-            try {
-                $response = Invoke-RestMethod -Uri $SERVER_URL -Method POST -Body $jsonPayload -ContentType "application/json" -TimeoutSec 15
-                
-                if ($response.success) {
-                    Write-Host "[SUCCESS] Synced $($allEvents.Count) events successfully" -ForegroundColor Green
-                } else {
-                    Write-Host "Server error: $($response.error)" -ForegroundColor Red
-                }
-            } catch {
-                Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
-            }
-        } else {
-            Write-Host "No new data to sync"
         }
-        
     } catch {
-        Write-Host "Sync error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "Error: $($_.Exception.Message)"
     }
 }
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "ActivityWatch Sync for $DEVELOPER_NAME" -ForegroundColor Cyan
-Write-Host "Server: $SERVER_URL" -ForegroundColor Gray
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Press Ctrl+C to stop"
-Write-Host ""
+Write-Log "=== Sync started for $DEVELOPER_NAME ==="
 
+# Main loop - sync every 5 minutes
 while ($true) {
     Send-ActivityData
-    $nextSync = (Get-Date).AddMinutes(5).ToString("HH:mm:ss")
-    Write-Host ""
-    Write-Host "Waiting 5 minutes... (next sync at $nextSync)" -ForegroundColor DarkGray
-    Write-Host "----------------------------------------" -ForegroundColor DarkGray
     Start-Sleep -Seconds 300
 }`;
 
-            // Generate bash content for Mac/Linux - UPDATED VERSION
-            const bashContent = `#!/bin/bash
-# ActivityWatch Sync Script - Using HTTP
+    // VBS launcher - runs PowerShell hidden, from fixed path
+    const vbs = `' ActivityWatch Sync Launcher for ${developerName}
+' This file goes in Windows Startup folder
+' It launches the sync script hidden in background
 
-DEVELOPER_NAME="${developerName}"
-API_TOKEN="${apiToken}"
-# Using HTTP to avoid 308 redirect issues
-SERVER_URL="https://api-timesheet.firsteconomy.com/api/sync"
-LOCAL_AW="http://localhost:5600/api/0"
+Set WshShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
 
-send_data() {
-    echo "Checking ActivityWatch at $(date '+%H:%M:%S')"
-    
-    if ! command -v curl &> /dev/null; then
-        echo "Error: curl is required but not installed"
-        return 1
-    fi
-    
-    buckets_response=$(curl -s --max-time 10 "$LOCAL_AW/buckets/" 2>/dev/null)
-    if [ $? -ne 0 ] || [ -z "$buckets_response" ]; then
-        echo "ActivityWatch not responding"
-        return 1
-    fi
-    
-    bucket_names=$(echo "$buckets_response" | grep -o '"[^"]*"' | head -20 | tr -d '"')
-    bucket_count=$(echo "$bucket_names" | wc -l)
-    echo "Found $bucket_count ActivityWatch buckets"
-    
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        start_time=$(date -u -v-6M '+%Y-%m-%dT%H:%M:%S.000Z')
-        end_time=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
-    else
-        start_time=$(date -u -d '6 minutes ago' '+%Y-%m-%dT%H:%M:%S.000Z')
-        end_time=$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')
-    fi
-    
-    all_events="["
-    first_bucket=true
-    event_count=0
-    
-    for bucket in $bucket_names; do
-        if [ -n "$bucket" ]; then
-            events_url="$LOCAL_AW/buckets/$bucket/events?start=$start_time&end=$end_time"
-            events=$(curl -s --max-time 15 "$events_url" 2>/dev/null)
-            
-            if [ $? -eq 0 ] && [ "$events" != "[]" ] && [ -n "$events" ]; then
-                bucket_event_count=$(echo "$events" | grep -o '{' | wc -l)
-                if [ $bucket_event_count -gt 0 ]; then
-                    echo "  - $bucket: $bucket_event_count events"
-                    if [ "$first_bucket" = false ]; then
-                        all_events="$all_events,"
-                    fi
-                    events_clean=$(echo "$events" | sed 's/^\\[//;s/\\]$//')
-                    all_events="$all_events$events_clean"
-                    first_bucket=false
-                    event_count=$((event_count + bucket_event_count))
-                fi
-            fi
-        fi
-    done
-    
-    all_events="$all_events]"
-    
-    if [ "$all_events" = "[]" ] || [ "$all_events" = "[" ] || [ $event_count -eq 0 ]; then
-        echo "No new data to sync"
-        return 0
-    fi
-    
-    echo "Sending $event_count events to server..."
-    
-    payload="{\\"name\\":\\"$DEVELOPER_NAME\\",\\"token\\":\\"$API_TOKEN\\",\\"data\\":$all_events,\\"timestamp\\":\\"$end_time\\"}"
-    
-    response=$(curl -s --max-time 20 -X POST -H "Content-Type: application/json" -d "$payload" "$SERVER_URL" 2>/dev/null)
-    
-    if [ $? -eq 0 ]; then
-        if echo "$response" | grep -q '"success":true'; then
-            echo "[SUCCESS] Synced $event_count events successfully"
-        else
-            echo "Server error: $response"
-        fi
-    else
-        echo "Failed to connect to server"
-    fi
-}
+' Path where sync.ps1 is saved
+syncFolder = "C:\\ActivityWatchSync"
+syncScript = syncFolder & "\\sync.ps1"
 
-echo "========================================"
-echo "ActivityWatch Sync for $DEVELOPER_NAME"
-echo "Server: $SERVER_URL"
-echo "========================================"
-echo "Press Ctrl+C to stop"
-echo ""
+' Check if sync script exists
+If fso.FileExists(syncScript) Then
+    ' Run PowerShell hidden
+    WshShell.Run "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & syncScript & """", 0, False
+Else
+    ' Show error if file not found
+    MsgBox "Sync script not found at:" & vbCrLf & syncScript & vbCrLf & vbCrLf & "Please save sync.ps1 to C:\\ActivityWatchSync\\", vbExclamation, "ActivityWatch Sync"
+End If`;
 
-while true; do
-    send_data
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        next_sync=$(date -v+5M '+%H:%M:%S')
-    else
-        next_sync=$(date -d '+5 minutes' '+%H:%M:%S')
-    fi
-    echo ""
-    echo "Waiting 5 minutes... (next sync at $next_sync)"
-    echo "----------------------------------------"
-    sleep 300
-done`;
-
-            // Generate batch file for Windows
-            const batContent = `@echo off
+    // Visible BAT for testing
+    const bat = `@echo off
 title ActivityWatch Sync - ${developerName}
-echo Starting ActivityWatch sync for ${developerName}...
-echo Using PowerShell (no Python installation needed)
+cd /d "C:\\ActivityWatchSync"
+echo ============================================
+echo   ActivityWatch Sync - ${developerName}
+echo   Press Ctrl+C to stop
+echo ============================================
 echo.
-cd /d "%~dp0"
 powershell -ExecutionPolicy Bypass -File "sync.ps1"
 pause`;
 
-            // Create download links
-            const psBlob = new Blob([powershellContent], { type: 'text/plain' });
-            const shBlob = new Blob([bashContent], { type: 'text/plain' });
-            const batBlob = new Blob([batContent], { type: 'text/plain' });
-            
-            // Set up downloads based on detected OS
-            document.getElementById('downloadPS1').href = URL.createObjectURL(psBlob);
-            document.getElementById('downloadSH').href = URL.createObjectURL(shBlob);
-            document.getElementById('downloadBat').href = URL.createObjectURL(batBlob);
-            
-            // Show appropriate downloads based on OS
-            if (os === 'Windows') {
-                document.getElementById('windowsDownloads').style.display = 'block';
-                document.getElementById('macLinuxDownloads').style.display = 'none';
-                document.getElementById('windowsInstructions').style.display = 'block';
-                document.getElementById('macLinuxInstructions').style.display = 'none';
-                document.getElementById('downloadMessage').innerHTML = 'Windows detected - Download your PowerShell files:';
-            } else if (os === 'Mac' || os === 'Linux') {
-                document.getElementById('windowsDownloads').style.display = 'none';
-                document.getElementById('macLinuxDownloads').style.display = 'block';
-                document.getElementById('windowsInstructions').style.display = 'none';
-                document.getElementById('macLinuxInstructions').style.display = 'block';
-                document.getElementById('downloadMessage').innerHTML = os + ' detected - Download your bash script:';
-            } else {
-                document.getElementById('windowsDownloads').style.display = 'block';
-                document.getElementById('macLinuxDownloads').style.display = 'block';
-                document.getElementById('windowsInstructions').style.display = 'block';
-                document.getElementById('macLinuxInstructions').style.display = 'block';
-                document.getElementById('downloadMessage').innerHTML = 'Download files for your operating system:';
-            }
-            
-            // Show download section and instructions
-            document.getElementById('downloadSection').style.display = 'block';
-            document.getElementById('instructions').style.display = 'block';
-            
-            // Scroll to downloads
-            document.getElementById('downloadSection').scrollIntoView({ behavior: 'smooth' });
-        });
-    </script>
+    // Create download blobs
+    const psBlob = new Blob([ps1], { type: "text/plain" });
+    const vbsBlob = new Blob([vbs], { type: "text/plain" });
+    const batBlob = new Blob([bat], { type: "text/plain" });
+
+    document.getElementById("downloadPS1").href = URL.createObjectURL(psBlob);
+    document.getElementById("downloadVBS").href = URL.createObjectURL(vbsBlob);
+    document.getElementById("downloadBat").href = URL.createObjectURL(batBlob);
+
+    document.getElementById("downloadSection").style.display = "block";
+    document.getElementById("instructions").style.display = "block";
+    document.getElementById("downloadMessage").innerText = "Download these files for " + developerName + ":";
+});
+</script>
 </body>
 </html>

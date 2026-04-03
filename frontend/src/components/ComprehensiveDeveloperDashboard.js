@@ -351,7 +351,7 @@ const ComprehensiveDeveloperDashboard = ({ developer, onBack }) => {
                         <div key={index} className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-2">
                             {getAppIcon(activity.application_name)}
-                            <span className="text-gray-700">{activity.window_title?.slice(0, 50)}...</span>
+                            <span className="text-gray-700">{(activity.window_title || activity.file_path?.split(/[/\\]/).pop() || 'Unknown')?.slice(0, 50)}...</span>
                           </div>
                           <span className="text-gray-500">{(activity.duration / 3600).toFixed(1)}h</span>
                         </div>

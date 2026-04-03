@@ -11,6 +11,14 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+def format_duration(milliseconds):
+    """Convert milliseconds to hours, minutes, seconds"""
+    total_seconds = milliseconds / 1000
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    return f"{hours}h {minutes}m {seconds}s"
+
 # Application categorization rules
 APP_CATEGORIES = {
     'productivity': [
@@ -28,14 +36,15 @@ APP_CATEGORIES = {
         'postman.exe', 'insomnia.exe', 'fiddler.exe',
         'tableplus.exe', 'dbeaver.exe', 'heidisql.exe', 'navicat.exe',
         'git.exe', 'gitkraken.exe', 'sourcetree.exe', 'fork.exe',
-        'docker.exe', 'dockerdesktop.exe', 'virtualbox.exe', 'vmware.exe'
+        'docker.exe', 'dockerdesktop.exe', 'virtualbox.exe', 'vmware.exe',
+        'filezilla.exe'
     ],
     'browser': [
         'chrome.exe', 'firefox.exe', 'msedge.exe', 'opera.exe', 'brave.exe',
         'vivaldi.exe', 'safari', 'iexplore.exe', 'browser'
     ],
     'server': [
-        'filezilla.exe', 'winscp.exe', 'putty.exe', 'mobaxterm.exe',
+        'winscp.exe', 'putty.exe', 'mobaxterm.exe',
         'securecrt.exe', 'xshell.exe', 'royal tsx', 'termius.exe',
         'cyberduck.exe', 'transmit', 'forklift', 'expandrive.exe',
         'mysql.exe', 'psql.exe', 'mongo.exe', 'redis-cli.exe',
@@ -197,7 +206,7 @@ async def get_developer_activity_data(
         
         return {
             'data': activities,
-            'total_time': total_duration,
+            "total_time": format_duration(total_duration),
             'total_activities': len(activities),
             'category_breakdown': category_percentages,
             'date_range': {
@@ -258,7 +267,7 @@ async def get_activity_by_categories(
             category_stats[category] = {
                 'activities': activities[:100],  # Limit to 100 most recent
                 'total_activities': len(activities),
-                'total_duration': sum(a['duration'] for a in activities),
+                'total_duration': sum(a['duration'] for a in activities)/1000,
                 'top_applications': [
                     {
                         'name': app,

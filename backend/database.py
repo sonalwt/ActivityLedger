@@ -35,13 +35,12 @@ try:
     
     # Test connection
     with engine.connect() as conn:
-        print(f"DEBUG: ✅ Database connection successful!")
-    
+        print(f"DEBUG: Database connection successful!")
+
 except Exception as e:
-    print(f"DEBUG: ❌ Engine creation failed: {e}")
-    print(f"DEBUG: Falling back to SQLite")
-    DATABASE_URL = "sqlite:///./timesheet.db"
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    print(f"ERROR: Database connection failed: {e}")
+    print(f"ERROR: Please check your DATABASE_URL and ensure PostgreSQL is running")
+    raise RuntimeError(f"Failed to connect to database: {e}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

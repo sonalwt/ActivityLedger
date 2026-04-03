@@ -29,6 +29,16 @@ def create_activity_record(db: Session, activity_data: Dict, user_id: int):
     """Create a new activity record (prevents duplicates)"""
     from improved_project_extractor import extract_project_info
     
+    # Convert duration from milliseconds to seconds
+    activity_data['duration'] = activity_data.get('duration', 0) / 1000
+
+    # If project_name is missing or 'general', try to extract from window title
+    if not activity_data.get('project_name') or activity_data.get('project_name') == 'general':
+        window_title = activity_data.get('window_title', '')
+        if ' - ' in window_title:
+            # Extract project name from window title (e.g., "timesheet - main.py - VS Code")
+            activity_data['project_name'] = window_title.split(' - ')[0].strip()
+    
     # Check if this exact record already exists
     existing_record = db.query(models.ActivityRecord).filter(
         and_(
@@ -64,7 +74,7 @@ def create_activity_record(db: Session, activity_data: Dict, user_id: int):
         specific_process=activity_data.get("specific_process"),
         detailed_activity=activity_data.get("detailed_activity"),
         category=activity_data.get("category", "other"),
-        duration=activity_data.get("duration", 0),
+        duration=activity_data.get("duration", 0),  # Now in seconds
         timestamp=activity_data.get("timestamp", datetime.now()),
         # Add project information
         project_name=project_info.get("project_name"),

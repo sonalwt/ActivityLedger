@@ -108,19 +108,34 @@ class ActivityWatchSyncer:
                             continue
                         
                         # Skip activities with no meaningful data
-                        app_name = data.get('app', data.get('application', 'Unknown'))
+                        app_name = data.get('app', data.get('application', ''))
                         window_title = data.get('title', '')
-                        
+                        project = data.get('project', '')
+                        file_path = data.get('file', '')
+                        language = data.get('language', '')
+
+                        # For VS Code watcher events: no app/title but has project/file
+                        if not app_name and (project or file_path):
+                            app_name = 'Visual Studio Code'
+
+                        # Derive window_title from file_path when title is empty (e.g. aw-watcher-vscode)
+                        if not window_title and file_path:
+                            basename = file_path.rsplit('/', 1)[-1] if '/' in file_path else file_path.rsplit('\\', 1)[-1] if '\\' in file_path else file_path
+                            window_title = basename
+
                         if not app_name or app_name == 'Unknown':
                             continue
-                        
+
                         activity = {
                             "application_name": app_name,
                             "window_title": window_title,
                             "duration": duration,
                             "timestamp": timestamp,
                             "bucket_name": bucket_name,
-                            "developer_id": self.developer_id
+                            "developer_id": self.developer_id,
+                            "project": project,
+                            "file": file_path,
+                            "language": language
                         }
                         
                         activities.append(activity)
@@ -144,31 +159,53 @@ class ActivityWatchSyncer:
         if not activities:
             logger.info("No activities to send")
             return True
-        
+
+        # Convert activities to ActivityWatch event format for /api/sync endpoint
+        events = []
+        for activity in activities:
+            event = {
+                "timestamp": activity.get("timestamp", ""),
+                "duration": activity.get("duration", 0),
+                "data": {
+                    "app": activity.get("application_name", ""),
+                    "title": activity.get("window_title", ""),
+                    "url": activity.get("url", None),
+                    "project": activity.get("project", ""),
+                    "file": activity.get("file", ""),
+                    "language": activity.get("language", "")
+                }
+            }
+            events.append(event)
+
+        # Payload format for /api/sync endpoint (name/token in body)
         payload = {
-            "developer_id": self.developer_id,
-            "activities": activities,
+            "name": self.developer_id,
+            "token": self.api_token,
+            "data": events,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
+
         try:
-            logger.debug(f"Sending {len(activities)} activities to server")
-            
+            logger.debug(f"Sending {len(events)} activities to server")
+
+            # Send directly to SERVER_URL (which should be the /api/sync endpoint)
             response = requests.post(
-                f"{self.server_url}/receive-activity-data",
-                headers=self.headers,
+                self.server_url,
                 json=payload,
+                headers={"Content-Type": "application/json"},
                 timeout=30
             )
-            
-            response.raise_for_status()
+
             result = response.json()
-            
-            logger.info(f"✅ Successfully sent {len(activities)} activities to server")
-            logger.info(f"Server response: {result.get('message', 'No message')}")
-            
-            return True
-            
+
+            if result.get("success"):
+                logger.info(f"✅ Successfully sent {len(events)} activities to server")
+                logger.info(f"Server response: {result.get('message', 'No message')}")
+                return True
+            else:
+                logger.error(f"❌ Server error: {result.get('error', 'Unknown error')}")
+                return False
+
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ Error sending data to server: {e}")
             if hasattr(e, 'response') and e.response is not None:
@@ -207,7 +244,7 @@ class ActivityWatchSyncer:
     def test_connections(self) -> bool:
         """Test connections to both ActivityWatch and server"""
         logger.info("🔍 Testing connections...")
-        
+
         # Test ActivityWatch
         aw_status = False
         try:
@@ -216,34 +253,49 @@ class ActivityWatchSyncer:
             logger.info(f"ActivityWatch connection: {'✅' if aw_status else '❌'}")
         except Exception as e:
             logger.error(f"ActivityWatch connection: ❌ ({e})")
-        
-        # Test server
+
+        # Test server - try health endpoint
         server_status = False
         try:
-            server_response = requests.get(f"{self.server_url}/health", timeout=5)
+            # SERVER_URL is the full /api/sync URL, get base URL for health check
+            base_url = self.server_url.rsplit('/api/sync', 1)[0]
+            health_url = f"{base_url}/api/sync/health"
+            server_response = requests.get(health_url, timeout=5)
             server_status = server_response.status_code == 200
             logger.info(f"Server connection: {'✅' if server_status else '❌'}")
         except Exception as e:
-            logger.error(f"Server connection: ❌ ({e})")
-        
-        # Test authentication
+            # Try alternate health endpoint
+            try:
+                base_url = self.server_url.rsplit('/api/sync', 1)[0]
+                server_response = requests.get(f"{base_url}/", timeout=5)
+                server_status = server_response.status_code == 200
+                logger.info(f"Server connection: {'✅' if server_status else '❌'}")
+            except:
+                logger.error(f"Server connection: ❌ ({e})")
+
+        # Test authentication by sending empty sync
         auth_status = False
         try:
+            test_payload = {
+                "name": self.developer_id,
+                "token": self.api_token,
+                "data": [],
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
             auth_response = requests.post(
-                f"{self.server_url}/receive-activity-data",
-                headers=self.headers,
-                json={
-                    "developer_id": self.developer_id,
-                    "activities": [],
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                },
+                self.server_url,
+                json=test_payload,
+                headers={"Content-Type": "application/json"},
                 timeout=5
             )
-            auth_status = auth_response.status_code != 401
+            result = auth_response.json()
+            auth_status = result.get("success", False) or "Invalid" not in result.get("error", "")
             logger.info(f"Authentication: {'✅' if auth_status else '❌'}")
+            if not auth_status:
+                logger.error(f"Auth error: {result.get('error', 'Unknown')}")
         except Exception as e:
             logger.error(f"Authentication test: ❌ ({e})")
-        
+
         return aw_status and server_status and auth_status
     
     def run_continuous(self):

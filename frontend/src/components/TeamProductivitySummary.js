@@ -2,49 +2,68 @@ import React, { useState, useEffect } from 'react';
 import { Users, TrendingUp, Clock, Activity } from 'lucide-react';
 import './TeamProductivitySummary.css';
 
-const TeamProductivitySummary = () => {
+const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange }) => {
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState('today');
-  
+  const [localDateRange, setLocalDateRange] = useState('week');
+
   const API_BASE = process.env.REACT_APP_API_URL || '';
+
+  // Use props if provided, otherwise use local state
+  const currentDateRange = dateRange !== undefined ? dateRange : localDateRange;
+  const handleDateRangeChange = (value) => {
+    if (onDateRangeChange) {
+      onDateRangeChange(value);
+    } else {
+      setLocalDateRange(value);
+    }
+  };
 
   useEffect(() => {
     fetchSummaryData();
-  }, [dateRange]);
+  }, [currentDateRange]);
 
   const fetchSummaryData = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const token = localStorage.getItem('token');
       const params = new URLSearchParams();
-      
+
       // Set date range based on selection
       const now = new Date();
       let startDate = new Date();
-      
-      switch (dateRange) {
+      let endDate = new Date();
+
+      switch (currentDateRange) {
         case 'today':
           startDate.setHours(0, 0, 0, 0);
           break;
         case 'week':
+          // Last 7 days excluding today (today has its own option)
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
           startDate.setDate(now.getDate() - 7);
+          startDate.setHours(0, 0, 0, 0);
           break;
         case 'month':
+          // Last 30 days excluding today
+          endDate.setDate(endDate.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
           startDate.setDate(now.getDate() - 30);
+          startDate.setHours(0, 0, 0, 0);
           break;
         default:
           startDate.setHours(0, 0, 0, 0);
       }
-      
+
       params.append('start_date', startDate.toISOString());
-      params.append('end_date', now.toISOString());
-      
+      params.append('end_date', endDate.toISOString());
+
       const response = await fetch(
-        `${API_BASE}/api/all-developers/productivity-summary?${params}`, 
+        `${API_BASE}/api/all-developers/productivity-summary?${params}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -59,43 +78,45 @@ const TeamProductivitySummary = () => {
 
       const data = await response.json();
       setSummaryData(data);
+
+      // Pass developer data to parent if callback provided
+      if (onDataLoaded && data.developers) {
+        onDataLoaded(data.developers);
+      }
     } catch (error) {
       setError(error.message);
       console.error('Error fetching team summary:', error);
+      // Notify parent even on error so it can stop showing the loader
+      if (onDataLoaded) {
+        onDataLoaded([]);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   if (loading) {
-    return (
-      <div className="team-productivity-card">
-        <div className="loading-placeholder">
-          <div className="loading-header"></div>
-          <div className="row">
-            <div className="col-md-3 mb-3">
-              <div className="loading-stat"></div>
-            </div>
-            <div className="col-md-3 mb-3">
-              <div className="loading-stat"></div>
-            </div>
-            <div className="col-md-3 mb-3">
-              <div className="loading-stat"></div>
-            </div>
-            <div className="col-md-3 mb-3">
-              <div className="loading-stat"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return null; // Full-page loader is shown by Dashboard parent
   }
 
   if (error || !summaryData) {
     return null;
   }
 
-  const { team_summary, developers } = summaryData;
+  function formatDurationFromHours(decimalHours) {
+  if (!decimalHours || isNaN(decimalHours)) return "0h 0m 0s";
+
+  const totalSeconds = Math.floor(decimalHours * 3600);
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+
+  const { team_summary } = summaryData;
 
   return (
     <div className="team-productivity-card">
@@ -104,10 +125,10 @@ const TeamProductivitySummary = () => {
           <TrendingUp className="icon-header" />
           Team Productivity Overview
         </h2>
-        
+
         <select
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value)}
+          value={currentDateRange}
+          onChange={(e) => handleDateRangeChange(e.target.value)}
           className="form-select form-select-sm date-range-select"
         >
           <option value="today">Today</option>
@@ -115,13 +136,13 @@ const TeamProductivitySummary = () => {
           <option value="month">Last 30 Days</option>
         </select>
       </div>
-      
-      <div className="row mb-4">
-        <div className="col-lg-3 col-md-6 mb-3">
+
+      <div className="row">
+        <div className="col-lg-4 col-md-6 mb-3">
           <div className="stat-card stat-card-blue">
             <div className="stat-content">
               <div className="stat-details">
-                <div className="stat-label">Active Developers</div>
+                <div className="stat-label">Active Resources</div>
                 <div className="stat-value">
                   {team_summary.active_developers}/{team_summary.total_developers}
                 </div>
@@ -130,8 +151,8 @@ const TeamProductivitySummary = () => {
             </div>
           </div>
         </div>
-        
-        <div className="col-lg-3 col-md-6 mb-3">
+
+        <div className="col-lg-4 col-md-6 mb-3">
           <div className="stat-card stat-card-green">
             <div className="stat-content">
               <div className="stat-details">
@@ -144,59 +165,19 @@ const TeamProductivitySummary = () => {
             </div>
           </div>
         </div>
-        
-        <div className="col-lg-3 col-md-6 mb-3">
+
+        <div className="col-lg-4 col-md-6 mb-3">
           <div className="stat-card stat-card-purple">
             <div className="stat-content">
               <div className="stat-details">
-                <div className="stat-label">Total Hours</div>
+                <div className="stat-label">Productive Hours</div>
                 <div className="stat-value">
-                  {team_summary.team_total_hours}h
+                    {formatDurationFromHours(team_summary.team_productive_hours)}
                 </div>
               </div>
               <Clock className="stat-icon" />
             </div>
           </div>
-        </div>
-        
-        <div className="col-lg-3 col-md-6 mb-3">
-          <div className="stat-card stat-card-orange">
-            <div className="stat-content">
-              <div className="stat-details">
-                <div className="stat-label">Avg Hours/Dev</div>
-                <div className="stat-value">
-                  {team_summary.average_hours_per_developer}h
-                </div>
-              </div>
-              <Activity className="stat-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Developer Activity */}
-      <div className="developer-activity">
-        <h3 className="section-title">Developer Activity</h3>
-        <div className="developer-list">
-          {developers.slice(0, 5).map((dev, index) => (
-            <div key={index} className="developer-item">
-              <div className="developer-info">
-                <div className={`status-indicator status-${dev.status}`}></div>
-                <span className="developer-name">{dev.name}</span>
-              </div>
-              
-              <div className="developer-stats">
-                <span className="hours-worked">{dev.total_hours}h worked</span>
-                <span className={`productivity-percentage ${
-                  dev.productivity_percentage >= 80 ? 'high-productivity' :
-                  dev.productivity_percentage >= 60 ? 'medium-productivity' :
-                  'low-productivity'
-                }`}>
-                  {dev.productivity_percentage}% productive
-                </span>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

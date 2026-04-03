@@ -104,7 +104,7 @@ async def get_categorized_activities(
         # Get rows from DB
         # ---------------------------------------------------
         query = text(f"""
-            SELECT 
+            SELECT
                 id, developer_id, application_name, window_title,
                 duration, timestamp, url, file_path, project_name,
                 project_type, category
@@ -112,6 +112,7 @@ async def get_categorized_activities(
             WHERE developer_id = :dev_id
               AND ({TIMEZONE_CORRECTED_TIMESTAMP}) >= :start_date
               AND ({TIMEZONE_CORRECTED_TIMESTAMP}) <= :end_date
+              AND LOWER(COALESCE(application_name, '')) NOT IN ('unknown', '')
             ORDER BY timestamp ASC
         """)
 
@@ -135,15 +136,29 @@ async def get_categorized_activities(
         for row in rows:
             window_title = row.window_title or ""
 
-            # Skip "Untitled" entries - don't include in any calculations
-            if window_title.strip().lower() == "untitled":
+            # Derive window_title from file_path when empty (fixes VS Code watcher data)
+            if not window_title.strip() and row.file_path:
+                fp = row.file_path
+                window_title = fp.rsplit('/', 1)[-1] if '/' in fp else fp.rsplit('\\', 1)[-1] if '\\' in fp else fp
+
+            # Skip meaningless entries - don't include in any calculations
+            skip_titles = ['untitled', 'program manager', 'task switching',
+                           'task view', 'windows default lock screen', 'new tab', 'blank']
+            if window_title.strip().lower() in skip_titles:
                 continue
+
+            # Cap duration for system/non-work window titles (max 60 seconds each)
+            # These are brief system interactions, not sustained work
+            system_titles = ['search', 'task manager', 'control panel']
+            raw_duration = row.duration or 0
+            if window_title.strip().lower() in system_titles and raw_duration > 60:
+                raw_duration = 60
 
             act = {
                 "id": row.id,
                 "application_name": row.application_name or "",
                 "window_title": window_title,
-                "duration": row.duration or 0,
+                "duration": raw_duration,
                 "timestamp": row.timestamp.isoformat(),
                 "project_name": row.project_name,
                 "project_type": row.project_type,
@@ -151,7 +166,7 @@ async def get_categorized_activities(
                 "file_path": row.file_path,
             }
 
-            ci = categorizer.get_detailed_category(act["window_title"], act["application_name"])
+            ci = categorizer.get_detailed_category(act["window_title"], act["application_name"], act.get("project_name") or "")
             cat = ci["category"]
             if cat not in categories:
                 cat = "browser"

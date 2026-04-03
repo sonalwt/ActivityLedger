@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone, timedelta
 import json
@@ -66,6 +67,88 @@ def categorize_application(app_name: str, window_title: str = "") -> str:
     
     return 'other'
 
+def _extract_folder_from_filezilla_title(title: str) -> str:
+    """
+    Extract the actual project folder from a FileZilla window title.
+    FileZilla title format: "site_name - /remote/path/to/project/ - FileZilla"
+    Returns the first meaningful folder from the remote path, or the site name as fallback.
+    """
+    parts = title.split(' - ')
+    # Common server path directories to skip when looking for the project folder
+    skip_dirs = {
+        'var', 'www', 'html', 'home', 'usr', 'opt', 'srv', 'root',
+        'public_html', 'htdocs', 'webapps', 'sites', 'data', 'etc',
+        'tmp', 'log', 'logs', 'lib', 'bin', 'sbin', 'dev', 'proc',
+    }
+
+    # Look for a remote path part in the FileZilla title
+    for part in parts:
+        part = part.strip()
+        if part.startswith('/') or (part.count('/') >= 2 and part.lower() != 'filezilla'):
+            # This looks like a remote path — extract meaningful project folder
+            path_segments = [p for p in part.split('/') if p]
+            meaningful = [p for p in path_segments if p.lower() not in skip_dirs]
+            if meaningful:
+                return meaningful[0]
+
+    # Fallback: return site name (first part) if no path found
+    if len(parts) >= 2:
+        site_name = parts[0].strip()
+        if site_name and site_name.lower() != 'filezilla' and len(site_name) > 2:
+            return site_name
+    return None
+
+
+def resolve_ide_project(db, developer_id: str, timestamp, vs_code_project: str = None) -> str:
+    """
+    When VS Code has no project folder or shows a FileZilla site name,
+    check recent FileZilla activity to find the actual project folder from the remote path.
+
+    Args:
+        vs_code_project: If provided, only match FileZilla titles containing this site name.
+                         This is used to verify if a VS Code project name is actually a FileZilla site.
+    """
+    try:
+        from sqlalchemy import text
+
+        if vs_code_project:
+            # Check if VS Code project name matches a FileZilla site name
+            fz = db.execute(text("""
+                SELECT window_title FROM activity_records
+                WHERE developer_id = :dev_id
+                  AND LOWER(application_name) LIKE '%filezilla%'
+                  AND window_title ILIKE :site_pattern
+                  AND timestamp BETWEEN :t0 AND :t1
+                ORDER BY timestamp DESC LIMIT 1
+            """), {
+                "dev_id": developer_id,
+                "t0": timestamp - timedelta(minutes=30),
+                "t1": timestamp + timedelta(minutes=5),
+                "site_pattern": f"%{vs_code_project}%FileZilla%",
+            })
+        else:
+            # General lookup: find any recent FileZilla activity
+            fz = db.execute(text("""
+                SELECT window_title FROM activity_records
+                WHERE developer_id = :dev_id
+                  AND LOWER(application_name) LIKE '%filezilla%'
+                  AND window_title LIKE '%- %FileZilla%'
+                  AND timestamp BETWEEN :t0 AND :t1
+                ORDER BY timestamp DESC LIMIT 1
+            """), {
+                "dev_id": developer_id,
+                "t0": timestamp - timedelta(minutes=30),
+                "t1": timestamp + timedelta(minutes=5),
+            })
+
+        row = fz.fetchone()
+        if row and row[0]:
+            return _extract_folder_from_filezilla_title(row[0])
+        return None
+    except Exception:
+        return None
+
+
 def extract_project_info(window_title: str, app_name: str, url: str = None) -> dict:
     """Extract project information from window title, app name, and URL"""
     project_info = {
@@ -83,13 +166,24 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
     window_title_lower = window_title.lower() if window_title else ""
     
     # IDE Project Detection
+    ide_names = ['visual studio code', 'cursor', 'code', 'pycharm', 'intellij', 'sublime text', 'atom']
     if any(ide in app_name_lower for ide in ['cursor', 'vscode', 'code', 'pycharm', 'intellij']):
-        if ' - ' in window_title:
-            parts = window_title.split(' - ')
-            if len(parts) >= 2:
-                filename = parts[0].strip()
-                project = parts[1].strip()
-                
+        # Support both " | " and " - " delimiters (VS Code titleSeparator setting)
+        separator = ' | ' if ' | ' in window_title else ' - '
+        if separator in window_title:
+            parts = window_title.split(separator)
+            # Filter out the IDE name from parts
+            filtered_parts = [p.strip() for p in parts if p.strip().lower() not in ide_names]
+
+            if len(filtered_parts) >= 2:
+                # Pattern: "filename | projectname | Visual Studio Code"
+                filename = filtered_parts[0]
+                project = filtered_parts[1]
+
+                # If project looks like a filename, swap with filename if it's not
+                if '.' in project and not project.startswith('.') and not ('.' in filename and not filename.startswith('.')):
+                    project, filename = filename, project
+
                 project_info.update({
                     'project_name': project,
                     'project_type': 'Development',
@@ -97,6 +191,35 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
                     'detailed_activity': f"Coding: {filename} in {project}"
                 })
                 return project_info
+            elif len(filtered_parts) == 1:
+                part = filtered_parts[0]
+                # Check if it's a filename (has extension) or a project folder name
+                has_extension = '.' in part and not part.startswith('.')
+                if has_extension:
+                    # Pattern: "filename.js | Visual Studio Code" (single file, no folder)
+                    project_info.update({
+                        'project_name': 'IDE Work',
+                        'project_type': 'Development',
+                        'file_path': part,
+                        'detailed_activity': f"Coding: {part}"
+                    })
+                else:
+                    # Pattern: "projectFolder | Visual Studio Code" (folder open, no file tab)
+                    project_info.update({
+                        'project_name': part,
+                        'project_type': 'Development',
+                        'file_path': None,
+                        'detailed_activity': f"Development: {part}"
+                    })
+                return project_info
+
+        # No separator in title or empty after filtering — just IDE name
+        project_info.update({
+            'project_name': 'IDE Work',
+            'project_type': 'Development',
+            'detailed_activity': f"Development: {window_title}" if window_title else 'IDE Work'
+        })
+        return project_info
     
     # Browser Project Detection
     elif any(browser in app_name_lower for browser in ['chrome', 'firefox', 'edge', 'safari']):
@@ -138,6 +261,26 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
             })
             return project_info
     
+    # File Explorer - extract project name from path
+    if 'explorer' in app_name_lower and ' - file explorer' in window_title_lower:
+        path = window_title.split(' - ')[0].strip()
+        # Extract last folder name from path as project name
+        import re
+        parts = re.split(r'[/\\]', path)
+        # Get the deepest folder name (last non-empty part)
+        folder_name = None
+        for p in reversed(parts):
+            if p.strip() and p.strip() not in ['D:', 'C:', 'E:', 'projects', 'repos', 'code', 'www']:
+                folder_name = p.strip()
+                break
+        if folder_name:
+            project_info.update({
+                'project_name': folder_name,
+                'project_type': 'Development',
+                'detailed_activity': f"File Explorer: {path}"
+            })
+            return project_info
+
     # Default fallback
     clean_app_name = app_name.replace('.exe', '') if app_name else 'Unknown'
     project_info.update({
@@ -145,7 +288,7 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
         'project_type': 'Work',
         'detailed_activity': f"{clean_app_name}: {window_title}" if window_title else clean_app_name
     })
-    
+
     return project_info
 
 @router.post("/activitywatch/webhook")
@@ -175,7 +318,8 @@ async def receive_activitywatch_webhook_stateless(
         webhook_data = await request.json()
         
         processed_activities = 0
-        
+        skipped_duplicates = 0
+
         # Process each bucket
         for bucket_name, bucket_data in webhook_data.items():
             if isinstance(bucket_data, list):
@@ -204,26 +348,41 @@ async def receive_activitywatch_webhook_stateless(
                         # Skip if no meaningful data
                         if not app_name or app_name == 'Unknown':
                             continue
-                        
+
+                        # Skip untitled/blank/system/idle windows
+                        skip_titles = ['untitled', 'unknown', '', 'blank',
+                                       'program manager', 'task switching', 'task view',
+                                       'windows default lock screen', 'new tab']
+                        if not window_title or window_title.lower().strip() in skip_titles:
+                            continue
+
+                        # Cap duration for system activities (max 60s per event)
+                        system_titles = ['search', 'task manager', 'control panel']
+                        if window_title.lower().strip() in system_titles and duration > 60:
+                            duration = 60
+
                         # Categorize and extract project info
                         category = categorize_application(app_name, window_title)
                         project_info = extract_project_info(window_title, app_name, url)
-                        
-                        # Check for duplicates to avoid storing same activity twice
-                        from models import ActivityRecord
-                        existing = db.query(ActivityRecord).filter(
-                            ActivityRecord.developer_id == developer_id,
-                            ActivityRecord.timestamp == timestamp,
-                            ActivityRecord.application_name == app_name,
-                            ActivityRecord.duration == duration
-                        ).first()
-                        
-                        if existing:
-                            continue  # Skip duplicates
-                        
+
+                        # If VS Code has no project, resolve from FileZilla or recent activity
+                        if project_info['project_name'] == 'IDE Work' and category == 'development':
+                            resolved = resolve_ide_project(db, developer_id, timestamp)
+                            if resolved:
+                                project_info['project_name'] = resolved
+                                project_info['project_type'] = 'Development'
+                        # Also check if VS Code project name is actually a FileZilla site name
+                        # e.g. "file.js - node server - Visual Studio Code" where "node server" is a site
+                        elif project_info['project_name'] and category == 'development':
+                            resolved = resolve_ide_project(db, developer_id, timestamp, project_info['project_name'])
+                            if resolved and resolved != project_info['project_name']:
+                                project_info['project_name'] = resolved
+                                project_info['project_type'] = 'Development'
+
                         # Create activity record (store developer_id as string, no FK)
+                        from models import ActivityRecord
                         activity_record = ActivityRecord(
-                            developer_id=developer_id,  # Store as string identifier
+                            developer_id=developer_id,
                             application_name=app_name,
                             window_title=window_title,
                             url=url,
@@ -235,9 +394,15 @@ async def receive_activitywatch_webhook_stateless(
                             project_type=project_info['project_type'],
                             detailed_activity=project_info['detailed_activity']
                         )
-                        
+
                         db.add(activity_record)
-                        processed_activities += 1
+                        try:
+                            db.flush()
+                            processed_activities += 1
+                        except IntegrityError:
+                            db.rollback()
+                            skipped_duplicates += 1
+                            continue
                         
                     except Exception as e:
                         logger.error(f"Error processing event: {e}")
@@ -246,12 +411,14 @@ async def receive_activitywatch_webhook_stateless(
         # Commit all changes
         db.commit()
         
-        logger.info(f"Successfully processed {processed_activities} activities from {developer_id}")
-        
+        logger.info(f"Synced {processed_activities} new, skipped {skipped_duplicates} duplicates from {developer_id}")
+
         return {
             "status": "success",
-            "message": f"Processed {processed_activities} activities",
+            "message": f"Processed {processed_activities} activities ({skipped_duplicates} duplicates skipped)",
             "developer_id": developer_id,
+            "processed": processed_activities,
+            "duplicates_skipped": skipped_duplicates,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         

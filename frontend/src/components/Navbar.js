@@ -1,10 +1,13 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Clock, LogOut, User } from 'lucide-react';
+import { Clock, LogOut, User, FolderOpen, RefreshCw } from 'lucide-react';
 
 function Navbar() {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const isDashboard = location.pathname === '/dashboard';
+  const isProjects = location.pathname === '/project-time';
 
   const navStyle = {
     background: 'rgba(255, 255, 255, 0.95)',
@@ -34,6 +37,26 @@ function Navbar() {
     fontWeight: 'bold'
   };
 
+  const navLinksStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  };
+
+  const getNavLinkStyle = (isActive) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    borderRadius: '6px',
+    textDecoration: 'none',
+    color: isActive ? '#667eea' : '#4b5563',
+    backgroundColor: isActive ? '#eef2ff' : 'transparent',
+    fontSize: '14px',
+    fontWeight: isActive ? '600' : '500',
+    transition: 'all 0.2s ease'
+  });
+
   const userInfoStyle = {
     display: 'flex',
     alignItems: 'center',
@@ -48,7 +71,7 @@ function Navbar() {
     fontSize: '16px'
   };
 
-  const logoutButtonStyle = {
+  const buttonStyle = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
@@ -64,10 +87,24 @@ function Navbar() {
   return (
     <nav style={navStyle}>
       <div style={containerStyle}>
-        <Link to="/" style={logoStyle}>
+        <Link to="/dashboard" style={logoStyle} onClick={() => window.dispatchEvent(new CustomEvent('navigateHome'))}>
           <Clock size={28} color="#667eea" style={{ marginRight: '12px' }} />
-          Timesheet
+          Resources Timesheet
         </Link>
+
+        {user && (
+          <div style={navLinksStyle}>
+            <Link
+              to="/project-time"
+              style={getNavLinkStyle(isProjects)}
+              onMouseEnter={(e) => { if (!isProjects) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
+              onMouseLeave={(e) => { if (!isProjects) e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              <FolderOpen size={16} />
+              Projects
+            </Link>
+          </div>
+        )}
 
         {user && (
           <div style={userInfoStyle}>
@@ -75,11 +112,22 @@ function Navbar() {
               <User size={16} />
               {user.username}
             </div>
+            {isDashboard && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('refreshDeveloperList'))}
+                style={buttonStyle}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <RefreshCw size={16} />
+                Refresh List
+              </button>
+            )}
             <button
               onClick={logout}
-              style={logoutButtonStyle}
-              onMouseEnter={(e) => e.target.style.backgroundColor = '#f8f9fa'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              style={buttonStyle}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               <LogOut size={16} />
               Logout

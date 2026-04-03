@@ -5,7 +5,7 @@ from sqlalchemy import func, text, and_
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta, timezone, date
 from database import get_db
-from models import Developer, ActivityRecord
+from models import Developer, ActivityRecord, Project
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,47 @@ PRODUCTIVE_APPS = [
     'Microsoft Teams', 'Slack', 'Zoom',  # Communication during work
     'Microsoft Word', 'Excel', 'PowerPoint', 'Google Docs'
 ]
+
+# Work-related browser keywords - browser activities matching these in
+# window_title or url are counted as productive in productivity calculation
+# NOTE: Project/client names are fetched dynamically from the projects table
+WORK_BROWSER_KEYWORDS = [
+    # Development platforms
+    'github', 'gitlab', 'bitbucket', 'stackoverflow', 'stack overflow',
+    # Server/hosting panels
+    'cpanel', 'phpmyadmin', 'plesk',
+    # Work email
+    'gmail', 'firsteconomy', '@firsteconomy', 'mail',
+    # Office tools in browser
+    'excel', 'google sheets', 'google docs', 'google drive',
+    # Dev tools in browser
+    'localhost', '127.0.0.1', 'postman', 'swagger', 'devtools',
+    'jira', 'confluence', 'trello', 'notion', 'asana', 'clickup',
+    # AI coding tools
+    'chatgpt', 'claude', 'perplexity', 'phind', 'copilot',
+    # Cloud platforms
+    'aws', 'azure', 'firebase', 'vercel', 'netlify',
+    # Client/project work in browser
+    'cms', 'admin', 'dashboard', 'panel', 'portal',
+    'hdfc', 'waaree', 'mahindra', 'manulife', 'indosolar',
+    # Timesheet
+    'timesheet',
+]
+
+# Daily target hours for productivity calculation
+DAILY_TARGET_HOURS = 8.0
+
+
+
+def _build_work_browser_condition(keywords):
+    """Build SQL OR condition for work-related browser pattern matching."""
+    conditions = []
+    for kw in keywords:
+        safe_kw = kw.replace("'", "''")
+        conditions.append(f"LOWER(ar.window_title) LIKE '%{safe_kw}%'")
+        conditions.append(f"LOWER(COALESCE(ar.url, '')) LIKE '%{safe_kw}%'")
+    return "(" + " OR ".join(conditions) + ")"
+
 
 def format_duration(seconds):
     """Convert seconds to hours, minutes, seconds format"""
@@ -58,17 +99,20 @@ async def get_developer_productivity_hours(
         if not developer:
             raise HTTPException(status_code=404, detail="Developer not found")
         
-        # Query daily productivity using raw SQL for better control
-        daily_productivity = db.execute(text("""
-            SELECT 
+        # Query daily productivity using raw SQL
+        # Productive = productive + server + browser (all 100%)
+        # non-work (idle/lock screen) is excluded
+        # Only include days with > 2 hours of total activity
+        daily_productivity = db.execute(text(f"""
+            SELECT
                 DATE(timestamp) as work_date,
                 SUM(duration) / 3600.0 as total_hours,
-                SUM(CASE 
-                    WHEN category IN :productive_categories 
-                    OR application_name IN :productive_apps 
-                    THEN duration 
-                    ELSE 0 
-                END) / 3600.0 as productive_hours,
+                SUM(
+                    CASE
+                        WHEN category IN ('productive', 'server', 'browser') THEN duration
+                        ELSE 0
+                    END
+                ) / 3600.0 as productive_hours,
                 COUNT(DISTINCT application_name) as apps_used,
                 COUNT(*) as total_activities
             FROM activity_records
@@ -76,13 +120,12 @@ async def get_developer_productivity_hours(
             AND timestamp >= :start_date
             AND timestamp <= :end_date
             GROUP BY DATE(timestamp)
+            HAVING SUM(duration) / 3600.0 > 2
             ORDER BY work_date DESC
         """), {
             "dev_id": developer_id,
             "start_date": start,
-            "end_date": end,
-            "productive_categories": tuple(PRODUCTIVE_CATEGORIES),
-            "productive_apps": tuple(PRODUCTIVE_APPS)
+            "end_date": end
         }).fetchall()
         
         # Calculate productivity by hour of day
@@ -155,7 +198,7 @@ async def get_developer_productivity_hours(
             "category": category or "Other",
             "hours": round(float(hours), 2),
             "usage_count": count,
-            "is_productive": category in PRODUCTIVE_CATEGORIES or app_name in PRODUCTIVE_APPS
+            "is_productive": category in ('productive', 'browser', 'server')
         } for app_name, category, hours, count in app_usage]
         
         # Calculate overall statistics
@@ -376,70 +419,106 @@ async def get_all_developers_productivity_summary(
         else:
             end = datetime.now(timezone.utc)
         
-        # Get all developers with their productivity stats using weighted calculation
-        developer_stats = db.execute(text("""
-            SELECT 
+        # Fetch active project names from DB to use as work-related browser keywords
+        project_names = db.query(Project.name).filter(Project.is_active == True).all()
+        dynamic_keywords = list(WORK_BROWSER_KEYWORDS)
+        for (proj_name,) in project_names:
+            if proj_name and proj_name.lower() not in [k.lower() for k in dynamic_keywords]:
+                dynamic_keywords.append(proj_name.lower())
+
+        # Get per-developer productivity stats
+        # Working day = day with > 2 hours of total tracked activity
+        # Productive = productive + server + browser (all 100%, capped at 8h/day)
+        # non-work (idle/lock screen) is excluded
+        # Expected hours = working_days * 8 hours
+        # Productivity % = capped_productive_hours / expected_hours * 100
+        query = f"""
+            WITH daily_stats AS (
+                SELECT
+                    ar.developer_id,
+                    DATE(ar.timestamp) AS activity_date,
+                    SUM(ar.duration) / 3600.0 AS total_day_hours,
+                    LEAST(
+                        SUM(
+                            CASE
+                                WHEN ar.category IN ('productive', 'server', 'browser') THEN ar.duration
+                                ELSE 0
+                            END
+                        ) / 3600.0,
+                        {DAILY_TARGET_HOURS}
+                    ) AS capped_productive_hours
+                FROM activity_records ar
+                WHERE ar.timestamp >= :start_date
+                  AND ar.timestamp <= :end_date
+                GROUP BY ar.developer_id, DATE(ar.timestamp)
+                HAVING SUM(ar.duration) / 3600.0 > 2
+            )
+            SELECT
                 d.developer_id,
                 d.name,
-                COALESCE(SUM(ar.duration) / 3600.0, 0) as total_hours,
-                COALESCE(SUM(
-                    CASE 
-                        WHEN ar.category = 'productive' THEN ar.duration * 0.95
-                        WHEN ar.category = 'server' THEN ar.duration * 0.90
-                        WHEN ar.category = 'browser' THEN ar.duration * 0.20
-                        WHEN ar.category = 'non-work' THEN 0
-                        ELSE ar.duration * 0.15
-                    END
-                ) / 3600.0, 0) as productive_hours,
-                COUNT(DISTINCT ar.project_name) as projects_worked,
-                COUNT(ar.id) as total_activities,
-                MAX(ar.timestamp) as last_activity
+                COALESCE((SELECT SUM(ds.capped_productive_hours) FROM daily_stats ds WHERE ds.developer_id = d.developer_id), 0) AS productive_hours,
+                COALESCE((SELECT COUNT(*) FROM daily_stats ds2 WHERE ds2.developer_id = d.developer_id), 0) AS active_days,
+                COALESCE((SELECT SUM(ds3.total_day_hours) FROM daily_stats ds3 WHERE ds3.developer_id = d.developer_id), 0) AS total_hours,
+                COALESCE((SELECT COUNT(DISTINCT ar3.project_name) FROM activity_records ar3 WHERE ar3.developer_id = d.developer_id AND ar3.timestamp >= :start_date AND ar3.timestamp <= :end_date), 0) AS projects_worked,
+                COALESCE((SELECT COUNT(ar4.id) FROM activity_records ar4 WHERE ar4.developer_id = d.developer_id AND ar4.timestamp >= :start_date AND ar4.timestamp <= :end_date), 0) AS total_activities,
+                (SELECT MAX(ar5.timestamp) FROM activity_records ar5 WHERE ar5.developer_id = d.developer_id AND ar5.category IN ('productive', 'server', 'browser')) AS last_activity
             FROM developers d
-            LEFT JOIN activity_records ar ON d.developer_id = ar.developer_id
-                AND ar.timestamp >= :start_date
-                AND ar.timestamp <= :end_date
             WHERE d.active = true
-            GROUP BY d.developer_id, d.name
-            ORDER BY total_hours DESC
-        """), {
+            ORDER BY productive_hours DESC
+        """
+        developer_stats = db.execute(text(query), {
             "start_date": start,
             "end_date": end
         }).fetchall()
-        
-        # Format results
+
+        # Calculate productivity per developer
+        # productivity = productive_hours / (working_days * 8h) * 100
+        # working_days = days with > 2 hours activity (calculated dynamically)
         developers = []
         for row in developer_stats:
-            dev_id, name, total_hours, productive_hours, projects, activities, last_activity = row
-            
-            productivity_percentage = (productive_hours / total_hours * 100) if total_hours > 0 else 0
-            
+            dev_id, name, productive_hours, active_days, total_hours, projects, activities, last_activity = row
+
+            expected_hours = int(active_days) * DAILY_TARGET_HOURS
+            productivity_percentage = min(100.0, (float(productive_hours) / expected_hours * 100)) if expected_hours > 0 else 0.0
+
             # Determine status based on last activity
-            status = "inactive"
-            if last_activity and total_hours > 0:
-                time_diff = datetime.now(timezone.utc) - last_activity.replace(tzinfo=timezone.utc)
-                if time_diff.total_seconds() < 3600:  # 1 hour
-                    status = "active"
+            # Match developers_orm_api.py thresholds: <30 min = online, <24h = idle
+            status = "offline"
+            if last_activity:
+                if hasattr(last_activity, 'replace'):
+                    time_diff = datetime.now(timezone.utc) - last_activity.replace(tzinfo=timezone.utc)
+                else:
+                    time_diff = datetime.now(timezone.utc) - last_activity
+                if time_diff.total_seconds() < 1800:  # 30 minutes
+                    status = "online"
                 elif time_diff.total_seconds() < 86400:  # 24 hours
                     status = "idle"
-            
+
             developers.append({
                 "developer_id": dev_id,
                 "name": name,
                 "total_hours": round(float(total_hours), 2),
                 "productive_hours": round(float(productive_hours), 2),
                 "productivity_percentage": round(productivity_percentage, 1),
+                "active_days": int(active_days),
                 "projects_count": projects,
                 "activities_count": activities,
                 "last_activity": last_activity.isoformat() if last_activity else None,
                 "status": status
             })
-        
+
         # Calculate team statistics
         team_total_hours = sum(d["total_hours"] for d in developers)
         team_productive_hours = sum(d["productive_hours"] for d in developers)
-        team_productivity = (team_productive_hours / team_total_hours * 100) if team_total_hours > 0 else 0
-        active_developers = sum(1 for d in developers if d["status"] == "active")
-        
+        active_developers = sum(1 for d in developers if d["status"] == "online")
+        developers_with_activity = [d for d in developers if d["productive_hours"] > 0]
+
+        # Team productivity = average of individual productivity percentages
+        if developers_with_activity:
+            team_productivity = sum(d["productivity_percentage"] for d in developers_with_activity) / len(developers_with_activity)
+        else:
+            team_productivity = 0.0
+
         return {
             "date_range": {
                 "start": start.isoformat(),
@@ -451,7 +530,7 @@ async def get_all_developers_productivity_summary(
                 "team_total_hours": round(team_total_hours, 2),
                 "team_productive_hours": round(team_productive_hours, 2),
                 "team_productivity_percentage": round(team_productivity, 1),
-                "average_hours_per_developer": round(team_total_hours / len(developers), 2) if developers else 0
+                "average_hours_per_developer": round(team_productive_hours / len(developers_with_activity), 2) if developers_with_activity else 0
             },
             "developers": developers
         }
@@ -585,38 +664,77 @@ async def get_all_projects(
     db: Session = Depends(get_db)
 ):
     """Get list of actual project folder names from activity_records - includes both productive and work-related browser activities.
-    Only shows projects where at least one developer has spent more than 10 minutes (600 seconds) on that project."""
+    Only shows projects where at least one developer has spent 1 hour or more on that project."""
     try:
         import re
+        from datetime import datetime, timezone, timedelta
 
-        # UPDATED: Include both productive AND browser categories, then merge by project_name
-        # This captures browser-based work (like waaree.com, hdfc sales) that was previously hidden
-        # FILTER: Only show projects where at least one developer spent more than 10 minutes (0.1667 hours)
-        projects_query = db.execute(text("""
+        # Parse date range
+        if start_date:
+            start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        else:
+            start = None
+        if end_date:
+            end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        else:
+            end = None
+
+        # Build date filter
+        date_filter = ""
+        query_params = {}
+        if start and end:
+            date_filter = "AND timestamp >= :start_date AND timestamp <= :end_date"
+            query_params = {"start_date": start, "end_date": end}
+
+        # Fetch all projects with any meaningful time
+        projects_query = db.execute(text(f"""
             SELECT
                 project_name,
                 SUM(activity_count) as activity_count,
                 SUM(total_hours) as total_hours,
                 COUNT(DISTINCT developer_id) as developer_count,
-                SUM(active_days) as active_days
+                SUM(active_days) as active_days,
+                MAX(has_ide) as has_ide
             FROM (
                 SELECT
                     project_name,
                     developer_id,
                     COUNT(*) as activity_count,
                     SUM(duration) / 3600.0 as total_hours,
-                    COUNT(DISTINCT DATE(timestamp)) as active_days
+                    COUNT(DISTINCT DATE(timestamp)) as active_days,
+                    MAX(CASE WHEN LOWER(application_name) IN (
+                        'code.exe', 'visual studio code',
+                        'xampp', 'apache', 'httpd', 'mysql', 'mariadb',
+                        'phpstorm.exe', 'phpstorm64.exe', 'webstorm.exe', 'webstorm64.exe',
+                        'sublime_text.exe', 'notepad++.exe',
+                        'terminal', 'powershell.exe', 'cmd.exe',
+                        'git-bash.exe', 'windowsterminal.exe',
+                        'filezilla.exe', 'filezilla', 'winscp.exe',
+                        'cpanel', 'putty.exe', 'mobaxterm.exe'
+                    ) OR LOWER(window_title) LIKE '%cpanel%'
+                      OR LOWER(window_title) LIKE '%filezilla%'
+                    THEN 1 ELSE 0 END) as has_ide
                 FROM activity_records
                 WHERE project_name IS NOT NULL
                 AND project_name != ''
                 AND LENGTH(project_name) >= 4
-                AND category IN ('productive', 'browser')
+                AND category IN ('productive', 'browser', 'server')
+                {date_filter}
                 GROUP BY project_name, developer_id
-                HAVING SUM(duration) / 3600.0 > 0.1667
+                HAVING SUM(duration) / 3600.0 >= 1.0
             ) subq
             GROUP BY project_name
             ORDER BY total_hours DESC
+        """), query_params).fetchall()
+
+        # Auto-fetch developer names from DB to exclude them from project list
+        dev_names_query = db.execute(text("""
+            SELECT DISTINCT LOWER(name) FROM developers WHERE name IS NOT NULL AND name != ''
         """)).fetchall()
+        developer_names = {row[0].strip() for row in dev_names_query if row[0]}
+        # Also add without spaces (e.g. "Riddhi Dhakhara" -> "riddhidhakhara")
+        developer_names_no_space = {name.replace(' ', '') for name in developer_names}
+        all_developer_names = developer_names | developer_names_no_space
 
         def is_browser_noise(name):
             """
@@ -727,6 +845,25 @@ async def get_all_projects(
             if re.match(r'^(new tab|blank)$', name, re.IGNORECASE):
                 return False
 
+            # Reject "Untitled" variations (Untitled, Untitled-1, Untitled 2, etc.)
+            if re.match(r'^untitled[\s\-_]*\d*$', name_lower):
+                return False
+
+            # Reject "Claude" and AI assistant patterns
+            if re.match(r'^claude[\s\-_]', name_lower) or name_lower == 'claude':
+                return False
+            if 'claude' in name_lower and len(name) < 20:
+                return False
+
+            # Reject screen lock / system UI patterns
+            screen_lock_patterns = [
+                'screen lock', 'lock screen', 'default screen',
+                'screen saver', 'screensaver', 'sign-in', 'sign in screen',
+                'windows lock', 'lock window'
+            ]
+            if any(pattern in name_lower for pattern in screen_lock_patterns):
+                return False
+
             # Reject specific unwanted patterns
             unwanted_patterns = [
                 'dow futures', 'error test', 'wrong ', 'scheme list', 'test cases',
@@ -753,147 +890,251 @@ async def get_all_projects(
             if '/' in name or '\\' in name:
                 return False
 
-            # REMOVED: Domain rejection - we want to keep work-related domains now
-            # Domains are now allowed as they may represent actual work (waaree.com, hdfc, etc.)
-
-            # COMPREHENSIVE file extension filtering
+            # COMPREHENSIVE file extension filtering - reject ANY name containing a file extension
             file_extensions = [
                 # Web/Frontend
                 '.js', '.ts', '.jsx', '.tsx', '.vue', '.css', '.scss', '.sass', '.less',
-                '.html', '.htm', '.xml', '.svg', '.blade',
+                '.html', '.htm', '.xml', '.svg', '.blade', '.ejs', '.hbs', '.pug',
                 # Backend/Server
                 '.py', '.php', '.java', '.rb', '.go', '.rs', '.c', '.cpp', '.cs', '.h',
-                '.aspx', '.asp',
+                '.aspx', '.asp', '.jsp', '.pl', '.swift', '.kt', '.scala', '.lua',
                 # Config/Data
                 '.json', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.env',
-                '.lock', '.log', '.bak', '.tmp', '.cache',
+                '.lock', '.log', '.bak', '.tmp', '.cache', '.map', '.wasm',
                 # Documents
-                '.md', '.txt', '.doc', '.docx', '.pdf', '.rtf',
-                # Media
-                '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp',
+                '.md', '.txt', '.doc', '.docx', '.pdf', '.rtf', '.odt',
+                # Media/Images
+                '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.tiff',
+                '.tif', '.psd', '.ai', '.eps', '.raw', '.heic', '.avif',
+                # Audio/Video
+                '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.wav',
+                '.ogg', '.webm', '.m4a', '.flac', '.aac',
                 # Executables
-                '.sh', '.bat', '.cmd', '.ps1', '.exe', '.dll', '.so',
+                '.sh', '.bat', '.cmd', '.ps1', '.exe', '.dll', '.so', '.msi', '.apk',
+                '.dmg', '.app', '.bin', '.deb', '.rpm',
                 # Database
-                '.sql', '.db', '.sqlite',
+                '.sql', '.db', '.sqlite', '.mdb', '.accdb', '.dbf',
                 # Archives
-                '.zip', '.tar', '.gz', '.rar', '.7z',
+                '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz',
                 # Office
-                '.xls', '.xlsx', '.xlsm', '.csv',
+                '.xls', '.xlsx', '.xlsm', '.csv', '.ppt', '.pptx', '.ods',
                 # Crypto/Keys
                 '.pem', '.key', '.crt', '.cer', '.p12', '.pfx',
-                # Git
-                '.git', '.gitignore', '.dockerignore'
+                # Git/Config
+                '.git', '.gitignore', '.dockerignore', '.editorconfig',
+                # Fonts
+                '.ttf', '.otf', '.woff', '.woff2', '.eot',
             ]
-            if any(name_lower.endswith(ext) for ext in file_extensions):
-                return False
+            # Check if name contains ANY file extension (not just ends with)
+            if re.search(r'\.\w{1,5}(?:\s|$|:|-)', name_lower) or any(name_lower.endswith(ext) for ext in file_extensions):
+                # Double-check: allow legitimate domain-based project names (e.g., waaree.com)
+                # Only allow if it looks like a domain (word.tld format where tld is a known domain extension)
+                domain_tlds = ['.com', '.in', '.org', '.net', '.io', '.co', '.dev', '.app', '.ai']
+                is_domain = any(name_lower.endswith(tld) for tld in domain_tlds)
+                if not is_domain:
+                    return False
 
             # Reject double underscores
             if '__' in name:
                 return False
 
-            # Reject common page/action names
-            page_names = [
-                'login', 'logout', 'signin', 'signout', 'register', 'signup',
-                'home', 'dashboard', 'profile', 'settings', 'admin',
-                'success', 'error', '404', '403', '500',
-                'customers', 'customer', 'users', 'user', 'products', 'product',
-                'orders', 'order', 'items', 'item'
-            ]
-            if name_lower in page_names:
-                return False
-
-            # Reject application names
-            app_names = [
-                'meet', 'zoom', 'teams', 'skype', 'slack',
-                'termius', 'putty', 'winscp'
-            ]
-            if name_lower in app_names:
-                return False
-
-            # Reject patterns ending with specific words
-            if re.search(r'(form|password|managment|management)$', name_lower):
-                return False
-            if any(x in name_lower for x in ['futures', 'index live', 'messaged', 'asset']):
-                return False
-
-            # Reject patterns starting with action verbs
-            if re.match(r'^(get |create |download |import |generate |call to |update |register )', name_lower):
-                return False
-
-            # Reject patterns with parentheses (usually duplicates or system artifacts)
+            # Reject parentheses (system artifacts)
             if '(' in name or ')' in name:
                 return False
-
-            # Reject patterns that look like URLs/links (share-*, view-*, etc.)
-            if re.match(r'^(share|view|store|contact|change|forgot|update)-', name_lower):
-                return False
-
-            # Reject build/dist folders
-            if name_lower.startswith(('dist', 'build', 'node_modules')):
-                return False
-
-            # Comprehensive exclusion list
-            excluded = {
-                'web browsing', 'ide work', 'database work', 'api development',
-                'filezilla/ftp', 'cpanel/hosting', 'unknown', 'general',
-                'system32', 'windows', 'desktop', 'documents', 'downloads', 'downlaods',
-                'program', 'settings', 'extensions', 'terminal', 'output',
-                'debug', 'problems', 'console', 'welcome', 'untitled',
-                'inbox', 'drafts', 'sent', 'trash', 'spam',
-                'google', 'gmail', 'outlook', 'yahoo', 'chrome', 'firefox', 'edge',
-                'termius', 'meet', 'login', 'logout', 'profile', 'home', 'dashboard',
-                'success', 'error', 'customers', 'users', 'products', 'orders',
-                'bitcoin', 'scratches', 'startup', 'runner', 'minimalist',
-                'authentication', 'overview', 'nav', 'keyfiles', 'backend', 'frontend',
-                'components', 'validation', 'projects', 'activitywatch',
-                'contact-form-lead', 'share-single-url', 'share-folder-url',
-                'view-single-doc', 'store-collaterals', 'collaterals',
-                'change-password', 'forgot-password', 'update-profile',
-                'marketing-support', 'registration', 'xampp', 'htdocs', 'assets',
-                'opening', 'filters', 'coll', 'solution', 'solution1', 'claude',
-                'tradingview', 'navandidcw', 'src', 'dist', 'build', 'public',
-                'static', 'images', 'uploads', 'temp', 'tmp',
-                'activitywatch sync', 'activitywatch sync setup', 'new tab',
-                'login form', 'change password', 'profile managment', 'register broker',
-                'validation error', 'javascript quiz data reference error', 'all indices'
-            }
-
-            if name_lower in excluded:
-                return False
-
-            # REMOVED: URL-like pattern rejection
-            # We now allow domains like waaree.com, hdfc.in as they represent actual work
-            # The is_browser_noise() function already filters out non-work websites
 
             # Must start with alphanumeric
             if not name[0].isalnum():
                 return False
 
+            # Reject non-project items
+            excluded = {
+                'general', 'unknown', 'claude', 'cursor', 'open', 'search',
+                'inbox', 'message', 'messages', 'whatsapp', 'youtube', 'console',
+                'notepad', 'jira', 'jeera', 'services', 'migration',
+                'products', 'candid', 'functions', 'controllers',
+                'bills', 'ajax', 'banner', 'banners', 'docs', 'excel',
+                'onevue', 'regular growth', 'attendance detail',
+                'google search', 'google slide', 'google drive',
+                'firsteconomy mail', 'first economy mail',
+                'fetchall', 'login', 'logout', 'home', 'dashboard',
+                'settings', 'downloads', 'desktop', 'explorer',
+                'terminal', 'powershell', 'task manager', 'file explorer',
+                'control panel', 'command prompt', 'windows terminal',
+                'lock screen', 'screen lock', 'screen saver',
+                'new tab', 'untitled', 'welcome', 'debug', 'output',
+                'problems', 'extensions', 'scratches',
+                'gmail', 'outlook', 'yahoo', 'google', 'chrome', 'firefox', 'edge',
+                'meet', 'zoom', 'teams', 'skype', 'slack', 'telegram',
+                'instagram', 'facebook', 'twitter', 'snapchat',
+                'chatgpt', 'copilot', 'gemini',
+                'postman', 'figma', 'photoshop', 'canva',
+                'calculator', 'paint', 'wordpad', 'media player',
+                'snipping tool', 'recycle bin',
+                'system32', 'windows', 'program', 'documents',
+                'backend', 'frontend', 'components', 'src', 'dist', 'build',
+                'public', 'static', 'images', 'uploads', 'temp', 'assets',
+                'node_modules', 'htdocs', 'xampp',
+                'activitywatch', 'activitywatch sync',
+                'bitcoin', 'tradingview',
+                'seeders', 'flow', 'uknowa', 'uknowva', 'naishana', 'naishana r', 'nishana', 'nishana r',
+                'models', 'routes', 'views', 'helpers', 'middleware',
+                'config', 'database', 'migrations', 'factories',
+                'ajaxservice', 'onvue', 'onevue',
+                'fz3temp-2',
+                # Generic code/IDE folder names - not real projects
+                'tools', 'startup', 'projects', 'layouts', 'layout',
+                'transactions', 'constants', 'switch', 'user', 'users',
+                'mrunali', 'fe tech team', 'search results',
+                'visual studio code', 'visual studio',
+                'utils', 'lib', 'vendor', 'packages', 'modules',
+                'tests', 'specs', 'fixtures', 'resources', 'lang',
+                'traits', 'interfaces', 'abstract', 'enums', 'types',
+                'hooks', 'store', 'reducers', 'actions', 'selectors',
+                'pages', 'screens', 'widgets', 'adapters', 'repositories',
+                'entities', 'schemas', 'pipes', 'guards', 'interceptors',
+                'commands', 'events', 'jobs', 'notifications', 'policies',
+                'channels', 'exceptions', 'filters', 'observers',
+            }
+            if name_lower in excluded:
+                return False
+
+            # Reject partial matches for noise patterns
+            noise_substrings = [
+                'ajax', 'temp-', 'search result',
+            ]
+            if any(sub in name_lower for sub in noise_substrings):
+                return False
+
+            # Reject developer names (auto-fetched from database)
+            if name_lower in all_developer_names:
+                return False
+            # Also check first name only (e.g. "mrunali" matches "Mrunali Patel")
+            first_name = name_lower.split()[0] if ' ' in name_lower else name_lower
+            if any(first_name == dev.split()[0] for dev in developer_names if len(first_name) >= 4):
+                return False
+
+            # Reject person name patterns (for names not in DB)
+            # "Firstname Lastname" or "Firstname L" pattern (with space)
+            if re.match(r'^[A-Z][a-z]+ [A-Z][a-z]*$', name) and len(name) < 25:
+                return False
+            # "FirstnameLastname" camelCase pattern (no space, e.g. RiddhiDhakhara)
+            if re.match(r'^[A-Z][a-z]+[A-Z][a-z]+$', name) and len(name) < 25:
+                return False
+
+            # Reject patterns starting with action verbs
+            if re.match(r'^(get |create |download |import |generate |update |register |call to )', name_lower):
+                return False
+
+            # Reject patterns ending with form/password
+            if re.search(r'(form|password|management|managment)$', name_lower):
+                return False
+
+            # Reject Laravel/framework folder names (seeders, factories, etc.)
+            framework_patterns = ['seeder', 'factory', 'middleware', 'provider', 'handler', 'listener']
+            if any(name_lower.endswith(p) or name_lower.endswith(p + 's') for p in framework_patterns):
+                return False
+
             return True
 
-        projects = []
-        rejected = []
-        browser_noise_count = 0
+        def extract_root_name(name):
+            """
+            Extract a canonical root name for consolidation.
+            e.g. 'godrej-ihp-lp' -> 'godrej', 'jaypee-website-development' -> 'jaypee'
+            Works by taking the first meaningful word from hyphenated/underscore names,
+            or the first word from multi-word names like 'Godrej Reserve Kandivali'.
+            """
+            clean = name.strip().lower()
+            # Remove common prefixes
+            for prefix in ['domain portfolio:', 'view-source:', 'fe-techteam/', 'd:\\downloads\\']:
+                if clean.startswith(prefix):
+                    clean = clean[len(prefix):]
+            # Remove .com, .in, .org etc from end
+            clean = re.sub(r'\.(com|in|org|net|io|co|dev|app|html|js|css)$', '', clean)
+            # Split by hyphen, underscore, space, or dot
+            parts = re.split(r'[-_\s./\\]+', clean)
+            # Return first meaningful part (length >= 3)
+            for part in parts:
+                part = part.strip()
+                if len(part) >= 3 and part.isalpha():
+                    return part
+            return clean
+
+        # Filter valid projects
+        # Browser projects (ending with "- Google Chrome", "- Microsoft Edge", etc.) get consolidated by root name
+        # IDE/code projects stay separate as-is
+        browser_suffixes = [' - google chrome', ' - microsoft edge', ' - microsoft\u200b edge',
+                            ' - firefox', ' - brave', ' - opera']
+
+        valid_projects = []
         for row in projects_query:
             project_name = row[0]
-            # Debug: Check if email subjects are being filtered
-            if 'payment' in project_name.lower() or 'notification' in project_name.lower() or 'statement' in project_name.lower():
-                is_noise = is_browser_noise(project_name)
-                logger.info(f"DEBUG: '{project_name}' -> is_browser_noise={is_noise}")
-                if is_noise:
-                    browser_noise_count += 1
+            if not project_name or not project_name.strip():
+                continue
+            name = project_name.strip()
+            if is_browser_noise(name) or not is_valid_project_name(name):
+                continue
+            has_ide = int(row[5]) if row[5] else 0
+            total_hours = float(row[2])
 
-            if is_valid_project_name(project_name):
-                projects.append({
-                    "project_name": project_name.strip(),
-                    "activity_count": row[1],
-                    "total_hours": round(float(row[2]), 2)
-                })
+            # Check if this is a browser-tab project name
+            is_browser_project = any(name.lower().endswith(s) for s in browser_suffixes)
+
+            valid_projects.append({
+                "name": name,
+                "activity_count": row[1],
+                "total_hours": total_hours,
+                "has_ide": has_ide,
+                "is_browser": is_browser_project
+            })
+
+        # Consolidate browser projects by root name, keep IDE projects separate
+        consolidated = {}
+        direct_projects = []
+
+        for proj in valid_projects:
+            if proj["is_browser"] and not proj["has_ide"]:
+                root = extract_root_name(proj["name"])
+                if root in consolidated:
+                    consolidated[root]["activity_count"] += proj["activity_count"]
+                    consolidated[root]["total_hours"] += proj["total_hours"]
+                    if len(proj["name"]) < len(consolidated[root]["project_name"]):
+                        consolidated[root]["project_name"] = proj["name"]
+                else:
+                    consolidated[root] = {
+                        "project_name": proj["name"],
+                        "activity_count": proj["activity_count"],
+                        "total_hours": proj["total_hours"]
+                    }
             else:
-                rejected.append(project_name)
+                direct_projects.append(proj)
 
-        logger.info(f"All projects: total from DB={len(projects_query)}, valid={len(projects)}, rejected={len(rejected)}")
-        logger.info(f"Rejected project names: {rejected[:50]}")
+        # Build final list
+        projects = []
+        # Add consolidated browser projects
+        for root, data in consolidated.items():
+            if data["total_hours"] >= 1.0:
+                # Clean browser suffix from display name
+                display_name = data["project_name"]
+                for s in browser_suffixes:
+                    if display_name.lower().endswith(s):
+                        display_name = display_name[:len(display_name)-len(s)].strip()
+                        break
+                projects.append({
+                    "project_name": display_name,
+                    "activity_count": data["activity_count"],
+                    "total_hours": round(data["total_hours"], 2)
+                })
+        # Add IDE/code projects directly
+        for proj in direct_projects:
+            if proj["total_hours"] >= 1.0:
+                projects.append({
+                    "project_name": proj["name"],
+                    "activity_count": proj["activity_count"],
+                    "total_hours": round(proj["total_hours"], 2)
+                })
+
+        # Sort by total hours descending
+        projects.sort(key=lambda x: x["total_hours"], reverse=True)
 
         return {
             "projects": projects,
@@ -1088,4 +1329,76 @@ async def get_project_developers_time(
 
     except Exception as e:
         logger.error(f"Error getting project developers time: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/developer/{developer_id}/afk-summary")
+async def get_developer_afk_summary(
+    developer_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get AFK (active vs away) summary for a developer — separate from productivity."""
+    try:
+        if start_date:
+            start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        else:
+            start = datetime.now(timezone.utc) - timedelta(days=7)
+        if end_date:
+            end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        else:
+            end = datetime.now(timezone.utc)
+
+        # Daily AFK breakdown
+        daily_afk = db.execute(text("""
+            SELECT
+                DATE(timestamp) as work_date,
+                SUM(duration) / 3600.0 as total_active_hours,
+                COUNT(*) as event_count,
+                MIN(timestamp) as first_event,
+                MAX(timestamp) as last_event
+            FROM afk_records
+            WHERE developer_id = :dev_id
+              AND timestamp >= :start_date
+              AND timestamp <= :end_date
+            GROUP BY DATE(timestamp)
+            ORDER BY work_date DESC
+        """), {
+            "dev_id": developer_id,
+            "start_date": start,
+            "end_date": end
+        }).fetchall()
+
+        daily_stats = []
+        total_active_hours = 0
+
+        for row in daily_afk:
+            work_date, active_hours, events, first_evt, last_evt = row
+            # Span = time from first to last event
+            span_hours = (last_evt - first_evt).total_seconds() / 3600.0 if first_evt and last_evt else 0
+            away_hours = max(0, span_hours - float(active_hours))
+
+            daily_stats.append({
+                "date": work_date.isoformat() if work_date else None,
+                "active_hours": round(float(active_hours), 2),
+                "away_hours": round(away_hours, 2),
+                "span_hours": round(span_hours, 2),
+                "active_percentage": round((float(active_hours) / span_hours * 100) if span_hours > 0 else 0, 1),
+                "event_count": events,
+                "first_event": first_evt.isoformat() if first_evt else None,
+                "last_event": last_evt.isoformat() if last_evt else None,
+            })
+            total_active_hours += float(active_hours)
+
+        return {
+            "developer_id": developer_id,
+            "date_range": {"start": start.isoformat(), "end": end.isoformat()},
+            "total_active_hours": round(total_active_hours, 2),
+            "total_days": len(daily_stats),
+            "daily_breakdown": daily_stats
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting AFK summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))

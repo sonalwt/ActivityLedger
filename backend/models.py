@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, func, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, func, Boolean, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -47,6 +47,29 @@ class ActivityRecord(Base):
     project_file = Column(String, nullable=True)  # File or activity within project
 
     user = relationship("User", back_populates="activities")
+
+    __table_args__ = (
+        UniqueConstraint('developer_id', 'timestamp', 'application_name', 'duration',
+                         name='uq_activity_dedup'),
+        Index('idx_activity_dedup', 'developer_id', 'timestamp', 'application_name', 'duration'),
+    )
+
+
+class AFKRecord(Base):
+    """Stores AFK watcher data separately — tracks active vs away time."""
+    __tablename__ = "afk_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    developer_id = Column(String, index=True, nullable=False)
+    status = Column(String(20))  # "not-afk" or "afk"
+    duration = Column(Float)  # Duration in seconds
+    timestamp = Column(DateTime(timezone=True), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('developer_id', 'timestamp', 'duration',
+                         name='uq_afk_dedup'),
+    )
 
 
 # Optional: Developer model for future use (not required for stateless system)
@@ -98,3 +121,14 @@ class DiscoveredDeveloper(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Project(Base):
+    """Stores valid project names for the Project Time Analysis dropdown"""
+    __tablename__ = 'projects'
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, index=True)  # Project name
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
+import ProjectDeveloperTime from './components/ProjectDeveloperTime';
 import Navbar from './components/Navbar';
 
 function ProtectedRoute({ children }) {
@@ -62,13 +63,21 @@ function AppContent() {
             </PublicRoute>
           } 
         />
-        <Route 
-          path="/dashboard" 
+        <Route
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
-          } 
+          }
+        />
+        <Route
+          path="/project-time"
+          element={
+            <ProtectedRoute>
+              <ProjectDeveloperTime />
+            </ProtectedRoute>
+          }
         />
       </Routes>
       <ToastContainer

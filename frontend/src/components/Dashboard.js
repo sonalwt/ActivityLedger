@@ -7,15 +7,28 @@ import './Dashboard.css';
 
 const Dashboard = () => {
   const [developers, setDevelopers] = useState([]);
+  const [filteredActivityCounts, setFilteredActivityCounts] = useState({});
+  const [developerProductivity, setDeveloperProductivity] = useState({});
   const [selectedDeveloper, setSelectedDeveloper] = useState(null);
   const [environment, setEnvironment] = useState('local');
   const [loading, setLoading] = useState(true);
+  const [productivityLoaded, setProductivityLoaded] = useState(false);
   const [error, setError] = useState(null);
+  const [dateRange, setDateRange] = useState('week');
   // Use environment variable or relative path (proxy handles routing)
   const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com'; // Use empty string for relative URLs via proxy
 
   useEffect(() => {
     loadDevelopers();
+
+    const handleRefreshEvent = () => loadDevelopers();
+    const handleNavigateHome = () => setSelectedDeveloper(null);
+    window.addEventListener('refreshDeveloperList', handleRefreshEvent);
+    window.addEventListener('navigateHome', handleNavigateHome);
+    return () => {
+      window.removeEventListener('refreshDeveloperList', handleRefreshEvent);
+      window.removeEventListener('navigateHome', handleNavigateHome);
+    };
   }, []);
 
   const loadDevelopers = async () => {
@@ -57,6 +70,22 @@ const Dashboard = () => {
     setSelectedDeveloper(null);
   };
 
+  // Handle filtered activity data from TeamProductivitySummary
+  const handleProductivityDataLoaded = (devData) => {
+    const counts = {};
+    const productivity = {};
+    devData.forEach(dev => {
+      counts[dev.developer_id] = dev.activities_count || 0;
+      productivity[dev.developer_id] = dev.productivity_percentage || 0;
+    });
+    setFilteredActivityCounts(counts);
+    setDeveloperProductivity(productivity);
+    setProductivityLoaded(true);
+  };
+
+  // Show full-page loader until both developers AND productivity data are ready
+  const isFullyLoaded = !loading && productivityLoaded;
+
   // Local mode - show dashboard directly
   if (environment === 'local') {
     if (selectedDeveloper) {
@@ -65,9 +94,9 @@ const Dashboard = () => {
     
     if (loading) {
       return (
-        <div className="local-mode-loading">
-          <div className="local-mode-loading-icon">⏳</div>
-          <p>Loading your dashboard...</p>
+        <div className="fullpage-loader">
+          <div className="dashboard-loading-spinner"></div>
+          <h3>Loading your dashboard...</h3>
         </div>
       );
     }
@@ -101,21 +130,7 @@ const Dashboard = () => {
   return (
     <div className="dashboard-wrapper">
       {/* Header */}
-      <div className="dashboard-header">
-        <div>
-          <h1 className="dashboard-title">
-            <Users size={36} color="#2563eb" />
-            All Developers Dashboard
-          </h1>
-          <div className="dashboard-badge">
-            Production Mode - {developers.length} Developer{developers.length !== 1 ? 's' : ''}
-          </div>
-        </div>
-        
-        <button onClick={loadDevelopers} disabled={loading} className="refresh-button">
-          {loading ? 'Loading...' : 'Refresh List'}
-        </button>
-      </div>
+      
 
       {/* Error Display */}
       {error && (
@@ -124,24 +139,34 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Team Productivity Summary - Only in Production Mode */}
+      {/* Team Productivity Summary - fetch in background even while loading */}
       {environment === 'production' && !loading && (
-        <TeamProductivitySummary />
+        <TeamProductivitySummary
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          onDataLoaded={handleProductivityDataLoaded}
+        />
       )}
 
-      {/* Loading State */}
-      {loading && (
-        <div className="loading-container">
-          <div className="loading-icon">🔍</div>
-          <h3>Loading Developers...</h3>
-          <p style={{ color: '#6b7280' }}>Discovering all developers on the network...</p>
+      {/* Full-page loader until both developers + productivity are ready */}
+      {!isFullyLoaded && (
+        <div className="fullpage-loader">
+          <div className="dashboard-loading-spinner"></div>
+          <h3>Loading Resources...</h3>
+          <p>Discovering all resources on the network...</p>
         </div>
       )}
 
-      {/* Developers Grid */}
-      {!loading && developers.length > 0 && (
+      {/* Developers Grid - only show when fully loaded */}
+      {isFullyLoaded && developers.length > 0 && (
         <div className="developers-grid">
-          {developers.map((developer) => (
+          {[...developers]
+            .sort((a, b) => {
+              const prodA = developerProductivity[a.id] || 0;
+              const prodB = developerProductivity[b.id] || 0;
+              return prodB - prodA; // Sort by productivity descending
+            })
+            .map((developer) => (
             <div 
               key={developer.id} 
               className={`developer-card ${developer.status || 'unknown'}`}
@@ -149,17 +174,10 @@ const Dashboard = () => {
               {/* Developer Header */}
               <div className="developer-header">
                 <div className="developer-info">
-                  <div className={`developer-status-icon ${developer.status || 'unknown'}`}>
-                    {developer.status === 'online' ? '🟢' : 
-                     developer.status === 'offline' ? '🔴' : '⚪'}
-                  </div>
                   <div>
                     <h3 className="developer-name">
                       {developer.name}
                     </h3>
-                    <p className="developer-hostname">
-                      {developer.hostname}
-                    </p>
                   </div>
                 </div>
                 
@@ -172,15 +190,22 @@ const Dashboard = () => {
               <div className="developer-stats">
                 <div className="stat-item">
                   <div className="stat-value">
-                    {developer.activity_count || 0}
+                    {filteredActivityCounts[developer.id] !== undefined
+                      ? filteredActivityCounts[developer.id]
+                      : (developer.activity_count || 0)}
                   </div>
                   <div className="stat-label">Activities</div>
                 </div>
                 <div className="stat-item">
-                  <div className="stat-value source">
-                    {developer.source || 'Unknown'}
+                  <div className={`stat-value productivity ${
+                    (developerProductivity[developer.id] || 0) >= 70 ? 'high' :
+                    (developerProductivity[developer.id] || 0) >= 40 ? 'medium' : 'low'
+                  }`}>
+                    {developerProductivity[developer.id] !== undefined
+                      ? `${developerProductivity[developer.id].toFixed(1)}%`
+                      : 'N/A'}
                   </div>
-                  <div className="stat-label">Source</div>
+                  <div className="stat-label">Work Activity</div>
                 </div>
               </div>
 
@@ -210,15 +235,15 @@ const Dashboard = () => {
       )}
 
       {/* No Developers State */}
-      {!loading && developers.length === 0 && (
+      {isFullyLoaded && developers.length === 0 && (
         <div className="no-developers">
           <div className="no-developers-icon">👥</div>
-          <h3 className="no-developers-title">No Developers Found</h3>
+          <h3 className="no-developers-title">No Resources Found</h3>
           <p className="no-developers-text">
-            No developers were discovered on the network or in the database.
+            No resources were discovered on the network or in the database.
           </p>
           <button onClick={loadDevelopers} className="discover-button">
-            Discover Developers
+            Discover Resources
           </button>
         </div>
       )}

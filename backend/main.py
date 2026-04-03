@@ -74,17 +74,6 @@ app.include_router(multi_dev_router)
 from fixed_dynamic_developer_api import router as dynamic_developer_router
 app.include_router(dynamic_developer_router, tags=["dynamic-developers"])
 
-# Add test endpoint for debugging
-from test_developers_endpoint import router as test_router
-app.include_router(test_router, tags=["test"])
-
-# Add test relationships endpoint
-# from test_relationships import router as test_rel_router
-# app.include_router(test_rel_router, tags=["test-relationships"])
-
-# Add all developers fix endpoint
-# from all_developers_fix import router as all_dev_router
-# app.include_router(all_dev_router, tags=["developers-fix"])
 
 # Add simple developers endpoint
 from all_developers_simple import router as simple_dev_router
@@ -113,12 +102,6 @@ app.include_router(fixed_sync_router, tags=["sync"])
 # Add enhanced activity API with categorization
 from enhanced_activity_api import router as enhanced_activity_router
 app.include_router(enhanced_activity_router, tags=["activity"])
-
-# Add debug endpoint for activity data
-from debug_activity_endpoint import router as debug_activity_router
-app.include_router(debug_activity_router, tags=["debug"])
-
-# Add real data endpoints
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -283,7 +266,7 @@ def get_activity_data(
         
         return {
             "data": processed_data,
-            "total_time": sum(item["duration"] for item in processed_data),
+            "total_time": sum(item["duration"] for item in processed_data) / 1000,
             "date_range": {"start": start.isoformat(), "end": end.isoformat()}
         }
         
@@ -313,7 +296,7 @@ def get_activity_summary(
         
         return {
             "data": summary,
-            "total_time": sum(item["duration"] for item in summary),
+            "total_time": sum(item["duration"] for item in summary) / 1000,
             "date_range": {"start": start.isoformat(), "end": end.isoformat()}
         }
         
@@ -430,7 +413,7 @@ async def serve_developer_selection_portal():
 
 @app.get("/developer-setup")
 async def serve_developer_setup():
-    return FileResponse("developer-setup.html")    
+    return FileResponse("developer-setup1.html")
 
 @app.get("/developers-list")
 async def serve_developers_list():
@@ -889,9 +872,9 @@ async def register_developer(
         })
         
         db.commit()
-        
-        print(f"✅ Developer registered: {developer_id} ({registration.developer_name})")
-        
+
+        print(f"[OK] Developer registered: {developer_id} ({registration.developer_name})")
+
         return {
             "success": True,
             "message": "Developer registered successfully",
@@ -900,12 +883,12 @@ async def register_developer(
             "monitoring_starts": "Data collection will begin immediately",
             "portal_access": f"Developer will appear in portal as '{registration.developer_name}'"
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        print(f"❌ Registration failed for {registration.developer_name}: {e}")
+        print(f"[ERROR] Registration failed for {registration.developer_name}: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Registration failed: {str(e)}"

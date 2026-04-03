@@ -34,17 +34,16 @@ function ProjectDeveloperTime({ onBack }) {
     return d.toISOString().split(".")[0] + "Z";
   };
 
-  // Fetch all unique projects (no date filter - show ALL projects)
-  // NOTE: Backend filters to only show projects where at least one developer spent >10 minutes
+  // Fetch projects filtered by selected date range
   const fetchProjects = async () => {
     setLoadingProjects(true);
     try {
       const token = localStorage.getItem('token');
+      const startStr = toIST(startDate);
+      const endStr = toIST(endDate);
 
-      // Fetch ALL projects without date filter
-      // Backend automatically filters: only projects where any developer spent >10 minutes
       const response = await fetch(
-        `${API_BASE}/api/all-projects`,
+        `${API_BASE}/api/all-projects?start_date=${startStr}&end_date=${endStr}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -111,7 +110,7 @@ function ProjectDeveloperTime({ onBack }) {
   // Load projects on mount only (no date dependency - show ALL projects)
   useEffect(() => {
     fetchProjects();
-  }, []);
+  }, [startDate, endDate]);
 
   // Load project data when selection changes
   useEffect(() => {
