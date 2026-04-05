@@ -1,0 +1,11 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.production
+*.log
+.git
+Dockerfile
+.dockerignore

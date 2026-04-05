@@ -1,0 +1,68 @@
+networks:
+  timesheet-net:
+    driver: bridge
+
+services:
+  # PostgreSQL Database (internal only — no host port exposed)
+  db:
+    image: postgres:15-alpine
+    container_name: timesheet-db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-timesheet}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-asdf1234}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - timesheet-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: timesheet-backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-asdf1234}@db:5432/${POSTGRES_DB:-timesheet}
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-here}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ACTIVITYWATCH_HOST: ${ACTIVITYWATCH_HOST:-http://localhost:5600}
+      MASTER_SECRET: ${MASTER_SECRET:-}
+      SERVER_URL: ${SERVER_URL:-}
+      Frontend_URL: ${Frontend_URL:-}
+      PRODUCTION_DOMAIN: ${PRODUCTION_DOMAIN:-}
+    ports:
+      - "${BACKEND_PORT:-8080}:8000"
+    networks:
+      - timesheet-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # React Frontend (served via nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-}
+    container_name: timesheet-frontend
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-3080}:80"
+    networks:
+      - timesheet-net
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
