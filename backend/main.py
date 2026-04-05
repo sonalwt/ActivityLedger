@@ -41,15 +41,13 @@ from config import Config
 
 # Get allowed origins based on environment
 if Config.is_production():
+    domain = Config.PRODUCTION_DOMAIN
     allowed_origins = [
-        "http://localhost:3000",  # For local development
-        "http://timesheet.firsteconomy.com",
-        "https://timesheet.firsteconomy.com",
-        # Add both possible API domains
+        "http://localhost:3000",
+        f"http://{domain}",
+        f"https://{domain}",
         "http://api-timesheet.firsteconomy.com",
         "https://api-timesheet.firsteconomy.com",
-        "http://timesheet-api.firsteconomy.com",
-        "https://timesheet-api.firsteconomy.com",
     ]
 else:
     # In development, allow all origins for easier testing
