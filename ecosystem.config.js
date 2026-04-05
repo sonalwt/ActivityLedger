@@ -4,7 +4,7 @@ module.exports = {
       name: "timesheet-backend",
       cwd: "/var/www/html/ActivityLedger/backend",
       script: "/var/www/html/ActivityLedger/venv/bin/uvicorn",
-      args: "main:app --host 127.0.0.1 --port 8000 --workers 2",
+      args: "main:app --host 127.0.0.1 --port 8090 --workers 2",
       interpreter: "none",
       env: {
         PATH: "/var/www/html/ActivityLedger/venv/bin:" + process.env.PATH,
