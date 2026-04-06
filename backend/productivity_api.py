@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Define productive applications/categories
-PRODUCTIVE_CATEGORIES = ['Development', 'IDE', 'Code', 'Terminal', 'Documentation']
-PRODUCTIVE_APPS = [
+CODING_CATEGORIES = ['Development', 'IDE', 'Code', 'Terminal', 'Documentation']
+CODING_APPS = [
     'Visual Studio Code', 'IntelliJ IDEA', 'PyCharm', 'WebStorm', 'Android Studio',
     'Sublime Text', 'Atom', 'Eclipse', 'NetBeans', 'Vim', 'Emacs',
     'Terminal', 'Command Prompt', 'PowerShell', 'Git Bash',

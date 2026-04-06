@@ -1,7 +1,7 @@
 # activity_categorizer.py
 """
 Four Categories:
-1) PRODUCTIVE  → IDEs, Office, dev tools, terminals, database tools, AI tools, project folders
+1) coding  → IDEs, Office, dev tools, terminals, database tools, AI tools, project folders
 2) BROWSER     → YouTube, Gmail, social, entertainment, shopping, ALL MAIL
 3) SERVER      → AWS, GCP, Azure, SSH, Docker, monitoring, hosting, Firebase
 4) NON-WORK    → Lock screen, idle, AFK, personal media, system utilities
@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple
 class ActivityCategorizer:
     def __init__(self):
 
-        # Known projects/clients - ALWAYS productive
+        # Known projects/clients - ALWAYS coding
         self.known_projects = [
             "radiant_clone", "radiant clone", "radiant-mail", "timesheet",
             "waaree", "firsteconomy", "first economy",
@@ -51,8 +51,8 @@ class ActivityCategorizer:
             "cpanel", "whm", "plesk", "directadmin"
         ]
 
-        # 🟩 PRODUCTIVE apps/tools (checked by app_name or specific indicators)
-        self.productive_apps = [
+        # 🟩 coding apps/tools (checked by app_name or specific indicators)
+        self.coding_apps = [
             # IDEs
             "vscode", "code.exe", "cursor", "pycharm", "intellij",
             "webstorm", "phpstorm", "sublime", "atom", "vim", "nvim",
@@ -91,8 +91,8 @@ class ActivityCategorizer:
             "notepad.exe", "calculator"
         ]
 
-        # 🟩 PRODUCTIVE browser URLs/sites
-        self.productive_sites = [
+        # 🟩 coding browser URLs/sites
+        self.coding_sites = [
             # Code hosting
             "github.com", "gitlab.com", "bitbucket",
             # Dev communities
@@ -134,7 +134,7 @@ class ActivityCategorizer:
             for ext in self.code_extensions
         ]
 
-        # 🟧 BROWSER (non-productive) keywords
+        # 🟧 BROWSER (non-coding) keywords
         self.browser_keywords = [
             # Shopping
             "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
@@ -240,10 +240,10 @@ class ActivityCategorizer:
                 if word in text:
                     return ("server", 0.95)
 
-            # Check productive sites (GitHub, StackOverflow, localhost, etc.)
-            for site in self.productive_sites:
+            # Check coding sites (GitHub, StackOverflow, localhost, etc.)
+            for site in self.coding_sites:
                 if site in text:
-                    return ("productive", 0.95)
+                    return ("coding", 0.95)
 
             # Check blacklisted non-work sites (shopping, social, news, etc.)
             for site in self.blacklisted_browser_sites:
@@ -259,9 +259,9 @@ class ActivityCategorizer:
             # Default browser activity
             return ("browser", 0.85)
 
-        # ── 0b. Known projects -> ALWAYS PRODUCTIVE (check first!) ──
+        # ── 0b. Known projects -> ALWAYS coding (check first!) ──
         if project_name and any(project in project_name.lower() for project in self.known_projects):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
         # ── 1. SKIP: Empty/meaningless/idle ──
         idle_titles = ["untitled", "new tab", "blank", "",
@@ -269,9 +269,9 @@ class ActivityCategorizer:
                        "getting started", "release notes",
                        "visual studio code"]
         if window_lower in idle_titles:
-            # If it's an IDE title but has a project name, it's still productive work
+            # If it's an IDE title but has a project name, it's still coding work
             if window_lower == "visual studio code" and project_name:
-                return ("productive", 1.0)
+                return ("coding", 1.0)
             return ("non-work", 1.0)
 
         # ── 2. EMAIL: Always browser ──
@@ -293,11 +293,11 @@ class ActivityCategorizer:
         if any(app in text for app in system_apps):
             return ("non-work", 1.0)
 
-        # ── 5. Known projects -> ALWAYS PRODUCTIVE ──
+        # ── 5. Known projects -> ALWAYS coding ──
         if any(project in text for project in self.known_projects):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
-        # ── 6. IDEs & Terminals -> PRODUCTIVE ──
+        # ── 6. IDEs & Terminals -> coding ──
         ide_indicators = [
             "vscode", "code.exe", "cursor", "pycharm", "intellij",
             "webstorm", "phpstorm", "sublime", "atom", " vim ",
@@ -306,7 +306,7 @@ class ActivityCategorizer:
             "clion", "datagrip"
         ]
         if any(ide in text for ide in ide_indicators):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
         terminal_indicators = [
             "windowsterminal", "windows terminal", "powershell",
@@ -314,41 +314,41 @@ class ActivityCategorizer:
             "conemu", "cmder", "command prompt"
         ]
         if any(t in text for t in terminal_indicators):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
-        # ── 7. Microsoft Office -> PRODUCTIVE ──
+        # ── 7. Microsoft Office -> coding ──
         office_tools = ["winword", "excel", "powerpnt", "onenote", "msword",
                         "microsoft word", "microsoft excel", "microsoft powerpoint",
                         "libreoffice", "openoffice"]
         if any(tool in text for tool in office_tools):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
-        # ── 8. Code file extensions -> PRODUCTIVE ──
+        # ── 8. Code file extensions -> coding ──
         for i, ext in enumerate(self.code_extensions):
             if window_lower.endswith(ext) or f"{ext} " in text or self._code_ext_patterns[i].search(text):
-                return ("productive", 1.0)
+                return ("coding", 1.0)
 
-        # ── 9. Database tools -> PRODUCTIVE ──
+        # ── 9. Database tools -> coding ──
         db_tools = ["dbeaver", "pgadmin", "mysql workbench", "mongodb compass",
                      "sqlitestudio", "navicat", "heidisql", "phpmyadmin",
                      "adminer", "redis desktop"]
         if any(db in text for db in db_tools):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
-        # ── 10. Design / API / PM tools -> PRODUCTIVE ──
+        # ── 10. Design / API / PM tools -> coding ──
         work_tools = ["postman", "insomnia", "figma", "adobe xd", "photoshop",
                       "illustrator", "canva", "sketch", "filezilla",
                       "jira", "notion", "trello", "asana", "confluence",
                       "clickup", "obsidian", "slack", "microsoft teams",
                       "github desktop", "gitkraken", "sourcetree"]
         if any(tool in text for tool in work_tools):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
-        # ── 11. AI tools -> PRODUCTIVE ──
+        # ── 11. AI tools -> coding ──
         ai_tools = ["chatgpt", "claude.ai", "perplexity", "phind",
                      "copilot", "chat.openai"]
         if any(ai in text for ai in ai_tools):
-            return ("productive", 1.0)
+            return ("coding", 1.0)
 
         # ── 12. SERVER keywords ──
         for word in self.server_keywords:
@@ -359,22 +359,22 @@ class ActivityCategorizer:
         if "file explorer" in text:
             if any(f in text for f in self.personal_folders):
                 return ("non-work", 1.0)
-            return ("productive", 0.85)
+            return ("coding", 0.85)
 
         # ── 14. NON-WORK keywords ──
         for word in self.non_work_keywords:
             if word in text:
                 return ("non-work", 1.0)
 
-        # ── 15. Browser: productive sites first ──
+        # ── 15. Browser: coding sites first ──
         is_browser = any(b in app_lower for b in
                         ["chrome", "firefox", "msedge", "brave", "opera", "browser"])
 
         if is_browser:
-            # Check productive sites FIRST
-            for site in self.productive_sites:
+            # Check coding sites FIRST
+            for site in self.coding_sites:
                 if site in text:
-                    return ("productive", 0.95)
+                    return ("coding", 0.95)
 
             # Shopping
             shopping = ["amazon.in", "amazon.com", "flipkart", "myntra",
@@ -422,14 +422,14 @@ class ActivityCategorizer:
         if window_lower in generic_titles:
             return ("browser", 1.0)
 
-        # ── 17. Communication apps (Zoom, Meet) -> PRODUCTIVE ──
+        # ── 17. Communication apps (Zoom, Meet) -> coding ──
         comm_apps = ["zoom", "google meet", "teams"]
         if any(c in text for c in comm_apps):
-            return ("productive", 0.90)
+            return ("coding", 0.90)
 
-        # ── 18. Default -> PRODUCTIVE ──
+        # ── 18. Default -> coding ──
         # Developer is active on something not caught above
-        return ("productive", 0.90)
+        return ("coding", 0.90)
 
     def get_detailed_category(self, window_title: str, app_name: str = "", project_name: str = "") -> Dict:
         category, confidence = self.categorize_activity(window_title, app_name, project_name)
@@ -490,7 +490,7 @@ class ActivityCategorizer:
                 sub = "hosting"
             else:
                 sub = "server-tools"
-        else:  # PRODUCTIVE
+        else:  # coding
             if any(ide in text for ide in ["vscode", "code.exe", "cursor",
                                            "visual studio", "pycharm", "intellij"]):
                 sub = "coding"
@@ -519,7 +519,7 @@ class ActivityCategorizer:
             elif "jira" in text or "trello" in text or "notion" in text:
                 sub = "project-management"
             else:
-                sub = "productive-general"
+                sub = "coding-general"
 
         return {
             "category": category,
