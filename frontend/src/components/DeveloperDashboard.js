@@ -175,7 +175,7 @@ function DeveloperDashboard({ developer, onBack }) {
   const getProductivity = () => {
     const totalSec = trackedTime || totalTime;
     const productiveSec =
-      (categoryBreakdown.productive?.duration || 0) +
+      (categoryBreakdown.coding?.duration || 0) +
       (categoryBreakdown.server?.duration || 0) +
       (categoryBreakdown.browser?.duration || 0);
 
@@ -184,7 +184,7 @@ function DeveloperDashboard({ developer, onBack }) {
       ? Math.min(100, Math.round((productiveSec / totalSec) * 100))
       : 0;
 
-    const displayNames = { productive: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" };
+    const displayNames = { coding: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" };
     const categoryList = Object.entries(categoryBreakdown).map(([name, d]) => ({
       name,
       displayName: displayNames[name] || name,
@@ -386,7 +386,7 @@ function DeveloperDashboard({ developer, onBack }) {
                   </td>
 
                   <td>
-                    <span className={`category-badge category-${act.category}`}>{{ productive: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" }[act.category] || act.category}</span>
+                    <span className={`category-badge category-${act.category}`}>{{ coding: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" }[act.category] || act.category}</span>
                   </td>
 
                     <td>{formatDurationDisplay(act.duration_display, act.duration)}</td>

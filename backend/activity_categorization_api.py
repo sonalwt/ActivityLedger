@@ -182,7 +182,9 @@ async def get_categorized_activities(
         # ---------------------------------------------------
         actual_work_seconds, daily_breakdown = calculate_actual_work_hours(rows)
 
-        categories = ["productive", "browser", "server", "non-work"]
+        # Rename "productive" -> "coding" for display
+        CATEGORY_RENAME = {"productive": "coding"}
+        categories = ["coding", "browser", "server", "non-work"]
 
         # Store raw activity rows grouped by category
         cat_raw = {c: [] for c in categories}
@@ -241,7 +243,7 @@ async def get_categorized_activities(
             }
 
             ci = categorizer.get_detailed_category(act["window_title"], act["application_name"], act.get("project_name") or "")
-            cat = ci["category"]
+            cat = CATEGORY_RENAME.get(ci["category"], ci["category"])
             if cat not in categories:
                 cat = "browser"
 
