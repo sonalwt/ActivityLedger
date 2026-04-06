@@ -158,6 +158,45 @@ class ActivityCategorizer:
             "awesome screenshot"
         ]
 
+        # 🟥 NON-WORK browser sites — blacklisted, goes to non-work category
+        self.blacklisted_browser_sites = [
+            # Shopping
+            "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
+            "snapdeal", "meesho", "add to cart", "buy online",
+            "nykaa", "tatacliq", "shopclues", "paytmmall",
+            "ebay", "aliexpress", "shein", "zara.com",
+            # Entertainment / Streaming
+            "youtube", "youtu.be", "netflix", "amazon prime",
+            "primevideo", "hotstar", "disney+", "spotify", "twitch",
+            "voot", "zee5", "sonyliv", "jiocinema", "mxplayer",
+            "crunchyroll", "hulu", "apple tv",
+            # Social Media
+            "facebook", "facebook.com", "instagram", "snapchat", "tiktok",
+            "pinterest", "reddit", "twitter", "x.com",
+            "whatsapp web", "telegram web", "linkedin feed",
+            "threads.net", "tumblr", "quora",
+            # News
+            "news", "ndtv", "timesofindia", "indianexpress",
+            "hindustantimes", "aajtak", "bbc.com/news",
+            "cnn.com", "foxnews", "theguardian",
+            "moneycontrol", "economictimes", "livemint",
+            "inshorts", "dailymail", "buzzfeed",
+            # Sports / Entertainment
+            "cricket", "cricbuzz", "espncricinfo", "espn.com",
+            "sports", "movies", "songs", "imdb",
+            "rottentomatoes", "hotstar.com/sports",
+            # Google non-work
+            "google photos", "google maps", "google calendar",
+            "play.google.com", "news.google.com",
+            # Gaming
+            "twitch.tv", "steam", "epic games", "gaming",
+            # Personal / Misc
+            "matrimony", "dating", "tinder", "bumble",
+            "zomato", "swiggy", "uber", "ola",
+            "makemytrip", "goibibo", "booking.com", "trivago",
+            "irctc", "redbus",
+        ]
+
         # 🟥 NON-WORK keywords
         self.non_work_keywords = [
             "untitled", "new tab", "blank", "empty",
@@ -191,7 +230,7 @@ class ActivityCategorizer:
         if "termius" in app_lower:
             return ("server", 1.0)
 
-        # ── 0a. ALL browser apps -> BROWSER (before project match) ──
+        # ── 0a. ALL browser apps -> categorize by content ──
         browser_apps = ["chrome.exe", "google chrome", "firefox", "msedge",
                         "brave", "opera", "safari", "vivaldi", "arc"]
         is_browser_app = any(b in app_lower for b in browser_apps)
@@ -200,7 +239,25 @@ class ActivityCategorizer:
             for word in self.server_keywords:
                 if word in text:
                     return ("server", 0.95)
-            return ("browser", 1.0)
+
+            # Check productive sites (GitHub, StackOverflow, localhost, etc.)
+            for site in self.productive_sites:
+                if site in text:
+                    return ("productive", 0.95)
+
+            # Check blacklisted non-work sites (shopping, social, news, etc.)
+            for site in self.blacklisted_browser_sites:
+                if site in text:
+                    return ("non-work", 1.0)
+
+            # Email in browser → stays as browser (it's work-related)
+            email_words = ["mail", "inbox", "compose", "@gmail", "@outlook",
+                           "@yahoo", "@hotmail", "webmail"]
+            if any(e in text for e in email_words):
+                return ("browser", 1.0)
+
+            # Default browser activity
+            return ("browser", 0.85)
 
         # ── 0b. Known projects -> ALWAYS PRODUCTIVE (check first!) ──
         if project_name and any(project in project_name.lower() for project in self.known_projects):
@@ -387,6 +444,18 @@ class ActivityCategorizer:
                 sub = "file-browsing"
             elif "task manager" in text:
                 sub = "system"
+            elif any(s in text for s in ["youtube", "netflix", "spotify", "hotstar",
+                                          "primevideo", "twitch", "zee5", "sonyliv"]):
+                sub = "entertainment"
+            elif any(s in text for s in ["amazon", "flipkart", "myntra", "ajio",
+                                          "meesho", "snapdeal", "shopping"]):
+                sub = "shopping"
+            elif any(s in text for s in ["facebook", "instagram", "twitter", "x.com",
+                                          "pinterest", "reddit", "snapchat", "tiktok"]):
+                sub = "social-media"
+            elif any(s in text for s in ["news", "ndtv", "cricket", "sports",
+                                          "timesofindia", "bbc", "cnn"]):
+                sub = "news-sports"
             else:
                 sub = "non-work"
         elif category == "browser":

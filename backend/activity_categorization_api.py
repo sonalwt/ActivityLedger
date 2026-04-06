@@ -219,6 +219,14 @@ async def get_categorized_activities(
                     not_afk_intervals
                 )
                 raw_duration = min(active_seconds, raw_duration)
+            elif not has_afk_data and raw_duration > 900:
+                # Fallback for historical data (no AFK records):
+                # Cap browser/mail events at 15 min per single event.
+                # Long single events mean the user was likely idle.
+                app_lower = (row.application_name or "").lower()
+                is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera'])
+                if is_browser:
+                    raw_duration = 900  # 15 minutes max per browser event
 
             act = {
                 "id": row.id,
