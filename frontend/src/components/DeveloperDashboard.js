@@ -1,5 +1,5 @@
 // DeveloperDashboard.js
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
@@ -19,8 +19,8 @@ function DeveloperDashboard({ developer, onBack }) {
   const [startDate, setStartDate] = useState(startOfDay(subDays(new Date(), 6)));
   const [endDate, setEndDate] = useState(endOfDay(new Date()));
 
-  const [totalTime, setTotalTime] = useState(0); // <-- REAL WORK HOURS
-  const [trackedTime, setTrackedTime] = useState(0); // <-- TOTAL TRACKED SECONDS (for productivity calculation)
+  const [totalTime, setTotalTime] = useState(0);
+  const [trackedTime, setTrackedTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [categoryBreakdown, setCategoryBreakdown] = useState({});
   const [topActivities, setTopActivities] = useState([]);
@@ -29,31 +29,22 @@ function DeveloperDashboard({ developer, onBack }) {
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
-  // Convert JS date to UTC ISO string for backend query
-  // JS Date already knows local timezone, toISOString() converts to UTC correctly
   const toIST = (d) => {
     return d.toISOString().split(".")[0] + "Z";
   };
 
-  // Reset dates when developer changes, then fetch in a single effect
-  const prevDeveloperRef = useRef(developer);
+  // Reset dates when developer changes
+  useEffect(() => {
+    if (developer) {
+      setStartDate(startOfDay(subDays(new Date(), 6)));
+      setEndDate(endOfDay(new Date()));
+    }
+  }, [developer]);
+
+  // Fetch data when developer or dates change
   useEffect(() => {
     if (!developer) return;
 
-    let newStart = startDate;
-    let newEnd = endDate;
-
-    // Reset dates only when developer changes (not on initial mount with correct defaults)
-    if (prevDeveloperRef.current !== developer) {
-      newStart = startOfDay(subDays(new Date(), 6));
-      newEnd = endOfDay(new Date());
-      setStartDate(newStart);
-      setEndDate(newEnd);
-      prevDeveloperRef.current = developer;
-    }
-
-    // Fetch data directly — avoids double-fetch from cascading useEffects
-    const controller = new AbortController();
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -63,14 +54,13 @@ function DeveloperDashboard({ developer, onBack }) {
           developer.username ||
           developer.name;
 
-        const startStr = toIST(newStart);
-        const endStr = toIST(newEnd);
+        const startStr = toIST(startDate);
+        const endStr = toIST(endDate);
 
         const { data: catData } = await axios.get(
           `${API_BASE}/api/activity-categories/${developerId}`,
           {
             params: { start_date: startStr, end_date: endStr },
-            signal: controller.signal,
           }
         );
 
@@ -110,19 +100,14 @@ function DeveloperDashboard({ developer, onBack }) {
         setGroupedActivities(grouped);
         setLastUpdated(new Date());
       } catch (err) {
-        if (!controller.signal.aborted) {
-          console.error(err);
-          toast.error("Failed to fetch activity data.");
-        }
+        console.error(err);
+        toast.error("Failed to fetch activity data.");
       } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     fetchData();
-    return () => controller.abort(); // cancel stale requests on rapid date changes
   }, [developer, startDate, endDate]);
 
   // ---------------- FORMATTERS ----------------
@@ -136,49 +121,35 @@ function DeveloperDashboard({ developer, onBack }) {
     return `${sec}s`;
   };
 
-
   const formatDurationDisplay = (display, seconds) => {
-  if (typeof display === "string") {
-
-    // Example: "3.2h"
-    if (display.endsWith("h")) {
-      const hours = parseFloat(display.replace("h", ""));
-      const h = Math.floor(hours);
-      const m = Math.round((hours - h) * 60);
-      return `${h}h ${m}m`;
+    if (typeof display === "string") {
+      if (display.endsWith("h")) {
+        const hours = parseFloat(display.replace("h", ""));
+        const h = Math.floor(hours);
+        const m = Math.round((hours - h) * 60);
+        return `${h}h ${m}m`;
+      }
+      if (display.endsWith("m")) {
+        const minutes = parseFloat(display.replace("m", ""));
+        const m = Math.floor(minutes);
+        const s = Math.round((minutes - m) * 60);
+        return `${m}m ${s}s`;
+      }
+      if (display.endsWith("s")) {
+        return display;
+      }
     }
-
-    // Example: "5.0m"
-    if (display.endsWith("m")) {
-      const minutes = parseFloat(display.replace("m", ""));
-      const m = Math.floor(minutes);
-      const s = Math.round((minutes - m) * 60);
-      return `${m}m ${s}s`;
-    }
-
-    // Example: "45s"
-    if (display.endsWith("s")) {
-      return display.replace("s", "s");
-    }
-  }
-
-  // fallback to seconds
-  return formatTime(seconds);
-};
-
-
+    return formatTime(seconds);
+  };
 
   const IDE_NAMES = ['visual studio code', 'code', 'cursor', 'pycharm', 'intellij'];
 
   const formatActivityTitle = (title, projectName, filePath) => {
-    // Derive file name from file_path if available
     const fileName = filePath ? filePath.split(/[/\\]/).pop() : '';
 
     if (!title || !title.trim()) {
-      // No title — use file name, then project name
       return fileName || projectName || 'Unknown';
     }
-    // If title is just an IDE name, show "IDE - fileName" or "IDE - projectName"
     if (IDE_NAMES.includes(title.trim().toLowerCase())) {
       const detail = fileName || projectName;
       return detail ? `${title.trim()} - ${detail}` : title;
@@ -191,10 +162,17 @@ function DeveloperDashboard({ developer, onBack }) {
       .replace(/ – .*$/, '')
       .trim()
       .slice(0, 120);
-    };
+  };
 
-  // ---------------- PRODUCTIVITY (memoized) ----------------
-  const productivity = useMemo(() => {
+  const formatActivityDate = (value) => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "";
+    return format(d, "dd MMM yyyy");
+  };
+
+  // ---------------- PRODUCTIVITY ----------------
+  const getProductivity = () => {
     const totalSec = trackedTime || totalTime;
     const productiveSec =
       (categoryBreakdown.productive?.duration || 0) +
@@ -213,11 +191,13 @@ function DeveloperDashboard({ developer, onBack }) {
     }));
 
     return { score, categories: categoryList.filter((c) => c.time > 0) };
-  }, [categoryBreakdown, trackedTime, totalTime]);
+  };
 
-  // ---------------- PIE CHART (memoized) ----------------
+  const productivity = getProductivity();
+
+  // ---------------- PIE CHART ----------------
   const PIE_COLORS = ["#10b981", "#3b82f6", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6"];
-  const pieData = useMemo(() => ({
+  const pieData = {
     labels: productivity.categories.map((c) => c.name),
     datasets: [
       {
@@ -225,25 +205,7 @@ function DeveloperDashboard({ developer, onBack }) {
         backgroundColor: PIE_COLORS,
       },
     ],
-  }), [productivity]);
-
-  // Debounced date setters — avoids API call on every click while picking dates
-  const debounceRef = useRef(null);
-  const debouncedSetStartDate = useCallback((date) => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setStartDate(date), 300);
-  }, []);
-  const debouncedSetEndDate = useCallback((date) => {
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setEndDate(date), 300);
-  }, []);
-
-  const formatActivityDate = (value) => {
-  if (!value) return "";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return "";
-  return format(d, "dd MMM yyyy");
-};
+  };
 
   // ---------------- UI ----------------
   return (
@@ -263,7 +225,7 @@ function DeveloperDashboard({ developer, onBack }) {
           <Calendar size={20} />
           <DatePicker
             selected={startDate}
-            onChange={debouncedSetStartDate}
+            onChange={(date) => setStartDate(date)}
             selectsStart
             startDate={startDate}
             endDate={endDate}
@@ -272,7 +234,7 @@ function DeveloperDashboard({ developer, onBack }) {
           <span>to</span>
           <DatePicker
             selected={endDate}
-            onChange={debouncedSetEndDate}
+            onChange={(date) => setEndDate(date)}
             selectsEnd
             startDate={startDate}
             endDate={endDate}
@@ -288,7 +250,7 @@ function DeveloperDashboard({ developer, onBack }) {
         <div className="stat-card">
           <Clock size={32} />
           <h3>Total Time</h3>
-          <p>{formatTime(totalTime)}</p> {/* REAL WORK HOURS DISPLAY */}
+          <p>{formatTime(totalTime)}</p>
         </div>
 
         <div className="stat-card">
@@ -347,12 +309,12 @@ function DeveloperDashboard({ developer, onBack }) {
             </div>
 
             <div className="tab-content">
-              {(groupedActivities[productivity.categories[selectedTab].name] || []).length > 0 ? (
+              {(groupedActivities[productivity.categories[selectedTab]?.name] || []).length > 0 ? (
                 <div className="category-activity-list">
                   <h4>Activities in this category</h4>
 
                   <div className="activity-scroll">
-                    {(groupedActivities[productivity.categories[selectedTab].name] || [])
+                    {(groupedActivities[productivity.categories[selectedTab]?.name] || [])
                       .slice(0, 50)
                       .map((act, j) => (
                         <div key={j} className="category-activity-item">
@@ -365,8 +327,8 @@ function DeveloperDashboard({ developer, onBack }) {
                             )}
                             <div className="activity-meta">
                               <span>{act.application_name || "Unknown"}</span>
-                              {act.project_name && <span> • {act.project_name}</span>}
-                              {act.activity_count > 1 && <span> • {act.activity_count} times</span>}
+                              {act.project_name && <span> &bull; {act.project_name}</span>}
+                              {act.activity_count > 1 && <span> &bull; {act.activity_count} times</span>}
                             </div>
                           </div>
 
