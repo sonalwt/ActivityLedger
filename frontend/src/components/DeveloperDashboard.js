@@ -184,8 +184,10 @@ function DeveloperDashboard({ developer, onBack }) {
       ? Math.min(100, Math.round((productiveSec / totalSec) * 100))
       : 0;
 
+    const displayNames = { productive: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" };
     const categoryList = Object.entries(categoryBreakdown).map(([name, d]) => ({
       name,
+      displayName: displayNames[name] || name,
       time: d.duration_hours,
       percentage: d.percentage,
     }));
@@ -198,7 +200,7 @@ function DeveloperDashboard({ developer, onBack }) {
   // ---------------- PIE CHART ----------------
   const PIE_COLORS = ["#10b981", "#3b82f6", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6"];
   const pieData = {
-    labels: productivity.categories.map((c) => c.name),
+    labels: productivity.categories.map((c) => c.displayName),
     datasets: [
       {
         data: productivity.categories.map((c) => c.time),
@@ -280,7 +282,7 @@ function DeveloperDashboard({ developer, onBack }) {
               {productivity.categories.map((cat, i) => (
                 <div key={i} className="legend-item">
                   <span className="legend-color" style={{ background: pieData.datasets[0].backgroundColor[i] }} />
-                  <span>{cat.name}</span>
+                  <span>{cat.displayName}</span>
                   <span>{cat.percentage.toFixed(1)}%</span>
                 </div>
               ))}
@@ -302,7 +304,7 @@ function DeveloperDashboard({ developer, onBack }) {
                   className={`tab-header ${selectedTab === i ? "active" : ""}`}
                   onClick={() => setSelectedTab(i)}
                 >
-                  <span>{cat.name}</span>
+                  <span>{cat.displayName}</span>
                   <span>{cat.percentage.toFixed(1)}%</span>
                 </button>
               ))}
@@ -384,7 +386,7 @@ function DeveloperDashboard({ developer, onBack }) {
                   </td>
 
                   <td>
-                    <span className={`category-badge category-${act.category}`}>{act.category}</span>
+                    <span className={`category-badge category-${act.category}`}>{{ productive: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" }[act.category] || act.category}</span>
                   </td>
 
                     <td>{formatDurationDisplay(act.duration_display, act.duration)}</td>
