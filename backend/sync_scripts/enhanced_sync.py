@@ -34,29 +34,26 @@ class EnhancedActivityWatchSync:
             'port': os.getenv('DB_PORT', '5432')
         }
     
-    def get_activitywatch_data(self, minutes_back: int = 6) -> List[Dict]:
-        """Get activity data from ActivityWatch"""
+    def get_activitywatch_data(self, minutes_back: int = 6) -> Tuple[List[Dict], List[Dict]]:
+        """Get activity data and AFK data from ActivityWatch"""
         try:
             # Get buckets
             buckets_response = requests.get(f"{self.aw_url}/api/0/buckets", timeout=10)
             if buckets_response.status_code != 200:
-                print("❌ Could not connect to ActivityWatch")
-                return []
-            
+                print("Could not connect to ActivityWatch")
+                return [], []
+
             buckets = buckets_response.json()
-            print(f"📦 Found {len(buckets)} ActivityWatch buckets")
-            
+            print(f"Found {len(buckets)} ActivityWatch buckets")
+
             # Time range
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(minutes=minutes_back)
-            
+
             all_activities = []
-            
+            all_afk_events = []
+
             for bucket_name, bucket_info in buckets.items():
-                # Skip AFK buckets
-                if 'afk' in bucket_name.lower():
-                    continue
-                
                 try:
                     # Get events
                     events_url = f"{self.aw_url}/api/0/buckets/{bucket_name}/events"
@@ -65,30 +62,60 @@ class EnhancedActivityWatchSync:
                         'end': end_time.isoformat(),
                         'limit': 1000
                     }
-                    
+
                     events_response = requests.get(events_url, params=params, timeout=10)
                     if events_response.status_code != 200:
                         continue
-                    
+
                     events = events_response.json()
                     print(f"  - {bucket_name}: {len(events)} events")
-                    
-                    # Process each event
+
+                    # AFK bucket: extract status events
+                    if 'afk' in bucket_name.lower():
+                        for event in events:
+                            afk_event = self.process_afk_event(event)
+                            if afk_event:
+                                all_afk_events.append(afk_event)
+                        continue
+
+                    # Regular window/app bucket
                     for event in events:
                         activity = self.process_event(event, bucket_name)
                         if activity:
                             all_activities.append(activity)
-                
+
                 except Exception as e:
-                    print(f"⚠️  Error processing {bucket_name}: {e}")
+                    print(f"Error processing {bucket_name}: {e}")
                     continue
-            
-            return all_activities
-            
+
+            return all_activities, all_afk_events
+
         except Exception as e:
-            print(f"❌ Error getting ActivityWatch data: {e}")
-            return []
+            print(f"Error getting ActivityWatch data: {e}")
+            return [], []
     
+    def process_afk_event(self, event: Dict) -> Dict:
+        """Process a single AFK watcher event"""
+        data = event.get('data', {})
+        duration = event.get('duration', 0)
+        timestamp = event.get('timestamp', '')
+        status = data.get('status', '')
+
+        if not status or duration < 1:
+            return None
+
+        try:
+            parsed_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        except Exception:
+            parsed_timestamp = datetime.now(timezone.utc)
+
+        return {
+            'developer_id': self.developer_name,
+            'status': status,
+            'duration': duration,
+            'timestamp': parsed_timestamp.isoformat(),
+        }
+
     def process_event(self, event: Dict, bucket_name: str) -> Dict:
         """Process a single ActivityWatch event"""
         data = event.get('data', {})
@@ -224,16 +251,17 @@ class EnhancedActivityWatchSync:
         
         return saved_count
     
-    def send_to_api(self, activities: List[Dict]) -> bool:
-        """Send activities to API endpoint"""
-        if not activities:
+    def send_to_api(self, activities: List[Dict], afk_events: List[Dict] = None) -> bool:
+        """Send activities and AFK data to API endpoint"""
+        if not activities and not afk_events:
             return True
-        
+
         try:
             payload = {
                 'name': self.developer_name,
                 'token': self.api_token,
                 'data': activities,
+                'afk_data': afk_events or [],
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }
             
@@ -261,32 +289,33 @@ class EnhancedActivityWatchSync:
     
     def sync_once(self):
         """Perform a single sync"""
-        print(f"\n🔄 Syncing ActivityWatch data for {self.developer_name}...")
-        
-        # Get data
-        activities = self.get_activitywatch_data()
-        
-        if activities:
-            print(f"📊 Processed {len(activities)} activities")
-            
+        print(f"\nSyncing ActivityWatch data for {self.developer_name}...")
+
+        # Get data (now returns tuple)
+        activities, afk_events = self.get_activitywatch_data()
+
+        if activities or afk_events:
+            print(f"Processed {len(activities)} activities, {len(afk_events)} AFK events")
+
             # Show category breakdown
             categories = {}
             for activity in activities:
                 cat = activity['category']
                 categories[cat] = categories.get(cat, 0) + 1
-            
-            print("📈 Category breakdown:")
-            for cat, count in categories.items():
-                print(f"   - {cat}: {count} activities")
-            
+
+            if categories:
+                print("Category breakdown:")
+                for cat, count in categories.items():
+                    print(f"   - {cat}: {count} activities")
+
             # Save to database
             saved = self.save_to_database(activities)
-            
-            # Send to API
-            self.send_to_api(activities)
-            
+
+            # Send to API (includes AFK data)
+            self.send_to_api(activities, afk_events)
+
         else:
-            print("📝 No new activities to sync")
+            print("No new activities to sync")
     
     def continuous_sync(self, interval_minutes: int = 5):
         """Run continuous sync"""

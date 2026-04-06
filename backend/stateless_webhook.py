@@ -323,7 +323,34 @@ async def receive_activitywatch_webhook_stateless(
         # Process each bucket
         for bucket_name, bucket_data in webhook_data.items():
             if isinstance(bucket_data, list):
-                # Process events
+
+                # AFK watcher bucket: store events in afk_records table
+                if 'afk' in bucket_name.lower():
+                    from models import AFKRecord
+                    for event in bucket_data:
+                        if not isinstance(event, dict):
+                            continue
+                        ts_str = event.get('timestamp')
+                        dur = event.get('duration', 0)
+                        afk_status = event.get('data', {}).get('status')
+                        if not ts_str or dur < 1 or afk_status not in ('afk', 'not-afk'):
+                            continue
+                        try:
+                            ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                            db.add(AFKRecord(
+                                developer_id=developer_id,
+                                status=afk_status,
+                                duration=float(dur),
+                                timestamp=ts
+                            ))
+                            db.flush()
+                        except IntegrityError:
+                            db.rollback()
+                        except Exception as e:
+                            logger.error(f"Error processing AFK event: {e}")
+                    continue  # Skip to next bucket
+
+                # Process window/app events
                 for event in bucket_data:
                     if not isinstance(event, dict):
                         continue

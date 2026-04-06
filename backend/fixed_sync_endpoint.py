@@ -34,6 +34,37 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
         saved_afk = 0
         last_ftp_project = None  # Track active FileZilla/FTP project context
 
+        # Process dedicated AFK data from sync payload (if provided)
+        afk_data = sync_data.get("afk_data", [])
+        for afk_event in afk_data:
+            try:
+                afk_status = afk_event.get("status", "")
+                afk_duration = afk_event.get("duration", 0)
+                afk_ts_str = afk_event.get("timestamp", "")
+                if not afk_status or afk_duration < 1 or not afk_ts_str:
+                    continue
+                if isinstance(afk_ts_str, str):
+                    afk_ts = datetime.fromisoformat(afk_ts_str.replace('Z', '+00:00'))
+                else:
+                    afk_ts = afk_ts_str
+                db.execute(text("""
+                    INSERT INTO afk_records (developer_id, status, duration, timestamp, created_at)
+                    VALUES (:developer_id, :status, :duration, :timestamp, :created_at)
+                    ON CONFLICT (developer_id, timestamp, duration) DO NOTHING
+                """), {
+                    "developer_id": developer_id,
+                    "status": afk_status,
+                    "duration": float(afk_duration),
+                    "timestamp": afk_ts,
+                    "created_at": datetime.now(timezone.utc)
+                })
+                db.flush()
+                saved_afk += 1
+            except IntegrityError:
+                db.rollback()
+            except Exception as e:
+                print(f"Error saving AFK event: {e}")
+
         for event in data:
             try:
                 event_data = event.get("data", {})
@@ -54,31 +85,18 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                 else:
                     parsed_ts = event_timestamp
 
-                # AFK watcher: Unknown/empty app → save to afk_records table
-                is_afk_event = False
-                if not app_name or app_name.lower() in ('unknown', ''):
-                    # Try to use VS Code project/file info if available
-                    if vscode_project or file_path:
-                        app_name = "Visual Studio Code"
-                    else:
-                        is_afk_event = True
-
-                # Untitled/blank/system windows → also AFK data
-                skip_titles = ['untitled', 'unknown', '', 'blank',
-                               'program manager', 'task switching', 'task view',
-                               'windows default lock screen', 'new tab']
-                if not is_afk_event and (not window_title or window_title.lower().strip() in skip_titles):
-                    is_afk_event = True
-
-                if is_afk_event:
+                # Real AFK watcher event: has data.status field ("afk" or "not-afk")
+                afk_status = event_data.get("status")
+                if afk_status in ("afk", "not-afk"):
                     try:
                         db.execute(text("""
                             INSERT INTO afk_records (developer_id, status, duration, timestamp, created_at)
                             VALUES (:developer_id, :status, :duration, :timestamp, :created_at)
+                            ON CONFLICT (developer_id, timestamp, duration) DO NOTHING
                         """), {
                             "developer_id": developer_id,
-                            "status": "not-afk",
-                            "duration": int(duration),
+                            "status": afk_status,
+                            "duration": float(duration),
                             "timestamp": parsed_ts,
                             "created_at": datetime.now(timezone.utc)
                         })
@@ -86,6 +104,21 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                         saved_afk += 1
                     except IntegrityError:
                         db.rollback()
+                    continue
+
+                # Unknown/empty app → skip (not a real activity)
+                if not app_name or app_name.lower() in ('unknown', ''):
+                    if vscode_project or file_path:
+                        app_name = "Visual Studio Code"
+                    else:
+                        skipped_unknown += 1
+                        continue
+
+                # Untitled/blank/system windows → skip
+                skip_titles = ['untitled', 'unknown', '', 'blank',
+                               'program manager', 'task switching', 'task view',
+                               'windows default lock screen', 'new tab']
+                if not window_title or window_title.lower().strip() in skip_titles:
                     skipped_unknown += 1
                     continue
 

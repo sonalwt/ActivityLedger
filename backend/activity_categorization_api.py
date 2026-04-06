@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 from database import get_db
 from activity_categorizer import get_categorizer
 import json
@@ -78,6 +78,42 @@ def format_duration(seconds):
 
 
 # ============================================================
+# AFK-AWARE DURATION ADJUSTMENT
+# ============================================================
+def build_not_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
+    """Build sorted list of (start, end) intervals where user was active (not-afk)."""
+    intervals = []
+    for row in afk_rows:
+        if row.status == "not-afk":
+            start = row.timestamp
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            end = start + timedelta(seconds=row.duration)
+            intervals.append((start, end))
+    intervals.sort(key=lambda x: x[0])
+    return intervals
+
+
+def compute_active_duration(
+    activity_start: datetime,
+    activity_end: datetime,
+    not_afk_intervals: List[Tuple[datetime, datetime]]
+) -> float:
+    """Compute seconds of overlap between an activity and not-afk intervals."""
+    total_active = 0.0
+    for (naf_start, naf_end) in not_afk_intervals:
+        if naf_end <= activity_start:
+            continue
+        if naf_start >= activity_end:
+            break
+        overlap_start = max(activity_start, naf_start)
+        overlap_end = min(activity_end, naf_end)
+        if overlap_start < overlap_end:
+            total_active += (overlap_end - overlap_start).total_seconds()
+    return total_active
+
+
+# ============================================================
 # MAIN API — FIXED WITH DEDUP + CORRECT DURATIONS
 # ============================================================
 @router.get("/api/activity-categories/{developer_id}")
@@ -122,6 +158,26 @@ async def get_categorized_activities(
         }).fetchall()
 
         # ---------------------------------------------------
+        # Fetch AFK records for idle-time adjustment
+        # ---------------------------------------------------
+        afk_query = text("""
+            SELECT status, duration, timestamp
+            FROM afk_records
+            WHERE developer_id = :dev_id
+              AND timestamp >= :start_date
+              AND timestamp <= :end_date
+            ORDER BY timestamp ASC
+        """)
+        afk_rows = db.execute(afk_query, {
+            "dev_id": developer_id,
+            "start_date": start,
+            "end_date": end
+        }).fetchall()
+
+        not_afk_intervals = build_not_afk_intervals(afk_rows)
+        has_afk_data = len(not_afk_intervals) > 0
+
+        # ---------------------------------------------------
         # Calculate ACTUAL work hours
         # ---------------------------------------------------
         actual_work_seconds, daily_breakdown = calculate_actual_work_hours(rows)
@@ -147,11 +203,22 @@ async def get_categorized_activities(
                 continue
 
             # Cap duration for system/non-work window titles (max 60 seconds each)
-            # These are brief system interactions, not sustained work
             system_titles = ['search', 'task manager', 'control panel']
             raw_duration = row.duration or 0
             if window_title.strip().lower() in system_titles and raw_duration > 60:
                 raw_duration = 60
+
+            # Adjust duration using AFK data — only count time user was active
+            if has_afk_data and raw_duration > 0:
+                activity_ts = row.timestamp
+                if activity_ts.tzinfo is None:
+                    activity_ts = activity_ts.replace(tzinfo=timezone.utc)
+                active_seconds = compute_active_duration(
+                    activity_ts,
+                    activity_ts + timedelta(seconds=raw_duration),
+                    not_afk_intervals
+                )
+                raw_duration = min(active_seconds, raw_duration)
 
             act = {
                 "id": row.id,
