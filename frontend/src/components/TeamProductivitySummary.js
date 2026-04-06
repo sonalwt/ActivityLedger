@@ -6,7 +6,7 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [localDateRange, setLocalDateRange] = useState('week');
+  const [localDateRange, setLocalDateRange] = useState('this_week');
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -37,26 +37,41 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
       let startDate = new Date();
       let endDate = new Date();
 
+      // Week starts on Monday (1=Mon, 0=Sun)
+      const getMonday = (d) => {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = day === 0 ? 6 : day - 1; // Sun=6, Mon=0, Tue=1...
+        date.setDate(date.getDate() - diff);
+        date.setHours(0, 0, 0, 0);
+        return date;
+      };
+
       switch (currentDateRange) {
-        case 'today':
-          startDate.setHours(0, 0, 0, 0);
-          break;
-        case 'week':
-          // Last 7 days excluding today (today has its own option)
-          endDate.setDate(endDate.getDate() - 1);
+        case 'this_week':
+          startDate = getMonday(now);
           endDate.setHours(23, 59, 59, 999);
-          startDate.setDate(now.getDate() - 7);
-          startDate.setHours(0, 0, 0, 0);
           break;
-        case 'month':
-          // Last 30 days excluding today
-          endDate.setDate(endDate.getDate() - 1);
+        case 'last_week': {
+          const lastMon = getMonday(now);
+          lastMon.setDate(lastMon.getDate() - 7);
+          startDate = lastMon;
+          endDate = new Date(lastMon);
+          endDate.setDate(endDate.getDate() + 6);
           endDate.setHours(23, 59, 59, 999);
-          startDate.setDate(now.getDate() - 30);
-          startDate.setHours(0, 0, 0, 0);
+          break;
+        }
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        case 'last_month':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
           break;
         default:
-          startDate.setHours(0, 0, 0, 0);
+          startDate = getMonday(now);
+          endDate.setHours(23, 59, 59, 999);
       }
 
       params.append('start_date', startDate.toISOString());
@@ -131,9 +146,10 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
           onChange={(e) => handleDateRangeChange(e.target.value)}
           className="form-select form-select-sm date-range-select"
         >
-          <option value="today">Today</option>
-          <option value="week">Last 7 Days</option>
-          <option value="month">Last 30 Days</option>
+          <option value="this_week">Current Week</option>
+          <option value="last_week">Last Week</option>
+          <option value="this_month">Current Month</option>
+          <option value="last_month">Last Month</option>
         </select>
       </div>
 
