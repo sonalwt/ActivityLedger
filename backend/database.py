@@ -12,30 +12,29 @@ load_dotenv()  # Load default .env if exists
 # Get DATABASE_URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Debug print
-print(f"DEBUG: DATABASE_URL from env: {repr(DATABASE_URL)}")
-print(f"DEBUG: ENVIRONMENT from env: {repr(os.getenv('ENVIRONMENT'))}")
 
 # Use SQLite as default if no DATABASE_URL or if there's an issue
 if not DATABASE_URL or DATABASE_URL == "":
     DATABASE_URL="postgresql://postgres:asdf1234@localhost:5432/timesheet"
-    print(f"DEBUG: Using default Postgres: {DATABASE_URL}")
 
 # Create engine with appropriate settings
 try:
     if DATABASE_URL.startswith("sqlite"):
         engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-        print("DEBUG: Using SQLite engine")
     elif DATABASE_URL.startswith("postgresql"):
-        engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
-        print("DEBUG: Using PostgreSQL engine")
+        engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            pool_size=10,
+            max_overflow=20,
+        )
     else:
         engine = create_engine(DATABASE_URL)
-        print("DEBUG: Using generic engine")
-    
+
     # Test connection
     with engine.connect() as conn:
-        print(f"DEBUG: Database connection successful!")
+        pass
 
 except Exception as e:
     print(f"ERROR: Database connection failed: {e}")

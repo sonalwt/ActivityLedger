@@ -6,7 +6,7 @@ from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 from database import get_db
-from activity_categorizer import ActivityCategorizer
+from activity_categorizer import get_categorizer
 import json
 
 router = APIRouter()
@@ -40,8 +40,7 @@ def calculate_actual_work_hours(db_rows):
     daily_output = {}
 
     for d, acts in daily.items():
-        acts.sort(key=lambda x: x["timestamp"])
-
+        # Rows already sorted by timestamp ASC from SQL query
         first_time = acts[0]["timestamp"]
         last = acts[-1]
         last_time = last["timestamp"] + timedelta(seconds=last["duration"])
@@ -89,7 +88,7 @@ async def get_categorized_activities(
     db: Session = Depends(get_db)
 ):
     try:
-        categorizer = ActivityCategorizer()
+        categorizer = get_categorizer()
 
         start = (
             datetime.fromisoformat(start_date.replace("Z","+00:00"))

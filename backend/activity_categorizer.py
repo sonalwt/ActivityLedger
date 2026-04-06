@@ -128,6 +128,12 @@ class ActivityCategorizer:
             ".env", ".gitignore", ".dockerfile", ".toml", ".ini"
         ]
 
+        # Pre-compile regex patterns for code extensions (avoid recompiling per row)
+        self._code_ext_patterns = [
+            re.compile(re.escape(ext) + r'(?:\s|$|["\s\-,;])')
+            for ext in self.code_extensions
+        ]
+
         # 🟧 BROWSER (non-productive) keywords
         self.browser_keywords = [
             # Shopping
@@ -261,14 +267,8 @@ class ActivityCategorizer:
             return ("productive", 1.0)
 
         # ── 8. Code file extensions -> PRODUCTIVE ──
-        # Only match extensions at word boundaries (avoid "access" matching ".css")
-        for ext in self.code_extensions:
-            # Check if extension appears as actual file extension (followed by space, end, or dash)
-            pattern = re.escape(ext) + r'(?:\s|$|["\s\-,;])'
-            if re.search(pattern, text):
-                return ("productive", 1.0)
-            # Also match if window title ends with the extension
-            if window_lower.endswith(ext) or f"{ext} " in text:
+        for i, ext in enumerate(self.code_extensions):
+            if window_lower.endswith(ext) or f"{ext} " in text or self._code_ext_patterns[i].search(text):
                 return ("productive", 1.0)
 
         # ── 9. Database tools -> PRODUCTIVE ──
@@ -472,8 +472,18 @@ class ActivityCategorizer:
         return categorized
 
 
+# Module-level singleton — avoids re-creating keyword lists on every request
+_categorizer_instance = None
+
+def get_categorizer() -> ActivityCategorizer:
+    global _categorizer_instance
+    if _categorizer_instance is None:
+        _categorizer_instance = ActivityCategorizer()
+    return _categorizer_instance
+
+
 if __name__ == "__main__":
-    categorizer = ActivityCategorizer()
+    categorizer = get_categorizer()
 
     test_cases = [
         ("Document1 - Microsoft Word", "WINWORD.EXE"),

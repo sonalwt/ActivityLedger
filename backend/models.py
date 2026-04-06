@@ -52,6 +52,8 @@ class ActivityRecord(Base):
         UniqueConstraint('developer_id', 'timestamp', 'application_name', 'duration',
                          name='uq_activity_dedup'),
         Index('idx_activity_dedup', 'developer_id', 'timestamp', 'application_name', 'duration'),
+        # Fast lookup index for dashboard queries (developer + date range)
+        Index('idx_dev_timestamp', 'developer_id', 'timestamp'),
     )
 
 

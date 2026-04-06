@@ -452,17 +452,39 @@ async def get_all_developers_productivity_summary(
                   AND ar.timestamp <= :end_date
                 GROUP BY ar.developer_id, DATE(ar.timestamp)
                 HAVING SUM(ar.duration) / 3600.0 > 2
+            ),
+            ds_agg AS (
+                SELECT
+                    developer_id,
+                    SUM(capped_productive_hours) AS productive_hours,
+                    COUNT(*) AS active_days,
+                    SUM(total_day_hours) AS total_hours
+                FROM daily_stats
+                GROUP BY developer_id
+            ),
+            ar_agg AS (
+                SELECT
+                    developer_id,
+                    COUNT(DISTINCT project_name) AS projects_worked,
+                    COUNT(id) AS total_activities,
+                    MAX(timestamp) AS last_activity
+                FROM activity_records
+                WHERE timestamp >= :start_date
+                  AND timestamp <= :end_date
+                GROUP BY developer_id
             )
             SELECT
                 d.developer_id,
                 d.name,
-                COALESCE((SELECT SUM(ds.capped_productive_hours) FROM daily_stats ds WHERE ds.developer_id = d.developer_id), 0) AS productive_hours,
-                COALESCE((SELECT COUNT(*) FROM daily_stats ds2 WHERE ds2.developer_id = d.developer_id), 0) AS active_days,
-                COALESCE((SELECT SUM(ds3.total_day_hours) FROM daily_stats ds3 WHERE ds3.developer_id = d.developer_id), 0) AS total_hours,
-                COALESCE((SELECT COUNT(DISTINCT ar3.project_name) FROM activity_records ar3 WHERE ar3.developer_id = d.developer_id AND ar3.timestamp >= :start_date AND ar3.timestamp <= :end_date), 0) AS projects_worked,
-                COALESCE((SELECT COUNT(ar4.id) FROM activity_records ar4 WHERE ar4.developer_id = d.developer_id AND ar4.timestamp >= :start_date AND ar4.timestamp <= :end_date), 0) AS total_activities,
-                (SELECT MAX(ar5.timestamp) FROM activity_records ar5 WHERE ar5.developer_id = d.developer_id AND ar5.category IN ('productive', 'server', 'browser')) AS last_activity
+                COALESCE(ds.productive_hours, 0) AS productive_hours,
+                COALESCE(ds.active_days, 0) AS active_days,
+                COALESCE(ds.total_hours, 0) AS total_hours,
+                COALESCE(ar.projects_worked, 0) AS projects_worked,
+                COALESCE(ar.total_activities, 0) AS total_activities,
+                ar.last_activity
             FROM developers d
+            LEFT JOIN ds_agg ds ON ds.developer_id = d.developer_id
+            LEFT JOIN ar_agg ar ON ar.developer_id = d.developer_id
             WHERE d.active = true
             ORDER BY productive_hours DESC
         """
@@ -1258,15 +1280,19 @@ async def get_project_developers_time(
             "end_date": end
         }).fetchall()
 
-        # Get overall/all-time total hours for the project (no date filter)
+        # Get overall total hours for the project within date range
         overall_query = db.execute(text(f"""
             SELECT
                 COALESCE(SUM(ar.duration) / 3600.0, 0) as overall_hours,
                 COUNT(DISTINCT DATE(ar.timestamp)) as overall_days
             FROM activity_records ar
             WHERE ({project_filter})
+            AND ar.timestamp >= :start_date
+            AND ar.timestamp <= :end_date
         """), {
-            "project_name": project_name
+            "project_name": project_name,
+            "start_date": start,
+            "end_date": end
         }).fetchone()
 
         overall_hours = round(float(overall_query[0]), 2) if overall_query else 0

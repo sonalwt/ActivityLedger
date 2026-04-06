@@ -1,5 +1,5 @@
 // DeveloperDashboard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
@@ -35,84 +35,94 @@ function DeveloperDashboard({ developer, onBack }) {
     return d.toISOString().split(".")[0] + "Z";
   };
 
+  // Reset dates when developer changes, then fetch in a single effect
+  const prevDeveloperRef = useRef(developer);
   useEffect(() => {
-    if (developer) {
-      setStartDate(startOfDay(subDays(new Date(), 6)));
-      setEndDate(endOfDay(new Date()));
-    }
-  }, [developer]);
-
-  // ---------------- FETCH DATA ----------------
-  const fetchActivityData = async () => {
     if (!developer) return;
 
-    setLoading(true);
+    let newStart = startDate;
+    let newEnd = endDate;
 
-    try {
-      const developerId =
-        developer.id ||
-        developer.developer_id ||
-        developer.username ||
-        developer.name;
-
-      const startStr = toIST(startDate);
-      const endStr = toIST(endDate);
-
-      const { data: catData } = await axios.get(
-        `${API_BASE}/api/activity-categories/${developerId}`,
-        { params: { start_date: startStr, end_date: endStr } }
-      );
-
-      // --------------------------------------------------
-      // 🔥 FIXED: Use REAL WORK HOURS (first → last activity)
-      // --------------------------------------------------
-      const totalSeconds = catData.actual_work_seconds || 0;
-
-      const grouped = catData.activities_by_category || {};
-      const stats = catData.statistics || {};
-
-      // Build category breakdown
-      const breakdown = {};
-      Object.entries(stats).forEach(([cat, d]) => {
-        breakdown[cat] = {
-          count: d.count,
-          duration: d.duration,
-          duration_hours: d.duration_hours,
-          percentage: d.percentage,
-        };
-      });
-
-      // Top 5 activities
-      const list = [];
-      Object.entries(catData.top_activities_by_category || {}).forEach(([cat, items]) => {
-        items.forEach((a) => list.push({ ...a, category: cat }));
-      });
-      const top5 = list.sort((a, b) => b.duration - a.duration).slice(0, 5);
-
-      // Flat list
-      const flat = [];
-      Object.entries(grouped).forEach(([cat, items]) => {
-        items.forEach((a) => flat.push({ ...a, category: cat }));
-      });
-
-      setTotalTime(totalSeconds); // <-- REAL WORK HOURS SET HERE
-      setTrackedTime(catData.total_tracked_seconds || 0); // <-- TRACKED TIME FOR PRODUCTIVITY
-      setCategoryBreakdown(breakdown);
-      setTopActivities(top5);
-      setActivityData(flat);
-      setGroupedActivities(grouped);
-      setLastUpdated(new Date());
-
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to fetch activity data.");
-    } finally {
-      setLoading(false);
+    // Reset dates only when developer changes (not on initial mount with correct defaults)
+    if (prevDeveloperRef.current !== developer) {
+      newStart = startOfDay(subDays(new Date(), 6));
+      newEnd = endOfDay(new Date());
+      setStartDate(newStart);
+      setEndDate(newEnd);
+      prevDeveloperRef.current = developer;
     }
-  };
 
-  useEffect(() => {
-    fetchActivityData();
+    // Fetch data directly — avoids double-fetch from cascading useEffects
+    const controller = new AbortController();
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const developerId =
+          developer.id ||
+          developer.developer_id ||
+          developer.username ||
+          developer.name;
+
+        const startStr = toIST(newStart);
+        const endStr = toIST(newEnd);
+
+        const { data: catData } = await axios.get(
+          `${API_BASE}/api/activity-categories/${developerId}`,
+          {
+            params: { start_date: startStr, end_date: endStr },
+            signal: controller.signal,
+          }
+        );
+
+        const totalSeconds = catData.actual_work_seconds || 0;
+        const grouped = catData.activities_by_category || {};
+        const stats = catData.statistics || {};
+
+        // Build category breakdown
+        const breakdown = {};
+        Object.entries(stats).forEach(([cat, d]) => {
+          breakdown[cat] = {
+            count: d.count,
+            duration: d.duration,
+            duration_hours: d.duration_hours,
+            percentage: d.percentage,
+          };
+        });
+
+        // Top 5 activities
+        const list = [];
+        Object.entries(catData.top_activities_by_category || {}).forEach(([cat, items]) => {
+          items.forEach((a) => list.push({ ...a, category: cat }));
+        });
+        const top5 = list.sort((a, b) => b.duration - a.duration).slice(0, 5);
+
+        // Flat list
+        const flat = [];
+        Object.entries(grouped).forEach(([cat, items]) => {
+          items.forEach((a) => flat.push({ ...a, category: cat }));
+        });
+
+        setTotalTime(totalSeconds);
+        setTrackedTime(catData.total_tracked_seconds || 0);
+        setCategoryBreakdown(breakdown);
+        setTopActivities(top5);
+        setActivityData(flat);
+        setGroupedActivities(grouped);
+        setLastUpdated(new Date());
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.error(err);
+          toast.error("Failed to fetch activity data.");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchData();
+    return () => controller.abort(); // cancel stale requests on rapid date changes
   }, [developer, startDate, endDate]);
 
   // ---------------- FORMATTERS ----------------
@@ -183,18 +193,14 @@ function DeveloperDashboard({ developer, onBack }) {
       .slice(0, 120);
     };
 
-  // ---------------- PRODUCTIVITY ----------------
-  const calculateProductivity = () => {
-    // Use trackedTime (sum of activity durations) as denominator
+  // ---------------- PRODUCTIVITY (memoized) ----------------
+  const productivity = useMemo(() => {
     const totalSec = trackedTime || totalTime;
-
-    // Productive = productive + server + browser (all 100%)
     const productiveSec =
       (categoryBreakdown.productive?.duration || 0) +
       (categoryBreakdown.server?.duration || 0) +
       (categoryBreakdown.browser?.duration || 0);
 
-    // Only show productivity if > 2 hours of total activity
     const minActiveSeconds = 2 * 3600;
     const score = totalSec > minActiveSeconds
       ? Math.min(100, Math.round((productiveSec / totalSec) * 100))
@@ -207,28 +213,30 @@ function DeveloperDashboard({ developer, onBack }) {
     }));
 
     return { score, categories: categoryList.filter((c) => c.time > 0) };
-  };
+  }, [categoryBreakdown, trackedTime, totalTime]);
 
-  
-  const productivity = calculateProductivity();
-
-  // ---------------- PIE CHART ----------------
-  const pieData = {
+  // ---------------- PIE CHART (memoized) ----------------
+  const PIE_COLORS = ["#10b981", "#3b82f6", "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6"];
+  const pieData = useMemo(() => ({
     labels: productivity.categories.map((c) => c.name),
     datasets: [
       {
         data: productivity.categories.map((c) => c.time),
-        backgroundColor: [
-          "#10b981",
-          "#3b82f6",
-          "#6366f1",
-          "#f59e0b",
-          "#ef4444",
-          "#8b5cf6",
-        ],
+        backgroundColor: PIE_COLORS,
       },
     ],
-  };
+  }), [productivity]);
+
+  // Debounced date setters — avoids API call on every click while picking dates
+  const debounceRef = useRef(null);
+  const debouncedSetStartDate = useCallback((date) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setStartDate(date), 300);
+  }, []);
+  const debouncedSetEndDate = useCallback((date) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setEndDate(date), 300);
+  }, []);
 
   const formatActivityDate = (value) => {
   if (!value) return "";
@@ -255,7 +263,7 @@ function DeveloperDashboard({ developer, onBack }) {
           <Calendar size={20} />
           <DatePicker
             selected={startDate}
-            onChange={setStartDate}
+            onChange={debouncedSetStartDate}
             selectsStart
             startDate={startDate}
             endDate={endDate}
@@ -264,7 +272,7 @@ function DeveloperDashboard({ developer, onBack }) {
           <span>to</span>
           <DatePicker
             selected={endDate}
-            onChange={setEndDate}
+            onChange={debouncedSetEndDate}
             selectsEnd
             startDate={startDate}
             endDate={endDate}
@@ -345,7 +353,7 @@ function DeveloperDashboard({ developer, onBack }) {
 
                   <div className="activity-scroll">
                     {(groupedActivities[productivity.categories[selectedTab].name] || [])
-                      .sort((a, b) => b.duration - a.duration)
+                      .slice(0, 50)
                       .map((act, j) => (
                         <div key={j} className="category-activity-item">
                           <div className="activity-info">
