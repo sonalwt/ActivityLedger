@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { format, startOfDay, endOfDay, subDays } from 'date-fns';
+import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { Calendar, RefreshCw, Activity, Clock, ArrowLeft } from 'lucide-react';
@@ -16,8 +16,8 @@ function DeveloperDashboard({ developer, onBack }) {
   const [activityData, setActivityData] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const [startDate, setStartDate] = useState(startOfDay(subDays(new Date(), 6)));
-  const [endDate, setEndDate] = useState(endOfDay(new Date()));
+  const [startDate, setStartDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [endDate, setEndDate] = useState(() => endOfDay(new Date()));
 
   const [totalTime, setTotalTime] = useState(0);
   const [trackedTime, setTrackedTime] = useState(0);
@@ -27,17 +27,68 @@ function DeveloperDashboard({ developer, onBack }) {
   const [selectedTab, setSelectedTab] = useState(0);
   const [groupedActivities, setGroupedActivities] = useState({});
 
+  const [quickRange, setQuickRange] = useState("this_week");
+
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
   const toIST = (d) => {
     return d.toISOString().split(".")[0] + "Z";
   };
 
+  // Week starts on Monday (weekStartsOn: 1)
+  const applyQuickRange = (range) => {
+    setQuickRange(range);
+    const now = new Date();
+    const weekOpts = { weekStartsOn: 1 };
+    switch (range) {
+      case "today":
+        setStartDate(startOfDay(now));
+        setEndDate(endOfDay(now));
+        break;
+      case "yesterday": {
+        const y = subDays(now, 1);
+        setStartDate(startOfDay(y));
+        setEndDate(endOfDay(y));
+        break;
+      }
+      case "this_week":
+        setStartDate(startOfWeek(now, weekOpts));
+        setEndDate(endOfDay(now));
+        break;
+      case "last_week": {
+        const lastW = subWeeks(now, 1);
+        setStartDate(startOfWeek(lastW, weekOpts));
+        setEndDate(endOfWeek(lastW, weekOpts));
+        break;
+      }
+      case "this_month":
+        setStartDate(startOfMonth(now));
+        setEndDate(endOfDay(now));
+        break;
+      case "last_month": {
+        const lastM = subMonths(now, 1);
+        setStartDate(startOfMonth(lastM));
+        setEndDate(endOfMonth(lastM));
+        break;
+      }
+      case "last_7_days":
+        setStartDate(startOfDay(subDays(now, 6)));
+        setEndDate(endOfDay(now));
+        break;
+      case "last_30_days":
+        setStartDate(startOfDay(subDays(now, 29)));
+        setEndDate(endOfDay(now));
+        break;
+      default:
+        break;
+    }
+  };
+
   // Reset dates when developer changes
   useEffect(() => {
     if (developer) {
-      setStartDate(startOfDay(subDays(new Date(), 6)));
-      setEndDate(endOfDay(new Date()));
+      setQuickRange("this_week");
+      applyQuickRange("this_week");
     }
   }, [developer]);
 
@@ -224,10 +275,20 @@ function DeveloperDashboard({ developer, onBack }) {
         <h1>{developer ? `${developer.name}'s Dashboard` : "Dashboard"}</h1>
 
         <div className="date-picker-wrapper">
+          <select
+            className="quick-range-select"
+            value={quickRange}
+            onChange={(e) => applyQuickRange(e.target.value)}
+          >
+            <option value="this_week">Current Week</option>
+            <option value="last_week">Last Week</option>
+            <option value="this_month">Current Month</option>
+            <option value="last_month">Last Month</option>
+          </select>
           <Calendar size={20} />
           <DatePicker
             selected={startDate}
-            onChange={(date) => setStartDate(date)}
+            onChange={(date) => { setStartDate(date); setQuickRange("custom"); }}
             selectsStart
             startDate={startDate}
             endDate={endDate}
@@ -236,7 +297,7 @@ function DeveloperDashboard({ developer, onBack }) {
           <span>to</span>
           <DatePicker
             selected={endDate}
-            onChange={(date) => setEndDate(date)}
+            onChange={(date) => { setEndDate(date); setQuickRange("custom"); }}
             selectsEnd
             startDate={startDate}
             endDate={endDate}

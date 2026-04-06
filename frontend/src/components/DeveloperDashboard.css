@@ -88,6 +88,16 @@
   color: #374151;
 }
 
+.quick-range-select {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #374151;
+  background: white;
+  cursor: pointer;
+}
+
 /* Overlap Warning */
 .overlap-warning {
   background: #fef3c7;
