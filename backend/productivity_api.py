@@ -428,20 +428,21 @@ async def get_all_developers_productivity_summary(
 
         # Get per-developer productivity stats
         # Working day = day with > 2 hours of total tracked activity
-        # Productive = productive + server + browser (all 100%, capped at 8h/day)
-        # non-work (idle/lock screen) is excluded
+        # Productivity % = avg of (coding%, browser%, server%) where each = category_hours / expected_hours * 100
         # Expected hours = working_days * 8 hours
-        # Productivity % = capped_productive_hours / expected_hours * 100
         query = f"""
             WITH daily_stats AS (
                 SELECT
                     ar.developer_id,
                     DATE(ar.timestamp) AS activity_date,
                     SUM(ar.duration) / 3600.0 AS total_day_hours,
+                    SUM(CASE WHEN ar.category IN ('coding', 'productive') THEN ar.duration ELSE 0 END) / 3600.0 AS coding_hours,
+                    SUM(CASE WHEN ar.category = 'browser' THEN ar.duration ELSE 0 END) / 3600.0 AS browser_hours,
+                    SUM(CASE WHEN ar.category = 'server' THEN ar.duration ELSE 0 END) / 3600.0 AS server_hours,
                     LEAST(
                         SUM(
                             CASE
-                                WHEN ar.category IN ('productive', 'server', 'browser') THEN ar.duration
+                                WHEN ar.category IN ('coding', 'productive', 'server', 'browser') THEN ar.duration
                                 ELSE 0
                             END
                         ) / 3600.0,
@@ -457,6 +458,9 @@ async def get_all_developers_productivity_summary(
                 SELECT
                     developer_id,
                     SUM(capped_productive_hours) AS productive_hours,
+                    SUM(coding_hours) AS total_coding_hours,
+                    SUM(browser_hours) AS total_browser_hours,
+                    SUM(server_hours) AS total_server_hours,
                     COUNT(*) AS active_days,
                     SUM(total_day_hours) AS total_hours
                 FROM daily_stats
@@ -479,6 +483,9 @@ async def get_all_developers_productivity_summary(
                 COALESCE(ds.productive_hours, 0) AS productive_hours,
                 COALESCE(ds.active_days, 0) AS active_days,
                 COALESCE(ds.total_hours, 0) AS total_hours,
+                COALESCE(ds.total_coding_hours, 0) AS coding_hours,
+                COALESCE(ds.total_browser_hours, 0) AS browser_hours,
+                COALESCE(ds.total_server_hours, 0) AS server_hours,
                 COALESCE(ar.projects_worked, 0) AS projects_worked,
                 COALESCE(ar.total_activities, 0) AS total_activities,
                 ar.last_activity
@@ -494,11 +501,10 @@ async def get_all_developers_productivity_summary(
         }).fetchall()
 
         # Calculate productivity per developer
-        # productivity = productive_hours / (working_days * 8h) * 100
-        # working_days = days with > 2 hours activity (calculated dynamically)
+        # productivity = (coding + browser + server) / (active_days * 8h) * 100
         developers = []
         for row in developer_stats:
-            dev_id, name, productive_hours, active_days, total_hours, projects, activities, last_activity = row
+            dev_id, name, productive_hours, active_days, total_hours, coding_hours, browser_hours, server_hours, projects, activities, last_activity = row
 
             expected_hours = int(active_days) * DAILY_TARGET_HOURS
             productivity_percentage = min(100.0, (float(productive_hours) / expected_hours * 100)) if expected_hours > 0 else 0.0
