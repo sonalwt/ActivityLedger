@@ -140,7 +140,6 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
           <TrendingUp className="icon-header" />
           Team Productivity Overview
         </h2>
-
         <select
           value={currentDateRange}
           onChange={(e) => handleDateRangeChange(e.target.value)}
