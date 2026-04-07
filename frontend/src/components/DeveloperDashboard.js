@@ -41,16 +41,6 @@ function DeveloperDashboard({ developer, onBack }) {
     const now = new Date();
     const weekOpts = { weekStartsOn: 1 };
     switch (range) {
-      case "today":
-        setStartDate(startOfDay(now));
-        setEndDate(endOfDay(now));
-        break;
-      case "yesterday": {
-        const y = subDays(now, 1);
-        setStartDate(startOfDay(y));
-        setEndDate(endOfDay(y));
-        break;
-      }
       case "this_week":
         setStartDate(startOfWeek(now, weekOpts));
         setEndDate(endOfDay(now));
@@ -71,14 +61,6 @@ function DeveloperDashboard({ developer, onBack }) {
         setEndDate(endOfMonth(lastM));
         break;
       }
-      case "last_7_days":
-        setStartDate(startOfDay(subDays(now, 6)));
-        setEndDate(endOfDay(now));
-        break;
-      case "last_30_days":
-        setStartDate(startOfDay(subDays(now, 29)));
-        setEndDate(endOfDay(now));
-        break;
       default:
         break;
     }
