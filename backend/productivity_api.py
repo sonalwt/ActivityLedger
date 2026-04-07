@@ -470,11 +470,17 @@ async def get_all_developers_productivity_summary(
                 SELECT
                     developer_id,
                     COUNT(DISTINCT project_name) AS projects_worked,
-                    COUNT(id) AS total_activities,
-                    MAX(timestamp) AS last_activity
+                    COUNT(id) AS total_activities
                 FROM activity_records
                 WHERE timestamp >= :start_date
                   AND timestamp <= :end_date
+                GROUP BY developer_id
+            ),
+            latest_activity AS (
+                SELECT
+                    developer_id,
+                    MAX(timestamp) AS last_activity
+                FROM activity_records
                 GROUP BY developer_id
             )
             SELECT
@@ -488,10 +494,11 @@ async def get_all_developers_productivity_summary(
                 COALESCE(ds.total_server_hours, 0) AS server_hours,
                 COALESCE(ar.projects_worked, 0) AS projects_worked,
                 COALESCE(ar.total_activities, 0) AS total_activities,
-                ar.last_activity
+                la.last_activity
             FROM developers d
             LEFT JOIN ds_agg ds ON ds.developer_id = d.developer_id
             LEFT JOIN ar_agg ar ON ar.developer_id = d.developer_id
+            LEFT JOIN latest_activity la ON la.developer_id = d.developer_id
             WHERE d.active = true
             ORDER BY productive_hours DESC
         """
