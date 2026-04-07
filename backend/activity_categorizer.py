@@ -17,9 +17,14 @@ class ActivityCategorizer:
         # Known projects/clients - ALWAYS coding
         self.known_projects = [
             "radiant_clone", "radiant clone", "radiant-mail", "timesheet",
-            "waaree", "firsteconomy", "first economy",
+            "firsteconomy", "first economy",
             "hdfc", "mahindra", "manulife", "indosolar",
             "jaypeeinfratechcoin", "scalpe", "nodeserver"
+        ]
+
+        # Client websites — categorize as BROWSER when visited in browser
+        self.client_websites = [
+            "waaree"
         ]
 
         # 🟦 SERVER keywords (word-boundary safe)
@@ -244,6 +249,11 @@ class ActivityCategorizer:
             for site in self.coding_sites:
                 if site in text:
                     return ("coding", 0.95)
+
+            # Check client websites (work-related browsing)
+            for site in self.client_websites:
+                if site in text:
+                    return ("browser", 1.0)
 
             # Check blacklisted non-work sites (shopping, social, news, etc.)
             for site in self.blacklisted_browser_sites:
