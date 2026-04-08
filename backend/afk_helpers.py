@@ -6,6 +6,11 @@ may leave a tab open for hours without interacting.  These helpers use the
 afk_records table (populated by the AFK watcher) to compute *active* duration
 — the overlap between an activity window and the intervals where the user was
 actually at the keyboard.
+
+Key design: AFK data may be sparse.  We only apply AFK adjustment to activities
+that have AFK *coverage* (i.e., there are afk or not-afk records overlapping
+that activity's time window).  Activities with no AFK coverage use raw duration
+(with a browser-cap fallback).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -18,7 +23,7 @@ from sqlalchemy import text
 # Constants
 # ---------------------------------------------------------------------------
 BROWSER_APPS = ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera']
-MAX_SINGLE_EVENT_DURATION = 900  # 15-min fallback cap when no AFK data
+MAX_SINGLE_EVENT_DURATION = 900  # 15-min fallback cap when no AFK coverage
 PRODUCTIVE_CATEGORIES = ('development', 'database', 'productivity', 'browser')
 DAILY_TARGET_HOURS = 8.0
 MIN_WORKING_DAY_HOURS = 2.0  # Only count days with > 2h total activity
@@ -37,6 +42,20 @@ def build_not_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
                 start = start.replace(tzinfo=timezone.utc)
             end = start + timedelta(seconds=row.duration)
             intervals.append((start, end))
+    intervals.sort(key=lambda x: x[0])
+    return intervals
+
+
+def build_all_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
+    """Build sorted list of (start, end) for ALL afk records (both afk + not-afk).
+    Used to determine which time periods have AFK watcher coverage."""
+    intervals = []
+    for row in afk_rows:
+        start = row.timestamp
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        end = start + timedelta(seconds=row.duration)
+        intervals.append((start, end))
     intervals.sort(key=lambda x: x[0])
     return intervals
 
@@ -60,30 +79,43 @@ def compute_active_duration(
     return total_active
 
 
+def _has_afk_coverage(activity_start, activity_end, all_afk_intervals) -> bool:
+    """Check if there is ANY AFK watcher data covering this activity's time window."""
+    for (afk_start, afk_end) in all_afk_intervals:
+        if afk_end <= activity_start:
+            continue
+        if afk_start >= activity_end:
+            break
+        # There is overlap — AFK watcher was running during this activity
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Single-activity duration adjustment
 # ---------------------------------------------------------------------------
 def compute_adjusted_duration(timestamp, raw_duration, application_name,
-                              not_afk_intervals, has_afk_data) -> float:
+                              not_afk_intervals, all_afk_intervals) -> float:
     """
     Return the AFK-adjusted duration for one activity event.
 
-    - If AFK data exists: return the overlap with not-afk intervals.
-    - If no AFK data and it's a browser event > 15 min: cap at 15 min.
-    - Otherwise: return raw duration unchanged.
+    - If AFK watcher covered this activity's time: return overlap with not-afk.
+    - If no AFK coverage for this activity: use raw duration (browser cap fallback).
     """
     if raw_duration <= 0:
         return 0.0
 
-    if has_afk_data:
-        act_start = timestamp
-        if act_start.tzinfo is None:
-            act_start = act_start.replace(tzinfo=timezone.utc)
-        act_end = act_start + timedelta(seconds=raw_duration)
+    act_start = timestamp
+    if act_start.tzinfo is None:
+        act_start = act_start.replace(tzinfo=timezone.utc)
+    act_end = act_start + timedelta(seconds=raw_duration)
+
+    # Only apply AFK adjustment if the AFK watcher was running during this activity
+    if all_afk_intervals and _has_afk_coverage(act_start, act_end, all_afk_intervals):
         active = compute_active_duration(act_start, act_end, not_afk_intervals)
         return min(active, raw_duration)
 
-    # Fallback: cap long browser events when no AFK data available
+    # No AFK coverage — fallback: cap long browser events at 15 min
     if raw_duration > MAX_SINGLE_EVENT_DURATION:
         app_lower = (application_name or "").lower()
         if any(b in app_lower for b in BROWSER_APPS):
@@ -93,12 +125,24 @@ def compute_adjusted_duration(timestamp, raw_duration, application_name,
 
 
 # ---------------------------------------------------------------------------
+# AFK data container (holds both not-afk intervals and full coverage intervals)
+# ---------------------------------------------------------------------------
+class AFKData:
+    """Holds both not-afk intervals and full AFK coverage for a developer."""
+    __slots__ = ('not_afk_intervals', 'all_afk_intervals')
+
+    def __init__(self, not_afk_intervals, all_afk_intervals):
+        self.not_afk_intervals = not_afk_intervals
+        self.all_afk_intervals = all_afk_intervals
+
+
+# ---------------------------------------------------------------------------
 # Bulk AFK fetch (one DB round-trip for all developers)
 # ---------------------------------------------------------------------------
-def fetch_afk_intervals_bulk(db, start, end) -> Dict[str, List[Tuple[datetime, datetime]]]:
+def fetch_afk_data_bulk(db, start, end) -> Dict[str, AFKData]:
     """
     Fetch AFK records for ALL developers in the date range.
-    Returns dict mapping developer_id → sorted list of not-afk intervals.
+    Returns dict mapping developer_id → AFKData(not_afk_intervals, all_afk_intervals).
     """
     afk_query = text("""
         SELECT developer_id, status, duration, timestamp
@@ -114,13 +158,23 @@ def fetch_afk_intervals_bulk(db, start, end) -> Dict[str, List[Tuple[datetime, d
         grouped[row.developer_id].append(row)
 
     return {
-        dev_id: build_not_afk_intervals(dev_rows)
+        dev_id: AFKData(
+            not_afk_intervals=build_not_afk_intervals(dev_rows),
+            all_afk_intervals=build_all_afk_intervals(dev_rows),
+        )
         for dev_id, dev_rows in grouped.items()
     }
 
 
-def fetch_afk_intervals_single(db, developer_id, start, end) -> List[Tuple[datetime, datetime]]:
-    """Fetch AFK intervals for a single developer."""
+# Keep old name for backward compatibility with activity_categorization_api
+def fetch_afk_intervals_bulk(db, start, end) -> Dict[str, List[Tuple[datetime, datetime]]]:
+    """Fetch not-afk intervals for ALL developers (legacy wrapper)."""
+    data = fetch_afk_data_bulk(db, start, end)
+    return {dev_id: afk.not_afk_intervals for dev_id, afk in data.items()}
+
+
+def fetch_afk_data_single(db, developer_id, start, end) -> AFKData:
+    """Fetch AFK data for a single developer."""
     afk_query = text("""
         SELECT status, duration, timestamp
         FROM afk_records
@@ -134,13 +188,22 @@ def fetch_afk_intervals_single(db, developer_id, start, end) -> List[Tuple[datet
         "start_date": start,
         "end_date": end
     }).fetchall()
-    return build_not_afk_intervals(rows)
+    return AFKData(
+        not_afk_intervals=build_not_afk_intervals(rows),
+        all_afk_intervals=build_all_afk_intervals(rows),
+    )
+
+
+# Keep old name for backward compatibility
+def fetch_afk_intervals_single(db, developer_id, start, end) -> List[Tuple[datetime, datetime]]:
+    """Fetch not-afk intervals for a single developer (legacy wrapper)."""
+    return fetch_afk_data_single(db, developer_id, start, end).not_afk_intervals
 
 
 # ---------------------------------------------------------------------------
 # Per-developer productivity computation (replaces SQL SUM(duration))
 # ---------------------------------------------------------------------------
-def compute_developer_productivity(activity_rows, not_afk_intervals,
+def compute_developer_productivity(activity_rows, afk_data,
                                    daily_target=DAILY_TARGET_HOURS):
     """
     Compute AFK-adjusted productivity totals for one developer.
@@ -150,8 +213,8 @@ def compute_developer_productivity(activity_rows, not_afk_intervals,
     activity_rows : list
         Raw rows from activity_records (need .category, .duration,
         .timestamp, .application_name).
-    not_afk_intervals : list of (start, end) tuples
-        Active intervals for this developer. Empty list = no AFK data.
+    afk_data : AFKData or list
+        AFKData instance, or a list of not-afk intervals (legacy).
     daily_target : float
         Max productive hours counted per day.
 
@@ -160,7 +223,13 @@ def compute_developer_productivity(activity_rows, not_afk_intervals,
     dict with keys: coding_hours, browser_hours, server_hours,
         productive_hours, total_hours, active_days
     """
-    has_afk = len(not_afk_intervals) > 0
+    # Support both AFKData and legacy list format
+    if isinstance(afk_data, AFKData):
+        not_afk_intervals = afk_data.not_afk_intervals
+        all_afk_intervals = afk_data.all_afk_intervals
+    else:
+        not_afk_intervals = afk_data
+        all_afk_intervals = afk_data  # legacy: same list
 
     # Accumulate per-day stats
     daily = defaultdict(lambda: {
@@ -175,7 +244,7 @@ def compute_developer_productivity(activity_rows, not_afk_intervals,
 
         adj_dur = compute_adjusted_duration(
             row.timestamp, raw_dur, row.application_name,
-            not_afk_intervals, has_afk
+            not_afk_intervals, all_afk_intervals
         )
 
         # Determine which day this activity belongs to

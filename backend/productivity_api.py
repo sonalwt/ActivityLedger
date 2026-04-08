@@ -80,7 +80,7 @@ async def get_developer_productivity_hours(
 ):
     """Calculate productivity hours for a developer (AFK-aware)"""
     try:
-        from afk_helpers import (fetch_afk_intervals_single,
+        from afk_helpers import (fetch_afk_data_single,
                                  compute_adjusted_duration, PRODUCTIVE_CATEGORIES)
         from collections import defaultdict
 
@@ -112,9 +112,8 @@ async def get_developer_productivity_hours(
             ORDER BY timestamp ASC
         """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
 
-        # Fetch AFK intervals for this developer
-        not_afk_intervals = fetch_afk_intervals_single(db, developer_id, start, end)
-        has_afk = len(not_afk_intervals) > 0
+        # Fetch AFK data for this developer
+        afk_data = fetch_afk_data_single(db, developer_id, start, end)
 
         # --- Compute daily productivity with AFK-adjusted durations ---
         daily_data = defaultdict(lambda: {
@@ -133,7 +132,7 @@ async def get_developer_productivity_hours(
 
             adj_dur = compute_adjusted_duration(
                 row.timestamp, raw_dur, row.application_name,
-                not_afk_intervals, has_afk
+                afk_data.not_afk_intervals, afk_data.all_afk_intervals
             )
 
             ts = row.timestamp
@@ -403,7 +402,7 @@ async def get_all_developers_productivity_summary(
 ):
     """Get productivity summary for all developers (AFK-aware)"""
     try:
-        from afk_helpers import fetch_afk_intervals_bulk, compute_developer_productivity
+        from afk_helpers import fetch_afk_data_bulk, compute_developer_productivity, AFKData
         from collections import defaultdict
 
         # Parse dates
@@ -445,8 +444,9 @@ async def get_all_developers_productivity_summary(
             ORDER BY developer_id, timestamp ASC
         """), {"start_date": start, "end_date": end}).fetchall()
 
-        # 3. Fetch all AFK intervals in date range (single query)
-        afk_intervals_by_dev = fetch_afk_intervals_bulk(db, start, end)
+        # 3. Fetch all AFK data in date range (single query — both not-afk and coverage)
+        afk_data_by_dev = fetch_afk_data_bulk(db, start, end)
+        empty_afk = AFKData([], [])
 
         # 4. Group activities by developer
         activities_by_dev = defaultdict(list)
@@ -463,7 +463,7 @@ async def get_all_developers_productivity_summary(
             activities = row.total_activities
 
             dev_activities = activities_by_dev.get(dev_id, [])
-            dev_afk = afk_intervals_by_dev.get(dev_id, [])
+            dev_afk = afk_data_by_dev.get(dev_id, empty_afk)
 
             stats = compute_developer_productivity(
                 dev_activities, dev_afk, DAILY_TARGET_HOURS
