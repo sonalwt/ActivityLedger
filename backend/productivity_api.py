@@ -109,7 +109,7 @@ async def get_developer_productivity_hours(
                 SUM(duration) / 3600.0 as total_hours,
                 SUM(
                     CASE
-                        WHEN category IN ('productive', 'server', 'browser') THEN duration
+                        WHEN category IN ('development', 'database', 'productivity', 'browser') THEN duration
                         ELSE 0
                     END
                 ) / 3600.0 as productive_hours,
@@ -198,7 +198,7 @@ async def get_developer_productivity_hours(
             "category": category or "Other",
             "hours": round(float(hours), 2),
             "usage_count": count,
-            "is_productive": category in ('productive', 'browser', 'server')
+            "is_productive": category in ('development', 'database', 'productivity', 'browser')
         } for app_name, category, hours, count in app_usage]
         
         # Calculate overall statistics
@@ -436,13 +436,13 @@ async def get_all_developers_productivity_summary(
                     ar.developer_id,
                     DATE(ar.timestamp) AS activity_date,
                     SUM(ar.duration) / 3600.0 AS total_day_hours,
-                    SUM(CASE WHEN ar.category IN ('coding', 'productive') THEN ar.duration ELSE 0 END) / 3600.0 AS coding_hours,
+                    SUM(CASE WHEN ar.category IN ('development', 'productivity') THEN ar.duration ELSE 0 END) / 3600.0 AS coding_hours,
                     SUM(CASE WHEN ar.category = 'browser' THEN ar.duration ELSE 0 END) / 3600.0 AS browser_hours,
-                    SUM(CASE WHEN ar.category = 'server' THEN ar.duration ELSE 0 END) / 3600.0 AS server_hours,
+                    SUM(CASE WHEN ar.category = 'database' THEN ar.duration ELSE 0 END) / 3600.0 AS server_hours,
                     LEAST(
                         SUM(
                             CASE
-                                WHEN ar.category IN ('coding', 'productive', 'server', 'browser') THEN ar.duration
+                                WHEN ar.category IN ('development', 'database', 'productivity', 'browser') THEN ar.duration
                                 ELSE 0
                             END
                         ) / 3600.0,
@@ -753,7 +753,7 @@ async def get_all_projects(
                 WHERE project_name IS NOT NULL
                 AND project_name != ''
                 AND LENGTH(project_name) >= 4
-                AND category IN ('productive', 'browser', 'server')
+                AND category IN ('development', 'database', 'productivity', 'browser')
                 {date_filter}
                 GROUP BY project_name, developer_id
                 HAVING SUM(duration) / 3600.0 >= 1.0
