@@ -312,7 +312,13 @@ async def get_categorized_activities(
             "statistics": cat_stats,
 
             "activities_by_category": grouped_output,
-            "top_activities_by_category": top_activities_by_category
+            "top_activities_by_category": top_activities_by_category,
+
+            "afk_debug": {
+                "afk_records_found": len(afk_rows),
+                "not_afk_intervals": len(not_afk_intervals),
+                "has_afk_data": has_afk_data
+            }
         }
 
     except Exception as e:
