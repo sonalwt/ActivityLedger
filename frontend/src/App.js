@@ -8,6 +8,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import ProjectDeveloperTime from './components/ProjectDeveloperTime';
+import AnalyticsTab from './components/AnalyticsTab';
 import Navbar from './components/Navbar';
 
 function ProtectedRoute({ children }) {
@@ -76,6 +77,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <ProjectDeveloperTime />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <AnalyticsTab />
             </ProtectedRoute>
           }
         />
