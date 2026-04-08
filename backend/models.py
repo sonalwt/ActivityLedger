@@ -135,3 +135,19 @@ class Project(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Holiday(Base):
+    """Stores holidays for highlighting in analytics charts"""
+    __tablename__ = 'holidays'
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    holiday_type = Column(String(50), default='national')  # national, optional, company
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('date', 'name', name='uq_holiday_date_name'),
+    )

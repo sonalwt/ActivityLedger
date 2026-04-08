@@ -101,6 +101,10 @@ app.include_router(fixed_sync_router, tags=["sync"])
 from enhanced_activity_api import router as enhanced_activity_router
 app.include_router(enhanced_activity_router, tags=["activity"])
 
+# Add analytics API for productivity trends
+from analytics_api import router as analytics_router
+app.include_router(analytics_router, tags=["analytics"])
+
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
