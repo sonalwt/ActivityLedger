@@ -400,11 +400,8 @@ async def get_all_developers_productivity_summary(
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get productivity summary for all developers (AFK-aware)"""
+    """Get productivity summary for all developers"""
     try:
-        from afk_helpers import fetch_afk_data_bulk, compute_developer_productivity, AFKData
-        from collections import defaultdict
-
         # Parse dates
         if start_date:
             start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
@@ -416,65 +413,68 @@ async def get_all_developers_productivity_summary(
         else:
             end = datetime.now(timezone.utc)
 
-        # 1. Fetch all active developers + last_activity + activity counts
-        dev_meta = db.execute(text("""
+        # Single SQL query: per-developer totals + metadata
+        # Work Activity % = productive_duration / total_duration * 100
+        # (same formula as individual developer dashboard)
+        query = text("""
+            WITH dev_stats AS (
+                SELECT
+                    ar.developer_id,
+                    SUM(ar.duration) AS total_seconds,
+                    SUM(CASE
+                        WHEN ar.category IN ('development', 'database', 'productivity', 'browser')
+                        THEN ar.duration ELSE 0
+                    END) AS productive_seconds,
+                    COUNT(DISTINCT DATE(ar.timestamp)) AS active_days,
+                    COUNT(DISTINCT ar.project_name) AS projects_worked,
+                    COUNT(ar.id) AS total_activities
+                FROM activity_records ar
+                WHERE ar.timestamp >= :start_date
+                  AND ar.timestamp <= :end_date
+                GROUP BY ar.developer_id
+            ),
+            latest_activity AS (
+                SELECT developer_id, MAX(timestamp) AS last_activity
+                FROM activity_records
+                GROUP BY developer_id
+            )
             SELECT
                 d.developer_id,
                 d.name,
-                (SELECT MAX(timestamp) FROM activity_records WHERE developer_id = d.developer_id) AS last_activity,
-                COALESCE(ar.projects_worked, 0) AS projects_worked,
-                COALESCE(ar.total_activities, 0) AS total_activities
+                COALESCE(ds.total_seconds, 0) AS total_seconds,
+                COALESCE(ds.productive_seconds, 0) AS productive_seconds,
+                COALESCE(ds.active_days, 0) AS active_days,
+                COALESCE(ds.projects_worked, 0) AS projects_worked,
+                COALESCE(ds.total_activities, 0) AS total_activities,
+                la.last_activity
             FROM developers d
-            LEFT JOIN (
-                SELECT developer_id,
-                       COUNT(DISTINCT project_name) AS projects_worked,
-                       COUNT(id) AS total_activities
-                FROM activity_records
-                WHERE timestamp >= :start_date AND timestamp <= :end_date
-                GROUP BY developer_id
-            ) ar ON ar.developer_id = d.developer_id
+            LEFT JOIN dev_stats ds ON ds.developer_id = d.developer_id
+            LEFT JOIN latest_activity la ON la.developer_id = d.developer_id
             WHERE d.active = true
-        """), {"start_date": start, "end_date": end}).fetchall()
+            ORDER BY productive_seconds DESC
+        """)
 
-        # 2. Fetch all activity records in date range (single query)
-        all_activities = db.execute(text("""
-            SELECT developer_id, category, duration, timestamp, application_name
-            FROM activity_records
-            WHERE timestamp >= :start_date AND timestamp <= :end_date
-            ORDER BY developer_id, timestamp ASC
-        """), {"start_date": start, "end_date": end}).fetchall()
+        developer_stats = db.execute(query, {
+            "start_date": start,
+            "end_date": end
+        }).fetchall()
 
-        # 3. Fetch all AFK data in date range (single query — both not-afk and coverage)
-        afk_data_by_dev = fetch_afk_data_bulk(db, start, end)
-        empty_afk = AFKData([], [])
-
-        # 4. Group activities by developer
-        activities_by_dev = defaultdict(list)
-        for row in all_activities:
-            activities_by_dev[row.developer_id].append(row)
-
-        # 5. Compute per-developer productivity with AFK adjustment
         developers = []
-        for row in dev_meta:
+        for row in developer_stats:
             dev_id = row.developer_id
             name = row.name
-            last_activity = row.last_activity
+            total_seconds = float(row.total_seconds)
+            productive_seconds = float(row.productive_seconds)
+            active_days = int(row.active_days)
             projects = row.projects_worked
             activities = row.total_activities
+            last_activity = row.last_activity
 
-            dev_activities = activities_by_dev.get(dev_id, [])
-            dev_afk = afk_data_by_dev.get(dev_id, empty_afk)
+            total_hours = total_seconds / 3600.0
+            productive_hours = productive_seconds / 3600.0
 
-            stats = compute_developer_productivity(
-                dev_activities, dev_afk, DAILY_TARGET_HOURS
-            )
-
-            productive_hours = stats["productive_hours"]
-            active_days = stats["active_days"]
-            total_hours = stats["total_hours"]
-
-            expected_hours = active_days * DAILY_TARGET_HOURS
-            productivity_percentage = min(100.0, (productive_hours / expected_hours * 100)) if expected_hours > 0 else 0.0
+            # Work Activity % = productive / total (same as individual dashboard)
+            productivity_percentage = min(100.0, (productive_seconds / total_seconds * 100)) if total_seconds > 0 else 0.0
 
             # Determine status based on last activity
             status = "offline"
@@ -500,9 +500,6 @@ async def get_all_developers_productivity_summary(
                 "last_activity": last_activity.isoformat() if last_activity else None,
                 "status": status
             })
-
-        # Sort by productive hours descending
-        developers.sort(key=lambda d: d["productive_hours"], reverse=True)
 
         # Calculate team statistics
         team_total_hours = sum(d["total_hours"] for d in developers)
