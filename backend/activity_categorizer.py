@@ -140,66 +140,48 @@ class ActivityCategorizer:
         ]
 
         # 🟧 BROWSER (non-coding) keywords
+        # Only social media (except WhatsApp), shopping, news, YouTube
         self.browser_keywords = [
             # Shopping
             "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
-            "snapdeal", "meesho", "add to cart", "buy online",
-            # Entertainment
-            "youtube", "youtu.be", "netflix", "amazon prime",
-            "primevideo", "hotstar", "spotify", "twitch", "voot",
-            "zee5", "sonyliv", "jiocinema",
-            # Social
+            "snapdeal", "meesho",
+            # Social Media (except WhatsApp)
             "facebook", "instagram", "snapchat", "tiktok",
             "pinterest", "reddit", "twitter", "x.com",
-            "whatsapp web", "telegram web", "linkedin feed",
+            "telegram web", "linkedin feed",
+            # YouTube
+            "youtube", "youtu.be",
+            # News (specific sites only)
+            "ndtv", "timesofindia", "indianexpress",
+            "hindustantimes", "aajtak",
             # Search
             "google.com/search", "bing.com/search",
             "duckduckgo", "- google search",
-            # Google services (non-work)
-            "google photos", "google maps", "google calendar",
-            # News / non-work
-            "news", "cricket", "sports", "movies", "songs",
-            # Extensions
-            "awesome screenshot"
         ]
 
         # 🟥 NON-WORK browser sites — blacklisted, goes to non-work category
+        # ONLY: social media (except WhatsApp), shopping, news, YouTube
+        # Do NOT add client websites here (HDFC, Indosolar, Waaree, etc.)
         self.blacklisted_browser_sites = [
-            # Shopping
-            "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
-            "snapdeal", "meesho", "add to cart", "buy online",
-            "nykaa", "tatacliq", "shopclues", "paytmmall",
-            "ebay", "aliexpress", "shein", "zara.com",
-            # Entertainment / Streaming
-            "youtube", "youtu.be", "netflix", "amazon prime",
-            "primevideo", "hotstar", "disney+", "spotify", "twitch",
-            "voot", "zee5", "sonyliv", "jiocinema", "mxplayer",
-            "crunchyroll", "hulu", "apple tv",
-            # Social Media
+            # Social Media (except WhatsApp)
             "facebook", "facebook.com", "instagram", "snapchat", "tiktok",
             "pinterest", "reddit", "twitter", "x.com",
-            "whatsapp web", "telegram web", "linkedin feed",
+            "telegram web", "linkedin feed",
             "threads.net", "tumblr", "quora",
-            # News
-            "news", "ndtv", "timesofindia", "indianexpress",
+            # Shopping
+            "amazon.in", "amazon.com", "flipkart", "myntra", "ajio",
+            "snapdeal", "meesho",
+            "nykaa", "tatacliq", "shopclues", "paytmmall",
+            "ebay", "aliexpress", "shein", "zara.com",
+            # News (specific sites only — no generic "news" keyword)
+            "ndtv", "timesofindia", "indianexpress",
             "hindustantimes", "aajtak", "bbc.com/news",
             "cnn.com", "foxnews", "theguardian",
             "moneycontrol", "economictimes", "livemint",
             "inshorts", "dailymail", "buzzfeed",
-            # Sports / Entertainment
-            "cricket", "cricbuzz", "espncricinfo", "espn.com",
-            "sports", "movies", "songs", "imdb",
-            "rottentomatoes", "hotstar.com/sports",
-            # Google non-work
-            "google photos", "google maps", "google calendar",
-            "play.google.com", "news.google.com",
-            # Gaming
-            "twitch.tv", "steam", "epic games", "gaming",
-            # Personal / Misc
-            "matrimony", "dating", "tinder", "bumble",
-            "zomato", "swiggy", "uber", "ola",
-            "makemytrip", "goibibo", "booking.com", "trivago",
-            "irctc", "redbus",
+            "news.google.com",
+            # YouTube
+            "youtube", "youtu.be",
         ]
 
         # 🟥 NON-WORK keywords
