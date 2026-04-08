@@ -164,8 +164,61 @@ class AutoSyncService:
         logger.info(f"Hostname: {self.hostname}")
         logger.info(f"Server: {SERVER_URL}")
 
-    def get_activity_data(self, hours_back: float = 1.0) -> List[Dict]:
-        """Fetch activity data from local ActivityWatch"""
+    def get_afk_data(self, start_time: datetime, end_time: datetime) -> List[Dict]:
+        """Fetch AFK watcher data from local ActivityWatch.
+
+        AFK events track keyboard/mouse activity — essential for
+        computing accurate active duration (vs idle time on open tabs).
+        """
+        import requests
+
+        try:
+            buckets_resp = requests.get(f"{ACTIVITYWATCH_HOST}/api/0/buckets/", timeout=10)
+            buckets_resp.raise_for_status()
+            buckets = buckets_resp.json()
+
+            afk_events = []
+            for bucket_name in buckets.keys():
+                if 'afk' not in bucket_name.lower():
+                    continue
+
+                params = {
+                    'start': start_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'end': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'limit': 10000
+                }
+                try:
+                    resp = requests.get(
+                        f"{ACTIVITYWATCH_HOST}/api/0/buckets/{bucket_name}/events",
+                        params=params, timeout=15
+                    )
+                    resp.raise_for_status()
+                    for event in resp.json():
+                        data = event.get('data', {})
+                        status = data.get('status', '')
+                        duration = event.get('duration', 0)
+                        if status not in ('afk', 'not-afk') or duration < 1:
+                            continue
+                        afk_events.append({
+                            "status": status,
+                            "duration": duration,
+                            "timestamp": event.get('timestamp', '')
+                        })
+                except Exception as e:
+                    logger.debug(f"Error fetching AFK from {bucket_name}: {e}")
+
+            logger.info(f"Collected {len(afk_events)} AFK events")
+            return afk_events
+
+        except Exception as e:
+            logger.error(f"Error getting AFK data: {e}")
+            return []
+
+    def get_activity_data(self, hours_back: float = 1.0) -> tuple:
+        """Fetch activity data and AFK data from local ActivityWatch.
+
+        Returns (activities, afk_data) tuple.
+        """
         import requests
 
         try:
@@ -180,6 +233,7 @@ class AutoSyncService:
             activities = []
 
             for bucket_name in buckets.keys():
+                # Skip AFK buckets (handled separately by get_afk_data)
                 if 'afk' in bucket_name.lower():
                     continue
 
@@ -219,18 +273,21 @@ class AutoSyncService:
                 except Exception as e:
                     logger.debug(f"Error fetching {bucket_name}: {e}")
 
-            return activities
+            # Also fetch AFK data
+            afk_data = self.get_afk_data(start_time, end_time)
+
+            return activities, afk_data
 
         except Exception as e:
             logger.error(f"Error connecting to ActivityWatch: {e}")
-            return []
+            return [], []
 
-    def sync_to_server(self, activities: List[Dict]) -> bool:
-        """Send activities to central server"""
+    def sync_to_server(self, activities: List[Dict], afk_data: List[Dict] = None) -> bool:
+        """Send activities and AFK data to central server"""
         import requests
 
-        if not activities:
-            logger.debug("No activities to sync")
+        if not activities and not afk_data:
+            logger.debug("No activities or AFK data to sync")
             return True
 
         payload = {
@@ -238,6 +295,7 @@ class AutoSyncService:
             "token": self.api_token,
             "hostname": self.hostname,
             "data": activities,
+            "afk_data": afk_data or [],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
@@ -252,7 +310,8 @@ class AutoSyncService:
             result = response.json()
 
             if result.get("success"):
-                logger.info(f"Synced {len(activities)} activities")
+                afk_saved = result.get('afk_saved', 0)
+                logger.info(f"Synced {len(activities)} activities + {afk_saved} AFK events")
                 return True
             else:
                 logger.error(f"Server error: {result.get('error', 'Unknown')}")
@@ -270,8 +329,8 @@ class AutoSyncService:
         try:
             self.update_icon("yellow")
 
-            activities = self.get_activity_data(hours_back)
-            success = self.sync_to_server(activities)
+            activities, afk_data = self.get_activity_data(hours_back)
+            success = self.sync_to_server(activities, afk_data=afk_data)
 
             self.last_sync = datetime.now()
 
