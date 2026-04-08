@@ -59,22 +59,77 @@ class ActivityWatchSyncer:
         logger.info(f"Server URL: {self.server_url}")
         logger.info(f"ActivityWatch Host: {ACTIVITYWATCH_HOST}")
     
+    def get_afk_data(self, start_time: datetime, end_time: datetime) -> List[Dict]:
+        """Get AFK watcher data from local ActivityWatch instance.
+
+        AFK events track keyboard/mouse activity and are essential for
+        computing accurate active duration (vs idle time on open tabs).
+        """
+        try:
+            buckets_response = requests.get(f"{self.aw_api_url}/buckets/", timeout=10)
+            buckets_response.raise_for_status()
+            buckets = buckets_response.json()
+
+            afk_events = []
+            for bucket_name in buckets:
+                if 'afk' not in bucket_name.lower():
+                    continue
+
+                logger.debug(f"Fetching AFK data from bucket: {bucket_name}")
+                params = {
+                    'start': start_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'end': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'limit': 10000
+                }
+                try:
+                    resp = requests.get(
+                        f"{self.aw_api_url}/buckets/{bucket_name}/events",
+                        params=params, timeout=15
+                    )
+                    resp.raise_for_status()
+                    events = resp.json()
+                    logger.debug(f"Found {len(events)} AFK events in {bucket_name}")
+
+                    for event in events:
+                        data = event.get('data', {})
+                        status = data.get('status', '')
+                        duration = event.get('duration', 0)
+                        timestamp = event.get('timestamp', '')
+
+                        if status not in ('afk', 'not-afk') or duration < 1:
+                            continue
+
+                        afk_events.append({
+                            "status": status,
+                            "duration": duration,
+                            "timestamp": timestamp
+                        })
+                except requests.RequestException as e:
+                    logger.error(f"Error fetching AFK events from {bucket_name}: {e}")
+
+            logger.info(f"Collected {len(afk_events)} AFK events from local ActivityWatch")
+            return afk_events
+
+        except Exception as e:
+            logger.error(f"Error getting AFK data: {e}")
+            return []
+
     def get_local_activity_data(self, start_time: datetime, end_time: datetime) -> List[Dict]:
         """Get activity data from local ActivityWatch instance"""
         try:
             logger.debug(f"Fetching local data from {start_time} to {end_time}")
-            
+
             # Get available buckets
             buckets_response = requests.get(f"{self.aw_api_url}/buckets/", timeout=10)
             buckets_response.raise_for_status()
             buckets = buckets_response.json()
-            
+
             logger.debug(f"Found {len(buckets)} ActivityWatch buckets")
-            
+
             activities = []
-            
+
             for bucket_name, bucket_info in buckets.items():
-                # Skip AFK buckets
+                # Skip AFK buckets (handled separately by get_afk_data)
                 if 'afk' in bucket_name.lower():
                     continue
                 
@@ -154,10 +209,10 @@ class ActivityWatchSyncer:
             logger.error(f"Unexpected error getting local data: {e}")
             return []
     
-    def send_to_server(self, activities: List[Dict]) -> bool:
-        """Send activities to central timesheet server"""
-        if not activities:
-            logger.info("No activities to send")
+    def send_to_server(self, activities: List[Dict], afk_data: List[Dict] = None) -> bool:
+        """Send activities and AFK data to central timesheet server"""
+        if not activities and not afk_data:
+            logger.info("No activities or AFK data to send")
             return True
 
         # Convert activities to ActivityWatch event format for /api/sync endpoint
@@ -182,11 +237,12 @@ class ActivityWatchSyncer:
             "name": self.developer_id,
             "token": self.api_token,
             "data": events,
+            "afk_data": afk_data or [],
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         try:
-            logger.debug(f"Sending {len(events)} activities to server")
+            logger.debug(f"Sending {len(events)} activities + {len(afk_data or [])} AFK events to server")
 
             # Send directly to SERVER_URL (which should be the /api/sync endpoint)
             response = requests.post(
@@ -199,7 +255,8 @@ class ActivityWatchSyncer:
             result = response.json()
 
             if result.get("success"):
-                logger.info(f"✅ Successfully sent {len(events)} activities to server")
+                afk_saved = result.get('afk_saved', 0)
+                logger.info(f"✅ Successfully sent {len(events)} activities + {afk_saved} AFK events to server")
                 logger.info(f"Server response: {result.get('message', 'No message')}")
                 return True
             else:
@@ -220,25 +277,28 @@ class ActivityWatchSyncer:
             return False
     
     def sync_recent_data(self, hours_back: float = 1.0) -> bool:
-        """Sync recent activity data to server"""
+        """Sync recent activity data and AFK data to server"""
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=hours_back)
-        
+
         logger.info(f"🔄 Starting sync for period: {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
+
         # Get local activity data
         activities = self.get_local_activity_data(start_time, end_time)
-        
-        if activities:
-            # Send to server
-            success = self.send_to_server(activities)
+
+        # Get AFK watcher data (keyboard/mouse activity tracking)
+        afk_data = self.get_afk_data(start_time, end_time)
+
+        if activities or afk_data:
+            # Send to server (includes both activity + AFK data)
+            success = self.send_to_server(activities, afk_data=afk_data)
             if success:
                 logger.info(f"✅ Sync completed successfully")
             else:
                 logger.error(f"❌ Sync failed - server communication error")
             return success
         else:
-            logger.info("ℹ️  No activities found to sync")
+            logger.info("ℹ️  No activities or AFK data found to sync")
             return True
     
     def test_connections(self) -> bool:
