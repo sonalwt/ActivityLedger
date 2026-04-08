@@ -71,6 +71,7 @@ class AFKRecord(Base):
     __table_args__ = (
         UniqueConstraint('developer_id', 'timestamp', 'duration',
                          name='uq_afk_dedup'),
+        Index('idx_afk_dev_timestamp', 'developer_id', 'timestamp'),
     )
 
 
