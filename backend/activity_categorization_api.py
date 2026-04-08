@@ -78,39 +78,9 @@ def format_duration(seconds):
 
 
 # ============================================================
-# AFK-AWARE DURATION ADJUSTMENT
+# AFK-AWARE DURATION ADJUSTMENT (imported from shared module)
 # ============================================================
-def build_not_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
-    """Build sorted list of (start, end) intervals where user was active (not-afk)."""
-    intervals = []
-    for row in afk_rows:
-        if row.status == "not-afk":
-            start = row.timestamp
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            end = start + timedelta(seconds=row.duration)
-            intervals.append((start, end))
-    intervals.sort(key=lambda x: x[0])
-    return intervals
-
-
-def compute_active_duration(
-    activity_start: datetime,
-    activity_end: datetime,
-    not_afk_intervals: List[Tuple[datetime, datetime]]
-) -> float:
-    """Compute seconds of overlap between an activity and not-afk intervals."""
-    total_active = 0.0
-    for (naf_start, naf_end) in not_afk_intervals:
-        if naf_end <= activity_start:
-            continue
-        if naf_start >= activity_end:
-            break
-        overlap_start = max(activity_start, naf_start)
-        overlap_end = min(activity_end, naf_end)
-        if overlap_start < overlap_end:
-            total_active += (overlap_end - overlap_start).total_seconds()
-    return total_active
+from afk_helpers import build_not_afk_intervals, compute_active_duration
 
 
 # ============================================================

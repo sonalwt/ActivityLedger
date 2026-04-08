@@ -78,133 +78,128 @@ async def get_developer_productivity_hours(
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Calculate productivity hours for a developer from database"""
+    """Calculate productivity hours for a developer (AFK-aware)"""
     try:
+        from afk_helpers import (fetch_afk_intervals_single,
+                                 compute_adjusted_duration, PRODUCTIVE_CATEGORIES)
+        from collections import defaultdict
+
         # Parse dates
         if start_date:
             start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
         else:
-            start = datetime.now(timezone.utc) - timedelta(days=7)  # Last 7 days
-            
+            start = datetime.now(timezone.utc) - timedelta(days=7)
+
         if end_date:
             end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         else:
             end = datetime.now(timezone.utc)
-        
+
         # Get developer info
         developer = db.query(Developer).filter(
             Developer.developer_id == developer_id
         ).first()
-        
         if not developer:
             raise HTTPException(status_code=404, detail="Developer not found")
-        
-        # Query daily productivity using raw SQL
-        # Productive = productive + server + browser (all 100%)
-        # non-work (idle/lock screen) is excluded
-        # Only include days with > 2 hours of total activity
-        daily_productivity = db.execute(text(f"""
-            SELECT
-                DATE(timestamp) as work_date,
-                SUM(duration) / 3600.0 as total_hours,
-                SUM(
-                    CASE
-                        WHEN category IN ('productive', 'server', 'browser') THEN duration
-                        ELSE 0
-                    END
-                ) / 3600.0 as productive_hours,
-                COUNT(DISTINCT application_name) as apps_used,
-                COUNT(*) as total_activities
+
+        # Fetch all activities for this developer in the date range
+        activities = db.execute(text("""
+            SELECT id, application_name, category, duration, timestamp, window_title
             FROM activity_records
             WHERE developer_id = :dev_id
-            AND timestamp >= :start_date
-            AND timestamp <= :end_date
-            GROUP BY DATE(timestamp)
-            HAVING SUM(duration) / 3600.0 > 2
-            ORDER BY work_date DESC
-        """), {
-            "dev_id": developer_id,
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
-        
-        # Calculate productivity by hour of day
-        hourly_distribution = db.execute(text("""
-            SELECT 
-                EXTRACT(HOUR FROM timestamp) as hour_of_day,
-                SUM(duration) / 3600.0 as total_hours
-            FROM activity_records
-            WHERE developer_id = :dev_id
-            AND timestamp >= :start_date
-            AND timestamp <= :end_date
-            GROUP BY EXTRACT(HOUR FROM timestamp)
-            ORDER BY hour_of_day
-        """), {
-            "dev_id": developer_id,
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
-        
-        # Calculate app usage statistics
-        app_usage = db.execute(text("""
-            SELECT 
-                application_name,
-                category,
-                SUM(duration) / 3600.0 as total_hours,
-                COUNT(*) as usage_count
-            FROM activity_records
-            WHERE developer_id = :dev_id
-            AND timestamp >= :start_date
-            AND timestamp <= :end_date
-            GROUP BY application_name, category
-            ORDER BY total_hours DESC
-            LIMIT 20
-        """), {
-            "dev_id": developer_id,
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
-        
-        # Format results
+              AND timestamp >= :start_date
+              AND timestamp <= :end_date
+            ORDER BY timestamp ASC
+        """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
+
+        # Fetch AFK intervals for this developer
+        not_afk_intervals = fetch_afk_intervals_single(db, developer_id, start, end)
+        has_afk = len(not_afk_intervals) > 0
+
+        # --- Compute daily productivity with AFK-adjusted durations ---
+        daily_data = defaultdict(lambda: {
+            "total": 0.0, "productive": 0.0,
+            "apps": set(), "count": 0
+        })
+        # Hourly distribution
+        hourly_data = defaultdict(float)
+        # App usage
+        app_data = defaultdict(lambda: {"hours": 0.0, "count": 0, "category": None})
+
+        for row in activities:
+            raw_dur = row.duration or 0
+            if raw_dur <= 0:
+                continue
+
+            adj_dur = compute_adjusted_duration(
+                row.timestamp, raw_dur, row.application_name,
+                not_afk_intervals, has_afk
+            )
+
+            ts = row.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            day_key = ts.date()
+            hour_key = ts.hour
+
+            daily_data[day_key]["total"] += adj_dur
+            daily_data[day_key]["count"] += 1
+            daily_data[day_key]["apps"].add(row.application_name)
+            cat = (row.category or "").lower()
+            if cat in PRODUCTIVE_CATEGORIES:
+                daily_data[day_key]["productive"] += adj_dur
+
+            hourly_data[hour_key] += adj_dur
+
+            app_key = row.application_name or "Unknown"
+            app_data[app_key]["hours"] += adj_dur
+            app_data[app_key]["count"] += 1
+            if app_data[app_key]["category"] is None:
+                app_data[app_key]["category"] = row.category
+
+        # Format daily stats (only days with > 2h total)
         daily_stats = []
-        total_work_hours = 0
-        total_productive_hours = 0
-        
-        for row in daily_productivity:
-            work_date, total_hours, productive_hours, apps_used, activities = row
-            productivity_percentage = (productive_hours / total_hours * 100) if total_hours > 0 else 0
-            
+        total_work_hours = 0.0
+        total_productive_hours = 0.0
+
+        for day_key in sorted(daily_data.keys(), reverse=True):
+            d = daily_data[day_key]
+            total_h = d["total"] / 3600.0
+            if total_h <= 2:
+                continue
+            prod_h = d["productive"] / 3600.0
+            pct = (prod_h / total_h * 100) if total_h > 0 else 0
+
             daily_stats.append({
-                "date": work_date.isoformat() if work_date else None,
-                "total_hours": round(float(total_hours), 2),
-                "productive_hours": round(float(productive_hours), 2),
-                "productivity_percentage": round(productivity_percentage, 1),
-                "apps_used": apps_used,
-                "total_activities": activities
+                "date": day_key.isoformat(),
+                "total_hours": round(total_h, 2),
+                "productive_hours": round(prod_h, 2),
+                "productivity_percentage": round(pct, 1),
+                "apps_used": len(d["apps"]),
+                "total_activities": d["count"]
             })
-            
-            total_work_hours += total_hours
-            total_productive_hours += productive_hours
-        
+            total_work_hours += total_h
+            total_productive_hours += prod_h
+
         # Format hourly distribution
-        hourly_stats = [{
-            "hour": int(hour),
-            "hours": round(float(hours), 2)
-        } for hour, hours in hourly_distribution]
-        
-        # Format app usage
+        hourly_stats = [
+            {"hour": h, "hours": round(hourly_data[h] / 3600.0, 2)}
+            for h in sorted(hourly_data.keys())
+        ]
+
+        # Format app usage (top 20)
+        sorted_apps = sorted(app_data.items(), key=lambda x: x[1]["hours"], reverse=True)[:20]
         app_stats = [{
             "application": app_name,
-            "category": category or "Other",
-            "hours": round(float(hours), 2),
-            "usage_count": count,
-            "is_productive": category in ('productive', 'browser', 'server')
-        } for app_name, category, hours, count in app_usage]
-        
-        # Calculate overall statistics
+            "category": info["category"] or "Other",
+            "hours": round(info["hours"] / 3600.0, 2),
+            "usage_count": info["count"],
+            "is_productive": (info["category"] or "").lower() in PRODUCTIVE_CATEGORIES
+        } for app_name, info in sorted_apps]
+
         overall_productivity = (total_productive_hours / total_work_hours * 100) if total_work_hours > 0 else 0
         avg_daily_hours = total_work_hours / len(daily_stats) if daily_stats else 0
-        
+
         return {
             "developer": {
                 "id": developer.developer_id,
@@ -225,7 +220,7 @@ async def get_developer_productivity_hours(
             "hourly_distribution": hourly_stats,
             "top_applications": app_stats
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -406,141 +401,108 @@ async def get_all_developers_productivity_summary(
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get productivity summary for all developers"""
+    """Get productivity summary for all developers (AFK-aware)"""
     try:
+        from afk_helpers import fetch_afk_intervals_bulk, compute_developer_productivity
+        from collections import defaultdict
+
         # Parse dates
         if start_date:
             start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
         else:
             start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            
+
         if end_date:
             end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
         else:
             end = datetime.now(timezone.utc)
-        
-        # Fetch active project names from DB to use as work-related browser keywords
-        project_names = db.query(Project.name).filter(Project.is_active == True).all()
-        dynamic_keywords = list(WORK_BROWSER_KEYWORDS)
-        for (proj_name,) in project_names:
-            if proj_name and proj_name.lower() not in [k.lower() for k in dynamic_keywords]:
-                dynamic_keywords.append(proj_name.lower())
 
-        # Get per-developer productivity stats
-        # Working day = day with > 2 hours of total tracked activity
-        # Productivity % = avg of (coding%, browser%, server%) where each = category_hours / expected_hours * 100
-        # Expected hours = working_days * 8 hours
-        query = f"""
-            WITH daily_stats AS (
-                SELECT
-                    ar.developer_id,
-                    DATE(ar.timestamp) AS activity_date,
-                    SUM(ar.duration) / 3600.0 AS total_day_hours,
-                    SUM(CASE WHEN ar.category IN ('coding', 'productive') THEN ar.duration ELSE 0 END) / 3600.0 AS coding_hours,
-                    SUM(CASE WHEN ar.category = 'browser' THEN ar.duration ELSE 0 END) / 3600.0 AS browser_hours,
-                    SUM(CASE WHEN ar.category = 'server' THEN ar.duration ELSE 0 END) / 3600.0 AS server_hours,
-                    LEAST(
-                        SUM(
-                            CASE
-                                WHEN ar.category IN ('coding', 'productive', 'server', 'browser') THEN ar.duration
-                                ELSE 0
-                            END
-                        ) / 3600.0,
-                        {DAILY_TARGET_HOURS}
-                    ) AS capped_productive_hours
-                FROM activity_records ar
-                WHERE ar.timestamp >= :start_date
-                  AND ar.timestamp <= :end_date
-                GROUP BY ar.developer_id, DATE(ar.timestamp)
-                HAVING SUM(ar.duration) / 3600.0 > 2
-            ),
-            ds_agg AS (
-                SELECT
-                    developer_id,
-                    SUM(capped_productive_hours) AS productive_hours,
-                    SUM(coding_hours) AS total_coding_hours,
-                    SUM(browser_hours) AS total_browser_hours,
-                    SUM(server_hours) AS total_server_hours,
-                    COUNT(*) AS active_days,
-                    SUM(total_day_hours) AS total_hours
-                FROM daily_stats
-                GROUP BY developer_id
-            ),
-            ar_agg AS (
-                SELECT
-                    developer_id,
-                    COUNT(DISTINCT project_name) AS projects_worked,
-                    COUNT(id) AS total_activities
-                FROM activity_records
-                WHERE timestamp >= :start_date
-                  AND timestamp <= :end_date
-                GROUP BY developer_id
-            ),
-            latest_activity AS (
-                SELECT
-                    developer_id,
-                    MAX(timestamp) AS last_activity
-                FROM activity_records
-                GROUP BY developer_id
-            )
+        # 1. Fetch all active developers + last_activity + activity counts
+        dev_meta = db.execute(text("""
             SELECT
                 d.developer_id,
                 d.name,
-                COALESCE(ds.productive_hours, 0) AS productive_hours,
-                COALESCE(ds.active_days, 0) AS active_days,
-                COALESCE(ds.total_hours, 0) AS total_hours,
-                COALESCE(ds.total_coding_hours, 0) AS coding_hours,
-                COALESCE(ds.total_browser_hours, 0) AS browser_hours,
-                COALESCE(ds.total_server_hours, 0) AS server_hours,
+                (SELECT MAX(timestamp) FROM activity_records WHERE developer_id = d.developer_id) AS last_activity,
                 COALESCE(ar.projects_worked, 0) AS projects_worked,
-                COALESCE(ar.total_activities, 0) AS total_activities,
-                la.last_activity
+                COALESCE(ar.total_activities, 0) AS total_activities
             FROM developers d
-            LEFT JOIN ds_agg ds ON ds.developer_id = d.developer_id
-            LEFT JOIN ar_agg ar ON ar.developer_id = d.developer_id
-            LEFT JOIN latest_activity la ON la.developer_id = d.developer_id
+            LEFT JOIN (
+                SELECT developer_id,
+                       COUNT(DISTINCT project_name) AS projects_worked,
+                       COUNT(id) AS total_activities
+                FROM activity_records
+                WHERE timestamp >= :start_date AND timestamp <= :end_date
+                GROUP BY developer_id
+            ) ar ON ar.developer_id = d.developer_id
             WHERE d.active = true
-            ORDER BY productive_hours DESC
-        """
-        developer_stats = db.execute(text(query), {
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
+        """), {"start_date": start, "end_date": end}).fetchall()
 
-        # Calculate productivity per developer
-        # productivity = (coding + browser + server) / (active_days * 8h) * 100
+        # 2. Fetch all activity records in date range (single query)
+        all_activities = db.execute(text("""
+            SELECT developer_id, category, duration, timestamp, application_name
+            FROM activity_records
+            WHERE timestamp >= :start_date AND timestamp <= :end_date
+            ORDER BY developer_id, timestamp ASC
+        """), {"start_date": start, "end_date": end}).fetchall()
+
+        # 3. Fetch all AFK intervals in date range (single query)
+        afk_intervals_by_dev = fetch_afk_intervals_bulk(db, start, end)
+
+        # 4. Group activities by developer
+        activities_by_dev = defaultdict(list)
+        for row in all_activities:
+            activities_by_dev[row.developer_id].append(row)
+
+        # 5. Compute per-developer productivity with AFK adjustment
         developers = []
-        for row in developer_stats:
-            dev_id, name, productive_hours, active_days, total_hours, coding_hours, browser_hours, server_hours, projects, activities, last_activity = row
+        for row in dev_meta:
+            dev_id = row.developer_id
+            name = row.name
+            last_activity = row.last_activity
+            projects = row.projects_worked
+            activities = row.total_activities
 
-            expected_hours = int(active_days) * DAILY_TARGET_HOURS
-            productivity_percentage = min(100.0, (float(productive_hours) / expected_hours * 100)) if expected_hours > 0 else 0.0
+            dev_activities = activities_by_dev.get(dev_id, [])
+            dev_afk = afk_intervals_by_dev.get(dev_id, [])
+
+            stats = compute_developer_productivity(
+                dev_activities, dev_afk, DAILY_TARGET_HOURS
+            )
+
+            productive_hours = stats["productive_hours"]
+            active_days = stats["active_days"]
+            total_hours = stats["total_hours"]
+
+            expected_hours = active_days * DAILY_TARGET_HOURS
+            productivity_percentage = min(100.0, (productive_hours / expected_hours * 100)) if expected_hours > 0 else 0.0
 
             # Determine status based on last activity
-            # Match developers_orm_api.py thresholds: <30 min = online, <24h = idle
             status = "offline"
             if last_activity:
                 if hasattr(last_activity, 'replace'):
                     time_diff = datetime.now(timezone.utc) - last_activity.replace(tzinfo=timezone.utc)
                 else:
                     time_diff = datetime.now(timezone.utc) - last_activity
-                if time_diff.total_seconds() < 1800:  # 30 minutes
+                if time_diff.total_seconds() < 1800:
                     status = "online"
-                elif time_diff.total_seconds() < 86400:  # 24 hours
+                elif time_diff.total_seconds() < 86400:
                     status = "idle"
 
             developers.append({
                 "developer_id": dev_id,
                 "name": name,
-                "total_hours": round(float(total_hours), 2),
-                "productive_hours": round(float(productive_hours), 2),
+                "total_hours": round(total_hours, 2),
+                "productive_hours": round(productive_hours, 2),
                 "productivity_percentage": round(productivity_percentage, 1),
-                "active_days": int(active_days),
+                "active_days": active_days,
                 "projects_count": projects,
                 "activities_count": activities,
                 "last_activity": last_activity.isoformat() if last_activity else None,
                 "status": status
             })
+
+        # Sort by productive hours descending
+        developers.sort(key=lambda d: d["productive_hours"], reverse=True)
 
         # Calculate team statistics
         team_total_hours = sum(d["total_hours"] for d in developers)
@@ -548,7 +510,6 @@ async def get_all_developers_productivity_summary(
         active_developers = sum(1 for d in developers if d["status"] == "online")
         developers_with_activity = [d for d in developers if d["productive_hours"] > 0]
 
-        # Team productivity = average of individual productivity percentages
         if developers_with_activity:
             team_productivity = sum(d["productivity_percentage"] for d in developers_with_activity) / len(developers_with_activity)
         else:
@@ -569,7 +530,7 @@ async def get_all_developers_productivity_summary(
             },
             "developers": developers
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting all developers productivity summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -753,7 +714,7 @@ async def get_all_projects(
                 WHERE project_name IS NOT NULL
                 AND project_name != ''
                 AND LENGTH(project_name) >= 4
-                AND category IN ('productive', 'browser', 'server')
+                AND category IN ('development', 'database', 'productivity', 'browser')
                 {date_filter}
                 GROUP BY project_name, developer_id
                 HAVING SUM(duration) / 3600.0 >= 1.0

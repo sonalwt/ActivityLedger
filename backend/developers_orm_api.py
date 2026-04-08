@@ -34,7 +34,7 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                 SELECT
                     developer_id::VARCHAR as developer_id,
                     COUNT(*) as activity_count,
-                    MAX(CASE WHEN category IN ('productive', 'server', 'browser') THEN timestamp END) as last_activity
+                    MAX(CASE WHEN category IN ('development', 'database', 'productivity', 'browser') THEN timestamp END) as last_activity
                 FROM activity_records
                 WHERE developer_id IS NOT NULL
                 GROUP BY developer_id
