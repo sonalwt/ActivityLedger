@@ -422,7 +422,7 @@ async def get_all_developers_productivity_summary(
                     ar.developer_id,
                     SUM(ar.duration) AS total_seconds,
                     SUM(CASE
-                        WHEN ar.category IN ('development', 'database', 'productivity', 'browser')
+                        WHEN COALESCE(ar.category, '') NOT IN ('entertainment', 'non-work')
                         THEN ar.duration ELSE 0
                     END) AS productive_seconds,
                     COUNT(DISTINCT DATE(ar.timestamp)) AS active_days,
@@ -711,7 +711,7 @@ async def get_all_projects(
                 WHERE project_name IS NOT NULL
                 AND project_name != ''
                 AND LENGTH(project_name) >= 4
-                AND category IN ('development', 'database', 'productivity', 'browser')
+                AND COALESCE(category, '') NOT IN ('entertainment', 'non-work')
                 {date_filter}
                 GROUP BY project_name, developer_id
                 HAVING SUM(duration) / 3600.0 >= 1.0

@@ -24,7 +24,8 @@ from sqlalchemy import text
 # ---------------------------------------------------------------------------
 BROWSER_APPS = ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera']
 MAX_SINGLE_EVENT_DURATION = 900  # 15-min fallback cap when no AFK coverage
-PRODUCTIVE_CATEGORIES = ('development', 'database', 'productivity', 'browser')
+PRODUCTIVE_CATEGORIES = ('development', 'database', 'productivity', 'browser',
+                         'productive', 'server', 'system', 'other')  # both old & new category names
 DAILY_TARGET_HOURS = 8.0
 MIN_WORKING_DAY_HOURS = 2.0  # Only count days with > 2h total activity
 
@@ -255,16 +256,19 @@ def compute_developer_productivity(activity_rows, afk_data,
 
         daily[day_key]["total"] += adj_dur
         cat = (row.category or "").lower()
-        if cat in ('development', 'productivity'):
+        if cat in ('development', 'productivity', 'productive'):
             daily[day_key]["coding"] += adj_dur
             daily[day_key]["productive"] += adj_dur
         elif cat == 'browser':
             daily[day_key]["browser"] += adj_dur
             daily[day_key]["productive"] += adj_dur
-        elif cat == 'database':
+        elif cat in ('database', 'server'):
             daily[day_key]["server"] += adj_dur
             daily[day_key]["productive"] += adj_dur
-        # entertainment, system, other, non-work → not productive
+        elif cat in ('system', 'other'):
+            daily[day_key]["coding"] += adj_dur
+            daily[day_key]["productive"] += adj_dur
+        # entertainment, non-work → not productive
 
     # Aggregate across days (only days with > MIN_WORKING_DAY_HOURS)
     total_coding = 0.0
