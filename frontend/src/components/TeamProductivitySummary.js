@@ -134,16 +134,16 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
   const { team_summary } = summaryData;
 
   return (
-    <div className="team-productivity-card">
-      <div className="card-header-custom">
-        <h2 className="card-title">
-          <TrendingUp className="icon-header" />
+    <>
+      <div className="team-productivity-header">
+        <h1 className="team-header-title">
+          <TrendingUp size={28} color="white" />
           Team Productivity Overview
-        </h2>
+        </h1>
         <select
           value={currentDateRange}
           onChange={(e) => handleDateRangeChange(e.target.value)}
-          className="form-select form-select-sm date-range-select"
+          className="team-header-select"
         >
           <option value="this_week">Current Week</option>
           <option value="last_week">Last Week</option>
@@ -152,50 +152,44 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
         </select>
       </div>
 
-      <div className="row">
-        <div className="col-lg-4 col-md-6 mb-3">
-          <div className="stat-card stat-card-blue">
-            <div className="stat-content">
-              <div className="stat-details">
-                <div className="stat-label">Active Resources</div>
-                <div className="stat-value">
-                  {team_summary.active_developers}/{team_summary.total_developers}
-                </div>
-              </div>
-              <Users className="stat-icon" />
+      <div className="team-summary-stats">
+        <div className="team-stat-card">
+          <div className="team-stat-icon" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}>
+            <Users size={20} color="white" />
+          </div>
+          <div className="team-stat-content">
+            <div className="team-stat-value">
+              {team_summary.active_developers}/{team_summary.total_developers}
             </div>
+            <div className="team-stat-label">Active Resources</div>
           </div>
         </div>
 
-        <div className="col-lg-4 col-md-6 mb-3">
-          <div className="stat-card stat-card-green">
-            <div className="stat-content">
-              <div className="stat-details">
-                <div className="stat-label">Team Productivity</div>
-                <div className="stat-value">
-                  {team_summary.team_productivity_percentage}%
-                </div>
-              </div>
-              <TrendingUp className="stat-icon" />
+        <div className="team-stat-card">
+          <div className="team-stat-icon" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+            <TrendingUp size={20} color="white" />
+          </div>
+          <div className="team-stat-content">
+            <div className="team-stat-value">
+              {team_summary.team_productivity_percentage}%
             </div>
+            <div className="team-stat-label">Team Productivity</div>
           </div>
         </div>
 
-        <div className="col-lg-4 col-md-6 mb-3">
-          <div className="stat-card stat-card-purple">
-            <div className="stat-content">
-              <div className="stat-details">
-                <div className="stat-label">Productive Hours</div>
-                <div className="stat-value">
-                    {formatDurationFromHours(team_summary.team_productive_hours)}
-                </div>
-              </div>
-              <Clock className="stat-icon" />
+        <div className="team-stat-card">
+          <div className="team-stat-icon" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+            <Clock size={20} color="white" />
+          </div>
+          <div className="team-stat-content">
+            <div className="team-stat-value">
+              {formatDurationFromHours(team_summary.team_productive_hours)}
             </div>
+            <div className="team-stat-label">Productive Hours</div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

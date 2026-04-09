@@ -248,12 +248,6 @@ function DeveloperDashboard({ developer, onBack }) {
 
       {/* HEADER */}
       <div className="dev-dashboard-header">
-        {onBack && (
-          <button onClick={onBack} className="back-button">
-            <ArrowLeft size={16} /> Back
-          </button>
-        )}
-
         <h1>{developer ? `${developer.name}'s Dashboard` : "Dashboard"}</h1>
 
         <div className="date-picker-wrapper">

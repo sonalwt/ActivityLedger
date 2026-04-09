@@ -415,7 +415,7 @@ async def serve_developer_selection_portal():
 
 @app.get("/developer-setup")
 async def serve_developer_setup():
-    return FileResponse("developer-setup1.html")
+    return FileResponse("developer-setup.html")
 
 @app.get("/developers-list")
 async def serve_developers_list():

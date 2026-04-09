@@ -250,9 +250,11 @@
 
 /* Dashboard Wrapper */
 .dashboard-wrapper {
-  padding: 20px;
-  background: #f9fafb;
+  padding: 24px;
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
   min-height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 /* Dashboard Header */
@@ -352,18 +354,18 @@
 /* Updated Developer Card Styling */
 .developer-card {
   background: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   transition: all 0.3s ease;
-  border: 1px solid #e5e7eb;
+  border: none;
   display: flex;
   flex-direction: column;
 }
 
 .developer-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 /* Developer Stats */
@@ -420,12 +422,12 @@
 /* View Dashboard Button */
 .view-dashboard-button {
   width: 100%;
-  padding: 10px 16px;
-  background: #5e72e4;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  font-weight: 500;
+  border-radius: 12px;
+  font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -434,10 +436,12 @@
   justify-content: center;
   gap: 8px;
   margin-top: auto;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .view-dashboard-button:hover {
-  background: #4c63d2;
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  transform: translateY(-1px);
 }
 
 .view-dashboard-button:active {
@@ -454,16 +458,16 @@
 /* Responsive Grid */
 .developers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 20px;
   padding: 20px 0;
 }
 
 /* Status Badge */
 .developer-status-badge {
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 10px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
