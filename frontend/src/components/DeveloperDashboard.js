@@ -293,21 +293,33 @@ function DeveloperDashboard({ developer, onBack }) {
       {/* STATS */}
       <div className="stats-grid">
         <div className="stat-card">
-          <Clock size={32} />
-          <h3>Total Time</h3>
-          <p>{formatTime(totalTime)}</p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}>
+            <Clock size={20} color="white" />
+          </div>
+          <div className="stat-content">
+            <p>{formatTime(totalTime)}</p>
+            <h3>Total Time</h3>
+          </div>
         </div>
 
         <div className="stat-card">
-          <Activity size={32} />
-          <h3>Work Activity</h3>
-          <p>{productivity.score}%</p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+            <Activity size={20} color="white" />
+          </div>
+          <div className="stat-content">
+            <p>{productivity.score}%</p>
+            <h3>Work Activity</h3>
+          </div>
         </div>
 
         <div className="stat-card">
-          <RefreshCw size={32} />
-          <h3>Last Updated</h3>
-          <p>{lastUpdated ? format(lastUpdated, "MMM d, yyyy HH:mm") : "Never"}</p>
+          <div className="stat-icon" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>
+            <RefreshCw size={20} color="white" />
+          </div>
+          <div className="stat-content">
+            <p>{lastUpdated ? format(lastUpdated, "MMM d, yyyy HH:mm") : "Never"}</p>
+            <h3>Last Updated</h3>
+          </div>
         </div>
       </div>
 
