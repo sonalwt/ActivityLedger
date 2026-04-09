@@ -77,6 +77,24 @@
   color: white;
 }
 
+.filter-date {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  outline: none;
+  color-scheme: dark;
+}
+
+.filter-date:focus {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
 /* Summary Cards */
 .analytics-summary-cards {
   display: grid;
@@ -131,6 +149,30 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+.chart-scroll-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+}
+
+.chart-scroll-wrapper::-webkit-scrollbar {
+  height: 8px;
+}
+
+.chart-scroll-wrapper::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.chart-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+}
+
+.chart-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #667eea;
+}
+
 .chart-header {
   display: flex;
   justify-content: space-between;
@@ -152,8 +194,9 @@
 
 .chart-legend-custom {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .chart-legend-custom .legend-item {
@@ -171,9 +214,42 @@
   display: inline-block;
 }
 
+.legend-dot.working-dot {
+  background: #667eea;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #667eea;
+  width: 12px;
+  height: 12px;
+}
+
+.legend-dot.leave-dot {
+  background: #ef4444;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #ef4444;
+  width: 14px;
+  height: 14px;
+}
+
 .legend-dot.holiday-dot {
   background: #f59e0b;
-  border: 2px solid #d97706;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #f59e0b;
+  width: 14px;
+  height: 14px;
+}
+
+.legend-dot.weekend-dot {
+  background: #94a3b8;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #94a3b8;
+  width: 12px;
+  height: 12px;
+}
+
+.legend-dot.weekend-worked-dot {
+  background: #38bdf8;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #38bdf8;
   width: 12px;
   height: 12px;
 }
@@ -191,38 +267,88 @@
 .tooltip-date {
   font-weight: 600;
   color: #1e293b;
-  margin: 0 0 4px 0;
+  margin: 0 0 6px 0;
 }
 
-.tooltip-holiday {
-  color: #f59e0b;
+.tooltip-status {
   font-weight: 600;
+  font-size: 12px;
+  margin: 0 0 6px 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.tooltip-status--working { color: #667eea; background: #eff0ff; }
+.tooltip-status--leave { color: #ef4444; background: #fef2f2; }
+.tooltip-status--holiday { color: #d97706; background: #fffbeb; }
+.tooltip-status--weekend { color: #64748b; background: #f1f5f9; }
+
+.tooltip-value {
+  color: #1e293b;
+  margin: 0 0 2px 0;
+}
+
+.tooltip-hours {
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 0;
+}
+
+.tooltip-weekend {
+  color: #94a3b8;
+  font-weight: 500;
   font-size: 12px;
   margin: 0 0 4px 0;
 }
 
-/* Loading */
-.analytics-loading {
-  text-align: center;
-  padding: 80px 20px;
-  color: #64748b;
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+/* Skeleton Loader */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
 }
 
-.analytics-loading .spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #e2e8f0;
-  border-top-color: #667eea;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 16px;
+.shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.skeleton-card {
+  pointer-events: none;
+}
+
+.skeleton-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.skeleton-value {
+  height: 28px;
+  width: 80px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.skeleton-label {
+  height: 16px;
+  width: 110px;
+  border-radius: 4px;
+}
+
+.skeleton-title {
+  height: 22px;
+  width: 320px;
+  border-radius: 6px;
+}
+
+.skeleton-chart {
+  height: 400px;
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 16px;
 }
 
 /* No Data */
