@@ -42,9 +42,12 @@ class ActivityRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Project information fields
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)  # FK to projects table
     project_name = Column(String, index=True, nullable=True)  # Extracted project name
     project_type = Column(String, nullable=True)  # Development, Server Management, etc.
     project_file = Column(String, nullable=True)  # File or activity within project
+
+    project = relationship("Project", backref="activities")
 
     user = relationship("User", back_populates="activities")
 
@@ -84,6 +87,7 @@ class Developer(Base):
     name = Column(String)
     email = Column(String, nullable=True)
     active = Column(Boolean, default=True)
+    hourly_cost = Column(Float, nullable=True, default=0)  # Cost per hour in currency
     api_token = Column(String, unique=True, nullable=True)  # Optional for future use
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_sync = Column(DateTime(timezone=True), nullable=True)
@@ -133,6 +137,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, index=True)  # Project name
     description = Column(Text, nullable=True)
+    total_cost = Column(Float, nullable=True, default=0)  # Total project cost/budget
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

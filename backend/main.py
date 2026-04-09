@@ -31,6 +31,15 @@ router = APIRouter()
 
 models.Base.metadata.create_all(bind=engine)
 
+# Auto-migrate: add project_id column to activity_records if missing
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE activity_records ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_activity_project_id ON activity_records(project_id)"))
+        conn.commit()
+except Exception as e:
+    print(f"Migration note (project_id): {e}")
+
 app = FastAPI(title="Timesheet API", version="1.0.0")
 
 # CORS middleware - use environment-aware configuration
@@ -965,7 +974,9 @@ async def setup_database_schema(db: Session = Depends(get_db)):
             "ALTER TABLE developers ADD COLUMN IF NOT EXISTS activitywatch_port INTEGER DEFAULT 5600",
             "ALTER TABLE developers ADD COLUMN IF NOT EXISTS hostname VARCHAR(255) DEFAULT 'unknown'",
             "ALTER TABLE developers ADD COLUMN IF NOT EXISTS browser_info VARCHAR(255)",
-            "ALTER TABLE developers ADD COLUMN IF NOT EXISTS activitywatch_status VARCHAR(50) DEFAULT 'unknown'"
+            "ALTER TABLE developers ADD COLUMN IF NOT EXISTS activitywatch_status VARCHAR(50) DEFAULT 'unknown'",
+            "ALTER TABLE activity_records ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id)",
+            "CREATE INDEX IF NOT EXISTS idx_activity_project_id ON activity_records(project_id)"
         ]
         
         for update in updates:
