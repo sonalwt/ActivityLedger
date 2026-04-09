@@ -1,6 +1,7 @@
 """
 Analytics API — Developer productivity trends with holiday highlighting.
 Provides daily productivity % and work hours for line chart visualization.
+Uses SQL aggregation + AFK ratio for speed, with daily caps for accuracy.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,10 +9,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, and_
 from typing import Optional
 from datetime import datetime, timedelta, timezone, date
-from collections import defaultdict
 from database import get_db
 from models import Developer, Holiday
-from afk_helpers import fetch_afk_data_single, compute_adjusted_duration, PRODUCTIVE_CATEGORIES
+from afk_helpers import DAILY_TARGET_HOURS, MIN_WORKING_DAY_HOURS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,16 +35,21 @@ def _get_indian_financial_year_range(fy_offset: int = 0):
 async def get_developer_analytics(
     developer_id: str,
     period: str = Query("current_month",
-        description="Filter: 3_months, current_month, last_month, current_fy, last_fy, ytd"),
+        description="Filter: 3_months, current_month, last_month, current_fy, last_fy, ytd, custom"),
+    start_date: Optional[str] = Query(None, description="Custom start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Custom end date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Developer analytics data for line chart — daily productivity % and work hours."""
+    """Developer analytics — daily productivity % using SQL aggregation with daily caps."""
     try:
         today = date.today()
         now = datetime.now(timezone.utc)
 
         # Resolve date range
-        if period == "3_months":
+        if period == "custom" and start_date and end_date:
+            start = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        elif period == "3_months":
             start = datetime(today.year, today.month, 1, tzinfo=timezone.utc) - timedelta(days=90)
             start = start.replace(day=1, hour=0, minute=0, second=0)
             end = now
@@ -74,91 +79,150 @@ async def get_developer_analytics(
         if not developer:
             raise HTTPException(status_code=404, detail="Developer not found")
 
-        # Fetch activities
-        activities = db.execute(text("""
-            SELECT id, application_name, category, duration, timestamp, window_title
+        # SQL aggregation — daily totals (fast, single query)
+        daily_rows = db.execute(text("""
+            SELECT
+                DATE(timestamp) AS day,
+                SUM(CASE WHEN duration > 0 THEN duration ELSE 0 END) AS total_seconds,
+                SUM(CASE WHEN duration > 0 AND LOWER(category) IN
+                    ('development','database','productivity','browser','productive',
+                     'server','system','other')
+                    THEN duration ELSE 0 END) AS productive_seconds
             FROM activity_records
             WHERE developer_id = :dev_id
               AND timestamp >= :start_date
               AND timestamp <= :end_date
-            ORDER BY timestamp ASC
+              AND duration > 0
+            GROUP BY DATE(timestamp)
+            ORDER BY day
         """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
 
-        # Fetch AFK data
-        afk_data = fetch_afk_data_single(db, developer_id, start, end)
+        # Daily AFK ratio (single query)
+        afk_rows = db.execute(text("""
+            SELECT
+                DATE(timestamp) AS day,
+                SUM(CASE WHEN status = 'not-afk' THEN duration ELSE 0 END) AS active_seconds,
+                SUM(duration) AS total_afk_seconds
+            FROM afk_records
+            WHERE developer_id = :dev_id
+              AND timestamp >= :start_date
+              AND timestamp <= :end_date
+            GROUP BY DATE(timestamp)
+        """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
 
-        # Compute daily stats with AFK adjustment
-        daily_data = defaultdict(lambda: {"total": 0.0, "productive": 0.0, "count": 0})
-
-        for row in activities:
-            raw_dur = row.duration or 0
-            if raw_dur <= 0:
-                continue
-
-            adj_dur = compute_adjusted_duration(
-                row.timestamp, raw_dur, row.application_name,
-                afk_data.not_afk_intervals, afk_data.all_afk_intervals
-            )
-
-            ts = row.timestamp
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            day_key = ts.date()
-
-            daily_data[day_key]["total"] += adj_dur
-            daily_data[day_key]["count"] += 1
-            cat = (row.category or "").lower()
-            if cat in PRODUCTIVE_CATEGORIES:
-                daily_data[day_key]["productive"] += adj_dur
+        # AFK ratio map: day → fraction of time user was active
+        afk_ratio_map = {}
+        for row in afk_rows:
+            total_afk = row.total_afk_seconds or 0
+            if total_afk > 0:
+                afk_ratio_map[row.day] = (row.active_seconds or 0) / total_afk
 
         # Fetch holidays in range
         holidays = db.query(Holiday).filter(
-            and_(
-                Holiday.date >= start,
-                Holiday.date <= end,
-                Holiday.is_active == True
-            )
+            and_(Holiday.date >= start, Holiday.date <= end, Holiday.is_active == True)
         ).all()
         holiday_map = {}
         for h in holidays:
             h_date = h.date.date() if hasattr(h.date, 'date') and callable(h.date.date) else h.date
             holiday_map[h_date.isoformat()] = {"name": h.name, "type": h.holiday_type}
 
-        # Build daily analytics array
+        # Index SQL results by date
+        activity_by_day = {row.day: row for row in daily_rows}
+
+        # Build daily analytics for ALL dates in range (fill gaps)
         daily_analytics = []
         total_work_hours = 0.0
         total_productive_hours = 0.0
         working_days = 0
+        leave_days = 0
 
-        for day_key in sorted(daily_data.keys()):
-            d = daily_data[day_key]
-            total_h = d["total"] / 3600.0
-            prod_h = d["productive"] / 3600.0
-            pct = (prod_h / total_h * 100) if total_h > 0 else 0
-            is_holiday = day_key.isoformat() in holiday_map
+        start_date = start.date() if hasattr(start, 'date') else start
+        end_date = end.date() if hasattr(end, 'date') else end
+        current = start_date
 
-            entry = {
-                "date": day_key.isoformat(),
-                "total_hours": round(total_h, 2),
-                "productive_hours": round(prod_h, 2),
-                "productivity_percentage": round(pct, 1),
-                "is_holiday": is_holiday,
-            }
+        while current <= end_date:
+            day_iso = current.isoformat()
+            is_holiday = day_iso in holiday_map
+            is_weekend = current.weekday() >= 5
+            row = activity_by_day.get(current)
+
+            if row:
+                ratio = afk_ratio_map.get(current, 1.0)
+                raw_total_h = (row.total_seconds * ratio) / 3600.0
+                raw_prod_h = (row.productive_seconds * ratio) / 3600.0
+
+                # Less than 2h activity on any day = not a real working day
+                if raw_total_h <= MIN_WORKING_DAY_HOURS:
+                    if is_holiday:
+                        status = "holiday"
+                    elif is_weekend:
+                        status = "weekend"
+                    else:
+                        status = "leave"
+                        leave_days += 1
+                    entry = {
+                        "date": day_iso,
+                        "total_hours": 0,
+                        "productive_hours": 0,
+                        "productivity_percentage": 0,
+                        "is_holiday": is_holiday,
+                        "is_weekend": is_weekend,
+                        "is_leave": status == "leave",
+                        "status": status,
+                    }
+                else:
+                    pct = (raw_prod_h / raw_total_h * 100) if raw_total_h > 0 else 0
+                    pct = min(pct, 100.0)
+                    total_h = min(raw_total_h, DAILY_TARGET_HOURS)
+                    prod_h = min(raw_prod_h, DAILY_TARGET_HOURS)
+
+                    entry = {
+                        "date": day_iso,
+                        "total_hours": round(total_h, 2),
+                        "productive_hours": round(prod_h, 2),
+                        "productivity_percentage": round(pct, 1),
+                        "is_holiday": is_holiday,
+                        "is_weekend": is_weekend,
+                        "is_leave": False,
+                        "status": "holiday" if is_holiday else "working",
+                    }
+
+                    if raw_total_h > MIN_WORKING_DAY_HOURS:
+                        total_work_hours += total_h
+                        total_productive_hours += prod_h
+                        working_days += 1
+            else:
+                if is_holiday:
+                    status = "holiday"
+                elif is_weekend:
+                    status = "weekend"
+                else:
+                    status = "leave"
+                    leave_days += 1
+
+                entry = {
+                    "date": day_iso,
+                    "total_hours": 0,
+                    "productive_hours": 0,
+                    "productivity_percentage": 0,
+                    "is_holiday": is_holiday,
+                    "is_weekend": is_weekend,
+                    "is_leave": status == "leave",
+                    "status": status,
+                }
+
             if is_holiday:
-                entry["holiday_name"] = holiday_map[day_key.isoformat()]["name"]
-                entry["holiday_type"] = holiday_map[day_key.isoformat()]["type"]
+                entry["holiday_name"] = holiday_map[day_iso]["name"]
+                entry["holiday_type"] = holiday_map[day_iso]["type"]
 
             daily_analytics.append(entry)
-
-            if total_h > 2:  # Significant workdays only for averages
-                total_work_hours += total_h
-                total_productive_hours += prod_h
-                working_days += 1
+            current += timedelta(days=1)
 
         avg_work_hours = round(total_work_hours / working_days, 2) if working_days > 0 else 0
         avg_productivity = round(
             (total_productive_hours / total_work_hours * 100) if total_work_hours > 0 else 0, 1
         )
+        avg_productivity = min(avg_productivity, 100.0)
 
         return {
             "developer": {"id": developer.developer_id, "name": developer.name},
@@ -169,7 +233,8 @@ async def get_developer_analytics(
                 "avg_productivity_percentage": avg_productivity,
                 "total_working_days": working_days,
                 "total_work_hours": round(total_work_hours, 2),
-                "total_productive_hours": round(total_productive_hours, 2)
+                "total_productive_hours": round(total_productive_hours, 2),
+                "leave_days": leave_days
             },
             "daily_analytics": daily_analytics,
             "holidays_in_range": list(holiday_map.values())
