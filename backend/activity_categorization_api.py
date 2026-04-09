@@ -243,27 +243,29 @@ async def get_categorized_activities(
             merged_list = list(dedup.values())
 
             # --- Total duration cap per window title for email/docs ---
-            # Even with per-event caps, hundreds of small events sum up
-            # to unrealistic totals (e.g. 353 events × 30s = 3hrs).
-            # Cap the TOTAL summed duration for email/docs activities.
-            EMAIL_TOTAL_CAP = 1800    # 30 min max total per email title per day
-            DOC_TOTAL_CAP = 3600      # 60 min max total per doc title per day
-            email_keywords = ["mail", "inbox", "compose", "@gmail", "@outlook",
-                              "@yahoo", "@hotmail", "webmail", "thunderbird"]
-            doc_keywords = ["google docs", "google sheets", "google slides",
-                            "spreadsheet", "presentation", ".pdf", ".docx",
-                            ".xlsx", ".pptx", "word online", "excel online",
-                            "onedrive", "sharepoint"]
+            # Only apply hard caps when NO AFK data exists (historical records).
+            # When AFK data is available, durations are already adjusted to
+            # actual active time (keypresses / cursor movement), so caps are
+            # not needed and would undercount real work.
+            if not has_afk_data:
+                EMAIL_TOTAL_CAP = 600     # 10 min max total per email title
+                DOC_TOTAL_CAP = 900       # 15 min max total per doc title
+                email_keywords = ["mail", "inbox", "compose", "@gmail", "@outlook",
+                                  "@yahoo", "@hotmail", "webmail", "thunderbird"]
+                doc_keywords = ["google docs", "google sheets", "google slides",
+                                "spreadsheet", "presentation", ".pdf", ".docx",
+                                ".xlsx", ".pptx", "word online", "excel online",
+                                "onedrive", "sharepoint"]
 
-            for item in merged_list:
-                title_lower = item["window_title"].strip().lower()
-                app_lower = item.get("application_name", "").lower()
-                is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera'])
-                if is_browser:
-                    if any(kw in title_lower for kw in email_keywords):
-                        item["duration"] = min(item["duration"], EMAIL_TOTAL_CAP)
-                    elif any(kw in title_lower for kw in doc_keywords):
-                        item["duration"] = min(item["duration"], DOC_TOTAL_CAP)
+                for item in merged_list:
+                    title_lower = item["window_title"].strip().lower()
+                    app_lower = item.get("application_name", "").lower()
+                    is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera'])
+                    if is_browser:
+                        if any(kw in title_lower for kw in email_keywords):
+                            item["duration"] = min(item["duration"], EMAIL_TOTAL_CAP)
+                        elif any(kw in title_lower for kw in doc_keywords):
+                            item["duration"] = min(item["duration"], DOC_TOTAL_CAP)
 
             # Apply formatting
             for item in merged_list:
