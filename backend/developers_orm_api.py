@@ -19,7 +19,7 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
         from sqlalchemy import text
         
         query = text("""
-            SELECT 
+            SELECT
                 d.id,
                 d.developer_id,
                 d.name,
@@ -27,6 +27,7 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                 d.active,
                 d.created_at,
                 d.last_sync,
+                COALESCE(d.hourly_cost, 0) as hourly_cost,
                 COALESCE(ac.activity_count, 0) as activity_count,
                 ac.last_activity
             FROM developers d
@@ -49,8 +50,8 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
         
         for row in developers_with_stats:
             # Unpack row data
-            (dev_id, developer_id, name, email, active, 
-             created_at, last_sync, activity_count, last_activity) = row
+            (dev_id, developer_id, name, email, active,
+             created_at, last_sync, hourly_cost, activity_count, last_activity) = row
             
             # Determine status based on last activity
             status = "offline"
@@ -85,6 +86,7 @@ async def get_developers_using_orm(db: Session = Depends(get_db)):
                 "version": "N/A",
                 "bucket_count": 0,
                 "email": email,
+                "hourly_cost": float(hourly_cost or 0),
                 "created_at": created_at.isoformat() if created_at else None,
                 "active": active
             })

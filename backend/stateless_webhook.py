@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone, timedelta
 import json
@@ -406,8 +407,18 @@ async def receive_activitywatch_webhook_stateless(
                                 project_info['project_name'] = resolved
                                 project_info['project_type'] = 'Development'
 
+                        # Look up project_id from projects table if project_name matches
+                        from models import ActivityRecord, Project
+                        project_id = None
+                        if project_info['project_name']:
+                            project_row = db.query(Project).filter(
+                                Project.is_active == True,
+                                func.lower(Project.name) == project_info['project_name'].lower()
+                            ).first()
+                            if project_row:
+                                project_id = project_row.id
+
                         # Create activity record (store developer_id as string, no FK)
-                        from models import ActivityRecord
                         activity_record = ActivityRecord(
                             developer_id=developer_id,
                             application_name=app_name,
@@ -417,6 +428,7 @@ async def receive_activitywatch_webhook_stateless(
                             category=category,
                             duration=duration,
                             timestamp=timestamp,
+                            project_id=project_id,
                             project_name=project_info['project_name'],
                             project_type=project_info['project_type'],
                             detailed_activity=project_info['detailed_activity']

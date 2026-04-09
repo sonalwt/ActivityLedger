@@ -53,6 +53,45 @@ WORK_BROWSER_KEYWORDS = [
 DAILY_TARGET_HOURS = 8.0
 
 
+def _resolve_project_period(period: str, start_date_str: Optional[str], end_date_str: Optional[str]):
+    """Resolve period string to (start, end) datetime range for project endpoints."""
+    today = date.today()
+    now = datetime.now(timezone.utc)
+
+    if period == "custom" and start_date_str and end_date_str:
+        start = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+        # Ensure end covers full day
+        if end.hour == 0 and end.minute == 0:
+            end = end.replace(hour=23, minute=59, second=59)
+    elif period == "current_week":
+        # Monday of current week
+        days_since_monday = today.weekday()
+        monday = today - timedelta(days=days_since_monday)
+        start = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+        end = now
+    elif period == "last_month":
+        first_of_this_month = date(today.year, today.month, 1)
+        last_month_end = first_of_this_month - timedelta(days=1)
+        start = datetime(last_month_end.year, last_month_end.month, 1, tzinfo=timezone.utc)
+        end = datetime(last_month_end.year, last_month_end.month, last_month_end.day,
+                      23, 59, 59, tzinfo=timezone.utc)
+    elif period == "3_months":
+        start = datetime(today.year, today.month, 1, tzinfo=timezone.utc) - timedelta(days=90)
+        start = start.replace(day=1, hour=0, minute=0, second=0)
+        end = now
+    elif period == "current_year":
+        start = datetime(today.year, 1, 1, tzinfo=timezone.utc)
+        end = now
+    elif period == "last_year":
+        start = datetime(today.year - 1, 1, 1, tzinfo=timezone.utc)
+        end = datetime(today.year - 1, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+    else:  # current_month (default)
+        start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+        end = now
+
+    return start, end
+
 
 def _build_work_browser_condition(keywords):
     """Build SQL OR condition for work-related browser pattern matching."""
@@ -652,487 +691,60 @@ async def update_activity_project(
 
 @router.get("/api/all-projects")
 async def get_all_projects(
+    period: str = Query("current_month",
+        description="Filter: current_month, last_month, current_year, last_year, custom"),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get list of actual project folder names from activity_records - includes both productive and work-related browser activities.
-    Only shows projects where at least one developer has spent 1 hour or more on that project."""
+    """Get list of projects from the projects table with aggregated hours from activity_records."""
     try:
-        import re
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone
 
-        # Parse date range
-        if start_date:
-            start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        else:
-            start = None
-        if end_date:
-            end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        else:
-            end = None
+        # Resolve date range from period
+        start, end = _resolve_project_period(period, start_date, end_date)
 
-        # Build date filter
+        # Build date filter for activity aggregation
         date_filter = ""
         query_params = {}
         if start and end:
-            date_filter = "AND timestamp >= :start_date AND timestamp <= :end_date"
+            date_filter = "AND ar.timestamp >= :start_date AND ar.timestamp <= :end_date"
             query_params = {"start_date": start, "end_date": end}
 
-        # Fetch all projects with any meaningful time
+        # Fetch all active projects from projects table, with aggregated hours from activity_records
         projects_query = db.execute(text(f"""
             SELECT
-                project_name,
-                SUM(activity_count) as activity_count,
-                SUM(total_hours) as total_hours,
-                COUNT(DISTINCT developer_id) as developer_count,
-                SUM(active_days) as active_days,
-                MAX(has_ide) as has_ide
-            FROM (
-                SELECT
-                    project_name,
-                    developer_id,
-                    COUNT(*) as activity_count,
-                    SUM(duration) / 3600.0 as total_hours,
-                    COUNT(DISTINCT DATE(timestamp)) as active_days,
-                    MAX(CASE WHEN LOWER(application_name) IN (
-                        'code.exe', 'visual studio code',
-                        'xampp', 'apache', 'httpd', 'mysql', 'mariadb',
-                        'phpstorm.exe', 'phpstorm64.exe', 'webstorm.exe', 'webstorm64.exe',
-                        'sublime_text.exe', 'notepad++.exe',
-                        'terminal', 'powershell.exe', 'cmd.exe',
-                        'git-bash.exe', 'windowsterminal.exe',
-                        'filezilla.exe', 'filezilla', 'winscp.exe',
-                        'cpanel', 'putty.exe', 'mobaxterm.exe'
-                    ) OR LOWER(window_title) LIKE '%cpanel%'
-                      OR LOWER(window_title) LIKE '%filezilla%'
-                    THEN 1 ELSE 0 END) as has_ide
-                FROM activity_records
-                WHERE project_name IS NOT NULL
-                AND project_name != ''
-                AND LENGTH(project_name) >= 4
-                AND COALESCE(category, '') NOT IN ('entertainment', 'non-work')
+                p.id,
+                p.name as project_name,
+                p.description,
+                COALESCE(p.total_cost, 0) as total_cost,
+                COALESCE(SUM(ar.duration) / 3600.0, 0) as total_hours,
+                COALESCE(COUNT(ar.id), 0) as activity_count,
+                COUNT(DISTINCT ar.developer_id) as developer_count
+            FROM projects p
+            LEFT JOIN activity_records ar ON ar.project_id = p.id
                 {date_filter}
-                GROUP BY project_name, developer_id
-                HAVING SUM(duration) / 3600.0 >= 1.0
-            ) subq
-            GROUP BY project_name
+            WHERE p.is_active = true
+            GROUP BY p.id, p.name, p.description, p.total_cost
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
-        # Auto-fetch developer names from DB to exclude them from project list
-        dev_names_query = db.execute(text("""
-            SELECT DISTINCT LOWER(name) FROM developers WHERE name IS NOT NULL AND name != ''
-        """)).fetchall()
-        developer_names = {row[0].strip() for row in dev_names_query if row[0]}
-        # Also add without spaces (e.g. "Riddhi Dhakhara" -> "riddhidhakhara")
-        developer_names_no_space = {name.replace(' ', '') for name in developer_names}
-        all_developer_names = developer_names | developer_names_no_space
-
-        def is_browser_noise(name):
-            """
-            Detect browser category noise (emails, entertainment, personal stuff).
-            Returns True if this is noise that should be filtered out.
-            """
-            import re
-            name_lower = name.lower()
-
-            # Email-related patterns
-            email_patterns = [
-                'inbox', 'draft', 'sent', 'trash', 'spam',
-                '@gmail', '@yahoo', '@outlook', '@hotmail', '@firsteconomy',
-                'first economy mail', ' mail', 'compose', 'email',
-                'invitation:', 're:', 'fwd:', 'weekly task list',
-                'notification', 'statement available', 'billing statement',
-                'invoice available', 'payment', 'gst invoice'
-            ]
-            if any(pattern in name_lower for pattern in email_patterns):
-                return True
-
-            # Email subject patterns (long sentences with specific words)
-            email_subject_indicators = [
-                'we have not received',
-                'registration notification',
-                'amazon web services',
-                'billing statement',
-                'invoice available'
-            ]
-            if any(indicator in name_lower for indicator in email_subject_indicators):
-                return True
-
-            # Entertainment patterns
-            entertainment_patterns = [
-                'youtube', 'netflix', 'spotify', 'amazon prime',
-                'baby shark', 'nursery rhymes', 'songs', 'music', 'video',
-                'cocomelon', 'lyrically'
-            ]
-            if any(pattern in name_lower for pattern in entertainment_patterns):
-                return True
-
-            # Personal names patterns (first + last name)
-            # If it looks like "FirstName LastName" with capital letters
-            if re.match(r'^[A-Z][a-z]+ [A-Z][a-z]+$', name):
-                return True
-
-            # Meeting/calendar patterns
-            if 'meeting' in name_lower or 'invitation' in name_lower:
-                return True
-
-            # Shopping patterns
-            shopping_patterns = [
-                'amazon.in', 'amazon.com', 'flipkart', 'myntra',
-                'shopping', 'buy online', 'add to cart'
-            ]
-            if any(pattern in name_lower for pattern in shopping_patterns):
-                return True
-
-            return False
-
-        def is_valid_project_name(name):
-            """
-            Comprehensive validation for project names.
-            Moved from SQL to Python for better performance.
-            Now includes browser noise filtering.
-            """
-            import re
-
-            if not name or len(name) < 4:
-                return False
-
-            name = name.strip()
-            name_lower = name.lower()
-
-            # NEW: Filter out browser noise first
-            if is_browser_noise(name):
-                return False
-
-            # Reject patterns that start with numbers/special chars
-            if re.match(r'^[0-9]+\.', name):
-                return False
-            if name.startswith('?') or name.startswith('*'):
-                return False
-            if name.startswith('Merging:'):
-                return False
-
-            # Reject git-related patterns
-            if '(Working Tree)' in name or '(Index)' in name:
-                return False
-            if ' and ' in name and ' more tab' in name:
-                return False
-
-            # Reject error/exception patterns
-            if any(x in name for x in ['Error', 'Exception', 'SQLSTATE', 'HTTP Method']):
-                return False
-
-            # Reject drive patterns
-            if re.search(r'\([a-zA-Z]:?\)', name):
-                return False
-            if ' messaged you' in name:
-                return False
-
-            # Reject system disk names
-            if name.startswith(('New Volume', 'Windows-SSD', 'Local Disk')):
-                return False
-
-            # Reject generic browser tabs
-            if re.match(r'^(new tab|blank)$', name, re.IGNORECASE):
-                return False
-
-            # Reject "Untitled" variations (Untitled, Untitled-1, Untitled 2, etc.)
-            if re.match(r'^untitled[\s\-_]*\d*$', name_lower):
-                return False
-
-            # Reject "Claude" and AI assistant patterns
-            if re.match(r'^claude[\s\-_]', name_lower) or name_lower == 'claude':
-                return False
-            if 'claude' in name_lower and len(name) < 20:
-                return False
-
-            # Reject screen lock / system UI patterns
-            screen_lock_patterns = [
-                'screen lock', 'lock screen', 'default screen',
-                'screen saver', 'screensaver', 'sign-in', 'sign in screen',
-                'windows lock', 'lock window'
-            ]
-            if any(pattern in name_lower for pattern in screen_lock_patterns):
-                return False
-
-            # Reject specific unwanted patterns
-            unwanted_patterns = [
-                'dow futures', 'error test', 'wrong ', 'scheme list', 'test cases',
-                'body exfoliator', 'gold rate', 'gift nifty', 'task list', 'new folder',
-                'new request', 'open file', 'invalid endpoint',
-                'salicylic acid', 'vitamin', 'protein', 'retinol', 'hyaluronic'
-            ]
-            if any(pattern in name_lower for pattern in unwanted_patterns):
-                return False
-
-            # Reject FTP/hosting/API patterns
-            if any(x + ':' in name for x in ['FTP', 'Hosting', 'DB', 'API', 'localhost']):
-                return False
-
-            # Reject URLs
-            if name.startswith('http'):
-                return False
-
-            # Reject IP addresses
-            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', name):
-                return False
-
-            # Reject paths
-            if '/' in name or '\\' in name:
-                return False
-
-            # COMPREHENSIVE file extension filtering - reject ANY name containing a file extension
-            file_extensions = [
-                # Web/Frontend
-                '.js', '.ts', '.jsx', '.tsx', '.vue', '.css', '.scss', '.sass', '.less',
-                '.html', '.htm', '.xml', '.svg', '.blade', '.ejs', '.hbs', '.pug',
-                # Backend/Server
-                '.py', '.php', '.java', '.rb', '.go', '.rs', '.c', '.cpp', '.cs', '.h',
-                '.aspx', '.asp', '.jsp', '.pl', '.swift', '.kt', '.scala', '.lua',
-                # Config/Data
-                '.json', '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.env',
-                '.lock', '.log', '.bak', '.tmp', '.cache', '.map', '.wasm',
-                # Documents
-                '.md', '.txt', '.doc', '.docx', '.pdf', '.rtf', '.odt',
-                # Media/Images
-                '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.bmp', '.tiff',
-                '.tif', '.psd', '.ai', '.eps', '.raw', '.heic', '.avif',
-                # Audio/Video
-                '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.wav',
-                '.ogg', '.webm', '.m4a', '.flac', '.aac',
-                # Executables
-                '.sh', '.bat', '.cmd', '.ps1', '.exe', '.dll', '.so', '.msi', '.apk',
-                '.dmg', '.app', '.bin', '.deb', '.rpm',
-                # Database
-                '.sql', '.db', '.sqlite', '.mdb', '.accdb', '.dbf',
-                # Archives
-                '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz',
-                # Office
-                '.xls', '.xlsx', '.xlsm', '.csv', '.ppt', '.pptx', '.ods',
-                # Crypto/Keys
-                '.pem', '.key', '.crt', '.cer', '.p12', '.pfx',
-                # Git/Config
-                '.git', '.gitignore', '.dockerignore', '.editorconfig',
-                # Fonts
-                '.ttf', '.otf', '.woff', '.woff2', '.eot',
-            ]
-            # Check if name contains ANY file extension (not just ends with)
-            if re.search(r'\.\w{1,5}(?:\s|$|:|-)', name_lower) or any(name_lower.endswith(ext) for ext in file_extensions):
-                # Double-check: allow legitimate domain-based project names (e.g., waaree.com)
-                # Only allow if it looks like a domain (word.tld format where tld is a known domain extension)
-                domain_tlds = ['.com', '.in', '.org', '.net', '.io', '.co', '.dev', '.app', '.ai']
-                is_domain = any(name_lower.endswith(tld) for tld in domain_tlds)
-                if not is_domain:
-                    return False
-
-            # Reject double underscores
-            if '__' in name:
-                return False
-
-            # Reject parentheses (system artifacts)
-            if '(' in name or ')' in name:
-                return False
-
-            # Must start with alphanumeric
-            if not name[0].isalnum():
-                return False
-
-            # Reject non-project items
-            excluded = {
-                'general', 'unknown', 'claude', 'cursor', 'open', 'search',
-                'inbox', 'message', 'messages', 'whatsapp', 'youtube', 'console',
-                'notepad', 'jira', 'jeera', 'services', 'migration',
-                'products', 'candid', 'functions', 'controllers',
-                'bills', 'ajax', 'banner', 'banners', 'docs', 'excel',
-                'onevue', 'regular growth', 'attendance detail',
-                'google search', 'google slide', 'google drive',
-                'firsteconomy mail', 'first economy mail',
-                'fetchall', 'login', 'logout', 'home', 'dashboard',
-                'settings', 'downloads', 'desktop', 'explorer',
-                'terminal', 'powershell', 'task manager', 'file explorer',
-                'control panel', 'command prompt', 'windows terminal',
-                'lock screen', 'screen lock', 'screen saver',
-                'new tab', 'untitled', 'welcome', 'debug', 'output',
-                'problems', 'extensions', 'scratches',
-                'gmail', 'outlook', 'yahoo', 'google', 'chrome', 'firefox', 'edge',
-                'meet', 'zoom', 'teams', 'skype', 'slack', 'telegram',
-                'instagram', 'facebook', 'twitter', 'snapchat',
-                'chatgpt', 'copilot', 'gemini',
-                'postman', 'figma', 'photoshop', 'canva',
-                'calculator', 'paint', 'wordpad', 'media player',
-                'snipping tool', 'recycle bin',
-                'system32', 'windows', 'program', 'documents',
-                'backend', 'frontend', 'components', 'src', 'dist', 'build',
-                'public', 'static', 'images', 'uploads', 'temp', 'assets',
-                'node_modules', 'htdocs', 'xampp',
-                'activitywatch', 'activitywatch sync',
-                'bitcoin', 'tradingview',
-                'seeders', 'flow', 'uknowa', 'uknowva', 'naishana', 'naishana r', 'nishana', 'nishana r',
-                'models', 'routes', 'views', 'helpers', 'middleware',
-                'config', 'database', 'migrations', 'factories',
-                'ajaxservice', 'onvue', 'onevue',
-                'fz3temp-2',
-                # Generic code/IDE folder names - not real projects
-                'tools', 'startup', 'projects', 'layouts', 'layout',
-                'transactions', 'constants', 'switch', 'user', 'users',
-                'mrunali', 'fe tech team', 'search results',
-                'visual studio code', 'visual studio',
-                'utils', 'lib', 'vendor', 'packages', 'modules',
-                'tests', 'specs', 'fixtures', 'resources', 'lang',
-                'traits', 'interfaces', 'abstract', 'enums', 'types',
-                'hooks', 'store', 'reducers', 'actions', 'selectors',
-                'pages', 'screens', 'widgets', 'adapters', 'repositories',
-                'entities', 'schemas', 'pipes', 'guards', 'interceptors',
-                'commands', 'events', 'jobs', 'notifications', 'policies',
-                'channels', 'exceptions', 'filters', 'observers',
-            }
-            if name_lower in excluded:
-                return False
-
-            # Reject partial matches for noise patterns
-            noise_substrings = [
-                'ajax', 'temp-', 'search result',
-            ]
-            if any(sub in name_lower for sub in noise_substrings):
-                return False
-
-            # Reject developer names (auto-fetched from database)
-            if name_lower in all_developer_names:
-                return False
-            # Also check first name only (e.g. "mrunali" matches "Mrunali Patel")
-            first_name = name_lower.split()[0] if ' ' in name_lower else name_lower
-            if any(first_name == dev.split()[0] for dev in developer_names if len(first_name) >= 4):
-                return False
-
-            # Reject person name patterns (for names not in DB)
-            # "Firstname Lastname" or "Firstname L" pattern (with space)
-            if re.match(r'^[A-Z][a-z]+ [A-Z][a-z]*$', name) and len(name) < 25:
-                return False
-            # "FirstnameLastname" camelCase pattern (no space, e.g. RiddhiDhakhara)
-            if re.match(r'^[A-Z][a-z]+[A-Z][a-z]+$', name) and len(name) < 25:
-                return False
-
-            # Reject patterns starting with action verbs
-            if re.match(r'^(get |create |download |import |generate |update |register |call to )', name_lower):
-                return False
-
-            # Reject patterns ending with form/password
-            if re.search(r'(form|password|management|managment)$', name_lower):
-                return False
-
-            # Reject Laravel/framework folder names (seeders, factories, etc.)
-            framework_patterns = ['seeder', 'factory', 'middleware', 'provider', 'handler', 'listener']
-            if any(name_lower.endswith(p) or name_lower.endswith(p + 's') for p in framework_patterns):
-                return False
-
-            return True
-
-        def extract_root_name(name):
-            """
-            Extract a canonical root name for consolidation.
-            e.g. 'godrej-ihp-lp' -> 'godrej', 'jaypee-website-development' -> 'jaypee'
-            Works by taking the first meaningful word from hyphenated/underscore names,
-            or the first word from multi-word names like 'Godrej Reserve Kandivali'.
-            """
-            clean = name.strip().lower()
-            # Remove common prefixes
-            for prefix in ['domain portfolio:', 'view-source:', 'fe-techteam/', 'd:\\downloads\\']:
-                if clean.startswith(prefix):
-                    clean = clean[len(prefix):]
-            # Remove .com, .in, .org etc from end
-            clean = re.sub(r'\.(com|in|org|net|io|co|dev|app|html|js|css)$', '', clean)
-            # Split by hyphen, underscore, space, or dot
-            parts = re.split(r'[-_\s./\\]+', clean)
-            # Return first meaningful part (length >= 3)
-            for part in parts:
-                part = part.strip()
-                if len(part) >= 3 and part.isalpha():
-                    return part
-            return clean
-
-        # Filter valid projects
-        # Browser projects (ending with "- Google Chrome", "- Microsoft Edge", etc.) get consolidated by root name
-        # IDE/code projects stay separate as-is
-        browser_suffixes = [' - google chrome', ' - microsoft edge', ' - microsoft\u200b edge',
-                            ' - firefox', ' - brave', ' - opera']
-
-        valid_projects = []
-        for row in projects_query:
-            project_name = row[0]
-            if not project_name or not project_name.strip():
-                continue
-            name = project_name.strip()
-            if is_browser_noise(name) or not is_valid_project_name(name):
-                continue
-            has_ide = int(row[5]) if row[5] else 0
-            total_hours = float(row[2])
-
-            # Check if this is a browser-tab project name
-            is_browser_project = any(name.lower().endswith(s) for s in browser_suffixes)
-
-            valid_projects.append({
-                "name": name,
-                "activity_count": row[1],
-                "total_hours": total_hours,
-                "has_ide": has_ide,
-                "is_browser": is_browser_project
-            })
-
-        # Consolidate browser projects by root name, keep IDE projects separate
-        consolidated = {}
-        direct_projects = []
-
-        for proj in valid_projects:
-            if proj["is_browser"] and not proj["has_ide"]:
-                root = extract_root_name(proj["name"])
-                if root in consolidated:
-                    consolidated[root]["activity_count"] += proj["activity_count"]
-                    consolidated[root]["total_hours"] += proj["total_hours"]
-                    if len(proj["name"]) < len(consolidated[root]["project_name"]):
-                        consolidated[root]["project_name"] = proj["name"]
-                else:
-                    consolidated[root] = {
-                        "project_name": proj["name"],
-                        "activity_count": proj["activity_count"],
-                        "total_hours": proj["total_hours"]
-                    }
-            else:
-                direct_projects.append(proj)
-
-        # Build final list
         projects = []
-        # Add consolidated browser projects
-        for root, data in consolidated.items():
-            if data["total_hours"] >= 1.0:
-                # Clean browser suffix from display name
-                display_name = data["project_name"]
-                for s in browser_suffixes:
-                    if display_name.lower().endswith(s):
-                        display_name = display_name[:len(display_name)-len(s)].strip()
-                        break
-                projects.append({
-                    "project_name": display_name,
-                    "activity_count": data["activity_count"],
-                    "total_hours": round(data["total_hours"], 2)
-                })
-        # Add IDE/code projects directly
-        for proj in direct_projects:
-            if proj["total_hours"] >= 1.0:
-                projects.append({
-                    "project_name": proj["name"],
-                    "activity_count": proj["activity_count"],
-                    "total_hours": round(proj["total_hours"], 2)
-                })
-
-        # Sort by total hours descending
-        projects.sort(key=lambda x: x["total_hours"], reverse=True)
+        for row in projects_query:
+            projects.append({
+                "project_id": row[0],
+                "project_name": row[1],
+                "description": row[2],
+                "total_cost": round(float(row[3]), 2),
+                "total_hours": round(float(row[4]), 2),
+                "activity_count": row[5],
+                "developer_count": row[6]
+            })
 
         return {
             "projects": projects,
             "total_projects": len(projects),
-            "date_range": None
+            "date_range": {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None}
         }
 
     except Exception as e:
@@ -1185,28 +797,84 @@ async def delete_project(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/api/developer/{developer_id}/hourly-cost")
+async def update_developer_hourly_cost(
+    developer_id: str,
+    hourly_cost: float = Query(..., description="Hourly cost for the developer"),
+    db: Session = Depends(get_db)
+):
+    """Update hourly cost for a developer"""
+    try:
+        developer = db.query(Developer).filter(Developer.developer_id == developer_id).first()
+        if not developer:
+            raise HTTPException(status_code=404, detail="Developer not found")
+        developer.hourly_cost = hourly_cost
+        db.commit()
+        return {"success": True, "developer_id": developer_id, "hourly_cost": hourly_cost}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating developer hourly cost: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/projects/{project_name}/total-cost")
+async def update_project_total_cost(
+    project_name: str,
+    total_cost: float = Query(..., description="Total cost/budget for the project"),
+    db: Session = Depends(get_db)
+):
+    """Update total cost for a project"""
+    try:
+        result = db.execute(
+            text("UPDATE projects SET total_cost = :cost WHERE LOWER(name) = LOWER(:name) AND is_active = true"),
+            {"cost": total_cost, "name": project_name}
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Project not found")
+        db.commit()
+        return {"success": True, "project_name": project_name, "total_cost": total_cost}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating project total cost: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/project/{project_name}/developers-time")
 async def get_project_developers_time(
     project_name: str,
+    period: str = Query("current_month",
+        description="Filter: current_month, last_month, current_year, last_year, custom"),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Get developer-wise time breakdown for a specific project, grouped by date"""
     try:
-        # Parse dates
-        if start_date:
-            start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-        else:
-            start = datetime.now(timezone.utc) - timedelta(days=30)
+        # Resolve date range from period
+        start, end = _resolve_project_period(period, start_date, end_date)
 
-        if end_date:
-            end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-        else:
-            end = datetime.now(timezone.utc)
+        # Look up project_id and total_cost from projects table
+        project_row = db.execute(text("SELECT id, COALESCE(total_cost, 0) FROM projects WHERE LOWER(name) = LOWER(:name) AND is_active = true"), {"name": project_name}).fetchone()
+        project_id = project_row[0] if project_row else None
+        project_total_cost = float(project_row[1]) if project_row else 0
 
         # Handle "Unassigned" project
-        project_filter = "project_name IS NULL OR project_name = ''" if project_name == "Unassigned" else "project_name = :project_name"
+        if project_name == "Unassigned":
+            project_filter = "ar.project_id IS NULL"
+        elif project_id:
+            project_filter = "ar.project_id = :project_id"
+        else:
+            project_filter = "1=0"  # No matching project, return empty
+
+        query_params = {
+            "project_id": project_id,
+            "start_date": start,
+            "end_date": end
+        }
 
         # Get developer-wise time breakdown for the project
         developers_query = db.execute(text(f"""
@@ -1217,19 +885,16 @@ async def get_project_developers_time(
                 COUNT(*) as activity_count,
                 COUNT(DISTINCT DATE(ar.timestamp)) as days_worked,
                 MIN(ar.timestamp) as first_activity,
-                MAX(ar.timestamp) as last_activity
+                MAX(ar.timestamp) as last_activity,
+                COALESCE(d.hourly_cost, 0) as hourly_cost
             FROM activity_records ar
             LEFT JOIN developers d ON ar.developer_id = d.developer_id
             WHERE ({project_filter})
             AND ar.timestamp >= :start_date
             AND ar.timestamp <= :end_date
-            GROUP BY ar.developer_id, d.name
+            GROUP BY ar.developer_id, d.name, d.hourly_cost
             ORDER BY total_hours DESC
-        """), {
-            "project_name": project_name,
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
+        """), query_params).fetchall()
 
         # Get date-wise breakdown for each developer
         datewise_query = db.execute(text(f"""
@@ -1245,42 +910,53 @@ async def get_project_developers_time(
             AND ar.timestamp <= :end_date
             GROUP BY ar.developer_id, d.name, DATE(ar.timestamp)
             ORDER BY work_date DESC, hours DESC
-        """), {
-            "project_name": project_name,
-            "start_date": start,
-            "end_date": end
-        }).fetchall()
+        """), query_params).fetchall()
 
         # Get overall total hours for the project within date range
+        # Overall hours = ALL time invested in project (no date filter)
         overall_query = db.execute(text(f"""
             SELECT
                 COALESCE(SUM(ar.duration) / 3600.0, 0) as overall_hours,
                 COUNT(DISTINCT DATE(ar.timestamp)) as overall_days
             FROM activity_records ar
             WHERE ({project_filter})
-            AND ar.timestamp >= :start_date
-            AND ar.timestamp <= :end_date
-        """), {
-            "project_name": project_name,
-            "start_date": start,
-            "end_date": end
-        }).fetchone()
+        """), {"project_id": project_id}).fetchone()
 
         overall_hours = round(float(overall_query[0]), 2) if overall_query else 0
         overall_days = overall_query[1] if overall_query else 0
+
+        # Lifetime resource cost = all-time hours per developer * their hourly rate
+        lifetime_cost_query = db.execute(text(f"""
+            SELECT
+                COALESCE(SUM((ar_hours.total_hours) * COALESCE(d.hourly_cost, 0)), 0) as lifetime_cost
+            FROM (
+                SELECT ar.developer_id, SUM(ar.duration) / 3600.0 as total_hours
+                FROM activity_records ar
+                WHERE ({project_filter})
+                GROUP BY ar.developer_id
+            ) ar_hours
+            LEFT JOIN developers d ON ar_hours.developer_id = d.developer_id
+        """), {"project_id": project_id}).fetchone()
+
+        lifetime_resource_cost = round(float(lifetime_cost_query[0]), 2) if lifetime_cost_query else 0
 
         # Format developers data
         developers = []
         total_project_hours = 0
 
+        total_resource_cost = 0
         for row in developers_query:
-            dev_id, dev_name, total_hours, activity_count, days_worked, first_activity, last_activity = row
+            dev_id, dev_name, total_hours, activity_count, days_worked, first_activity, last_activity, hourly_cost = row
             total_project_hours += total_hours
+            dev_cost = round(float(total_hours) * float(hourly_cost), 2)
+            total_resource_cost += dev_cost
 
             developers.append({
                 "developer_id": dev_id,
                 "developer_name": dev_name or dev_id,
                 "total_hours": round(float(total_hours), 2),
+                "hourly_cost": float(hourly_cost),
+                "resource_cost": dev_cost,
                 "activity_count": activity_count,
                 "days_worked": days_worked,
                 "average_hours_per_day": round(float(total_hours) / days_worked, 2) if days_worked > 0 else 0,
@@ -1309,6 +985,7 @@ async def get_project_developers_time(
 
         return {
             "project_name": project_name,
+            "period": period,
             "date_range": {
                 "start": start.isoformat(),
                 "end": end.isoformat()
@@ -1318,7 +995,9 @@ async def get_project_developers_time(
                 "total_developers": len(developers),
                 "total_days": len(datewise_breakdown),
                 "overall_hours": overall_hours,
-                "overall_days": overall_days
+                "overall_days": overall_days,
+                "total_cost": round(project_total_cost, 2),
+                "resource_cost": lifetime_resource_cost
             },
             "developers": developers,
             "datewise_breakdown": datewise_breakdown

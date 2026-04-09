@@ -62,7 +62,18 @@ def create_activity_record(db: Session, activity_data: Dict, user_id: int):
     
     # Extract project information
     project_info = extract_project_info(activity_data)
-    
+
+    # Look up project_id from projects table if project_name matches
+    project_id = None
+    proj_name = project_info.get("project_name")
+    if proj_name:
+        project_row = db.query(models.Project).filter(
+            models.Project.is_active == True,
+            func.lower(models.Project.name) == proj_name.lower()
+        ).first()
+        if project_row:
+            project_id = project_row.id
+
     # Create new record if it doesn't exist
     db_activity = models.ActivityRecord(
         user_id=user_id,
@@ -77,6 +88,7 @@ def create_activity_record(db: Session, activity_data: Dict, user_id: int):
         duration=activity_data.get("duration", 0),  # Now in seconds
         timestamp=activity_data.get("timestamp", datetime.now()),
         # Add project information
+        project_id=project_id,
         project_name=project_info.get("project_name"),
         project_type=project_info.get("project_type"),
         project_file=project_info.get("project_file")
