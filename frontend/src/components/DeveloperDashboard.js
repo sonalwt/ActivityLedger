@@ -206,15 +206,28 @@ function DeveloperDashboard({ developer, onBack }) {
 
   // ---------------- PRODUCTIVITY ----------------
   const getProductivity = () => {
-    const totalSec = trackedTime || totalTime;
+    const DAILY_TARGET_SEC = 8 * 3600; // 8-hour working day target
     const productiveSec =
       (categoryBreakdown.coding?.duration || 0) +
       (categoryBreakdown.server?.duration || 0) +
       (categoryBreakdown.browser?.duration || 0);
 
+    // Count weekdays (Mon-Fri) in selected date range
+    let workingDays = 0;
+    const d = new Date(startDate);
+    const rangeEnd = new Date(endDate);
+    while (d <= rangeEnd) {
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) workingDays++;
+      d.setDate(d.getDate() + 1);
+    }
+    workingDays = Math.max(workingDays, 1);
+
+    const targetSec = workingDays * DAILY_TARGET_SEC;
+    const totalSec = trackedTime || totalTime;
     const minActiveSeconds = 2 * 3600;
     const score = totalSec > minActiveSeconds
-      ? Math.min(100, Math.round((productiveSec / totalSec) * 100))
+      ? Math.min(100, Math.round((productiveSec / targetSec) * 100))
       : 0;
 
     const displayNames = { coding: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" };
