@@ -324,12 +324,36 @@ function DeveloperDashboard({ developer, onBack }) {
 
           <div className="chart-flex-wrapper">
             <div className="chart-big">
-              <Pie data={pieData} options={{ responsive: true, maintainAspectRatio: false }} />
+              <Pie
+                data={pieData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                      const index = elements[0].index;
+                      setSelectedTab(index);
+                      document.getElementById('category-details-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  },
+                  onHover: (event, elements) => {
+                    event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                  },
+                }}
+              />
             </div>
 
             <div className="chart-legend">
               {productivity.categories.map((cat, i) => (
-                <div key={i} className="legend-item">
+                <div
+                  key={i}
+                  className="legend-item"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    setSelectedTab(i);
+                    document.getElementById('category-details-section')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
                   <span className="legend-color" style={{ background: pieData.datasets[0].backgroundColor[i] }} />
                   <span>{cat.displayName}</span>
                   <span>{cat.percentage.toFixed(1)}%</span>
@@ -342,7 +366,7 @@ function DeveloperDashboard({ developer, onBack }) {
 
       {/* CATEGORY DETAILS */}
       {!loading && productivity.categories.length > 0 && (
-        <div className="category-details">
+        <div id="category-details-section" className="category-details">
           <h3>Category Details</h3>
 
           <div className="category-tabs">
