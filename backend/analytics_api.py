@@ -85,7 +85,7 @@ async def get_developer_analytics(
                 DATE(timestamp) AS day,
                 SUM(CASE WHEN duration > 0 THEN duration ELSE 0 END) AS total_seconds,
                 SUM(CASE WHEN duration > 0 AND LOWER(category) IN
-                    ('development','database','productivity','browser','productive',
+                    ('coding','development','database','productivity','browser','productive',
                      'server','system','other')
                     THEN duration ELSE 0 END) AS productive_seconds
             FROM activity_records
