@@ -1,21 +1,47 @@
 """
 Analytics API — Developer productivity trends with holiday highlighting.
 Provides daily productivity % and work hours for line chart visualization.
-Uses SQL aggregation + AFK ratio for speed, with daily caps for accuracy.
+Uses the SAME categorization + AFK logic as the Developer Dashboard for consistency.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, and_
 from typing import Optional
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone, date
 from database import get_db
 from models import Developer, Holiday
-from afk_helpers import DAILY_TARGET_HOURS, MIN_WORKING_DAY_HOURS
+from activity_categorizer import get_categorizer
+from afk_helpers import (
+    DAILY_TARGET_HOURS, MIN_WORKING_DAY_HOURS,
+    build_not_afk_intervals, compute_active_duration,
+)
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Constants — must match activity_categorization_api.py exactly
+# ---------------------------------------------------------------------------
+_SKIP_TITLES = frozenset([
+    'untitled', 'program manager', 'task switching',
+    'task view', 'windows default lock screen', 'new tab', 'blank',
+])
+_SYSTEM_TITLES = frozenset(['search', 'task manager', 'control panel'])
+_BROWSER_APPS = ('chrome', 'firefox', 'edge', 'safari', 'brave', 'opera')
+_EMAIL_KEYWORDS = (
+    "mail", "inbox", "compose", "@gmail", "@outlook",
+    "@yahoo", "@hotmail", "webmail", "thunderbird",
+)
+_DOC_KEYWORDS = (
+    "google docs", "google sheets", "google slides",
+    "spreadsheet", "presentation", ".pdf", ".docx",
+    ".xlsx", ".pptx", "word online", "excel online",
+    "onedrive", "sharepoint",
+)
+_PRODUCTIVE_CATS = frozenset(["coding", "browser", "server"])
 
 
 def _get_indian_financial_year_range(fy_offset: int = 0):
@@ -31,6 +57,120 @@ def _get_indian_financial_year_range(fy_offset: int = 0):
     return start, end
 
 
+def _build_daily_afk_map(not_afk_intervals):
+    """Pre-split AFK intervals by day for O(1) day-lookup instead of full scan."""
+    daily = defaultdict(list)
+    for start, end in not_afk_intervals:
+        day = start.date()
+        daily[day].append((start, end))
+        end_day = end.date()
+        if end_day != day:
+            daily[end_day].append((start, end))
+    return daily
+
+
+def _compute_all_days(rows, categorizer, not_afk_intervals, has_afk_data):
+    """
+    Single-pass batch processor — same logic as Dashboard but optimized for
+    365-day ranges with category caching and per-day AFK intervals.
+
+    Returns dict[date] → (tracked_total_sec, productive_sec).
+    """
+    # Pre-split AFK intervals by day (avoids scanning full-year list per activity)
+    daily_afk = _build_daily_afk_map(not_afk_intervals) if has_afk_data else {}
+
+    # Category cache — same (title, app, project) combo categorized once
+    cat_cache = {}
+    _VALID_CATS = frozenset(("coding", "browser", "server", "non-work"))
+
+    # Per-day accumulators
+    day_tracked = defaultdict(float)
+    # Dedup: day → {(cat, title_lower): {"dur": float, "app_lower": str}}
+    day_dedup = defaultdict(dict)
+
+    for row in rows:
+        window_title = row.window_title or ""
+        if not window_title.strip() and row.file_path:
+            fp = row.file_path
+            window_title = (
+                fp.rsplit('/', 1)[-1] if '/' in fp
+                else fp.rsplit('\\', 1)[-1] if '\\' in fp
+                else fp
+            )
+
+        title_lower = window_title.strip().lower()
+        if title_lower in _SKIP_TITLES:
+            continue
+
+        raw_duration = row.duration or 0
+        if raw_duration <= 0:
+            continue
+
+        if title_lower in _SYSTEM_TITLES and raw_duration > 60:
+            raw_duration = 60
+
+        day = row.timestamp.date()
+
+        # Per-activity AFK adjustment using day-specific intervals
+        if has_afk_data and raw_duration > 0:
+            activity_ts = row.timestamp
+            if activity_ts.tzinfo is None:
+                activity_ts = activity_ts.replace(tzinfo=timezone.utc)
+            day_intervals = daily_afk.get(day)
+            if day_intervals:
+                active_seconds = compute_active_duration(
+                    activity_ts,
+                    activity_ts + timedelta(seconds=raw_duration),
+                    day_intervals,
+                )
+                raw_duration = min(active_seconds, raw_duration)
+        elif not has_afk_data and raw_duration > 900:
+            app_lower = (row.application_name or "").lower()
+            if any(b in app_lower for b in _BROWSER_APPS):
+                raw_duration = 900
+
+        # Categorize with cache (biggest speedup — avoids re-categorizing
+        # the same "Gmail - Inbox" title thousands of times across the year)
+        app_name = row.application_name or ""
+        project_name = row.project_name or ""
+        cache_key = (title_lower, app_name.lower(), project_name.lower())
+        cat = cat_cache.get(cache_key)
+        if cat is None:
+            cat, _ = categorizer.categorize_activity(window_title, app_name, project_name)
+            if cat not in _VALID_CATS:
+                cat = "browser"
+            cat_cache[cache_key] = cat
+
+        day_tracked[day] += raw_duration
+
+        # Accumulate into dedup structure (numeric only, no dict-of-dicts)
+        dedup_key = (cat, title_lower)
+        entry = day_dedup[day].get(dedup_key)
+        if entry is None:
+            day_dedup[day][dedup_key] = {"dur": raw_duration, "app_lower": app_name.lower()}
+        else:
+            entry["dur"] += raw_duration
+
+    # Calculate productive seconds per day (after dedup + caps)
+    result = {}
+    for day, entries in day_dedup.items():
+        productive = 0.0
+        for (cat, title_lower), info in entries.items():
+            dur = info["dur"]
+            # Apply email/doc caps when no AFK data
+            if not has_afk_data:
+                if any(b in info["app_lower"] for b in _BROWSER_APPS):
+                    if any(kw in title_lower for kw in _EMAIL_KEYWORDS):
+                        dur = min(dur, 600)
+                    elif any(kw in title_lower for kw in _DOC_KEYWORDS):
+                        dur = min(dur, 900)
+            if cat in _PRODUCTIVE_CATS:
+                productive += dur
+        result[day] = (day_tracked[day], productive)
+
+    return result
+
+
 @router.get("/api/developer/{developer_id}/analytics")
 async def get_developer_analytics(
     developer_id: str,
@@ -40,7 +180,7 @@ async def get_developer_analytics(
     end_date: Optional[str] = Query(None, description="Custom end date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Developer analytics — daily productivity % using SQL aggregation with daily caps."""
+    """Developer analytics — daily productivity % matching the Developer Dashboard."""
     try:
         today = date.today()
         now = datetime.now(timezone.utc)
@@ -79,45 +219,39 @@ async def get_developer_analytics(
         if not developer:
             raise HTTPException(status_code=404, detail="Developer not found")
 
-        # SQL aggregation — daily totals (fast, single query)
-        daily_rows = db.execute(text("""
-            SELECT
-                DATE(timestamp) AS day,
-                SUM(CASE WHEN duration > 0 THEN duration ELSE 0 END) AS total_seconds,
-                SUM(CASE WHEN duration > 0 AND LOWER(category) IN
-                    ('coding','development','database','productivity','browser','productive',
-                     'server','system','other')
-                    THEN duration ELSE 0 END) AS productive_seconds
+        # ----- Fetch raw activities (same query as dashboard) -----
+        rows = db.execute(text("""
+            SELECT id, application_name, window_title, duration, timestamp,
+                   url, file_path, project_name
             FROM activity_records
             WHERE developer_id = :dev_id
               AND timestamp >= :start_date
               AND timestamp <= :end_date
-              AND duration > 0
-            GROUP BY DATE(timestamp)
-            ORDER BY day
+              AND LOWER(COALESCE(application_name, '')) NOT IN ('unknown', '')
+            ORDER BY timestamp ASC
         """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
 
-        # Daily AFK ratio (single query)
+        # ----- Fetch AFK records (same as dashboard) -----
         afk_rows = db.execute(text("""
-            SELECT
-                DATE(timestamp) AS day,
-                SUM(CASE WHEN status = 'not-afk' THEN duration ELSE 0 END) AS active_seconds,
-                SUM(duration) AS total_afk_seconds
+            SELECT status, duration, timestamp
             FROM afk_records
             WHERE developer_id = :dev_id
               AND timestamp >= :start_date
               AND timestamp <= :end_date
-            GROUP BY DATE(timestamp)
+            ORDER BY timestamp ASC
         """), {"dev_id": developer_id, "start_date": start, "end_date": end}).fetchall()
 
-        # AFK ratio map: day → fraction of time user was active
-        afk_ratio_map = {}
-        for row in afk_rows:
-            total_afk = row.total_afk_seconds or 0
-            if total_afk > 0:
-                afk_ratio_map[row.day] = (row.active_seconds or 0) / total_afk
+        not_afk_intervals = build_not_afk_intervals(afk_rows)
+        has_afk_data = len(not_afk_intervals) > 0
 
-        # Fetch holidays in range
+        categorizer = get_categorizer()
+
+        # Single-pass batch computation (cached + per-day AFK)
+        daily_productivity = _compute_all_days(
+            rows, categorizer, not_afk_intervals, has_afk_data
+        )
+
+        # ----- Fetch holidays -----
         holidays = db.query(Holiday).filter(
             and_(Holiday.date >= start, Holiday.date <= end, Holiday.is_active == True)
         ).all()
@@ -126,33 +260,29 @@ async def get_developer_analytics(
             h_date = h.date.date() if hasattr(h.date, 'date') and callable(h.date.date) else h.date
             holiday_map[h_date.isoformat()] = {"name": h.name, "type": h.holiday_type}
 
-        # Index SQL results by date
-        activity_by_day = {row.day: row for row in daily_rows}
-
-        # Build daily analytics for ALL dates in range (fill gaps)
+        # ----- Build daily analytics -----
         daily_analytics = []
         total_work_hours = 0.0
         total_productive_hours = 0.0
         working_days = 0
         leave_days = 0
 
-        start_date = start.date() if hasattr(start, 'date') else start
-        end_date = end.date() if hasattr(end, 'date') else end
-        current = start_date
+        range_start = start.date() if hasattr(start, 'date') else start
+        range_end = end.date() if hasattr(end, 'date') else end
+        current = range_start
 
-        while current <= end_date:
+        while current <= range_end:
             day_iso = current.isoformat()
             is_holiday = day_iso in holiday_map
             is_weekend = current.weekday() >= 5
-            row = activity_by_day.get(current)
+            day_data = daily_productivity.get(current)
 
-            if row:
-                ratio = afk_ratio_map.get(current, 1.0)
-                raw_total_h = (row.total_seconds * ratio) / 3600.0
-                raw_prod_h = (row.productive_seconds * ratio) / 3600.0
+            if day_data:
+                tracked_sec, productive_sec = day_data
+                total_h = tracked_sec / 3600.0
 
-                # Less than 2h activity on any day = not a real working day
-                if raw_total_h <= MIN_WORKING_DAY_HOURS:
+                if total_h <= MIN_WORKING_DAY_HOURS:
+                    # Not enough activity to count as a working day
                     if is_holiday:
                         status = "holiday"
                     elif is_weekend:
@@ -171,27 +301,26 @@ async def get_developer_analytics(
                         "status": status,
                     }
                 else:
-                    pct = (raw_prod_h / raw_total_h * 100) if raw_total_h > 0 else 0
-                    pct = min(pct, 100.0)
-                    total_h = min(raw_total_h, DAILY_TARGET_HOURS)
-                    prod_h = min(raw_prod_h, DAILY_TARGET_HOURS)
+                    pct = min(100.0, (productive_sec / tracked_sec * 100)) if tracked_sec > 0 else 0
+                    prod_h = productive_sec / 3600.0
+                    display_total_h = min(total_h, DAILY_TARGET_HOURS)
+                    display_prod_h = min(prod_h, DAILY_TARGET_HOURS)
 
                     entry = {
                         "date": day_iso,
-                        "total_hours": round(total_h, 2),
-                        "productive_hours": round(prod_h, 2),
+                        "total_hours": round(display_total_h, 2),
+                        "productive_hours": round(display_prod_h, 2),
                         "productivity_percentage": round(pct, 1),
                         "is_holiday": is_holiday,
                         "is_weekend": is_weekend,
                         "is_leave": False,
                         "status": "holiday" if is_holiday else "working",
                     }
-
-                    if raw_total_h > MIN_WORKING_DAY_HOURS:
-                        total_work_hours += total_h
-                        total_productive_hours += prod_h
-                        working_days += 1
+                    total_work_hours += display_total_h
+                    total_productive_hours += display_prod_h
+                    working_days += 1
             else:
+                # No activity at all
                 if is_holiday:
                     status = "holiday"
                 elif is_weekend:
