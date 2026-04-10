@@ -301,7 +301,9 @@ async def get_developer_analytics(
                         "status": status,
                     }
                 else:
-                    pct = min(100.0, (productive_sec / tracked_sec * 100)) if tracked_sec > 0 else 0
+                    # Use 8h daily target as denominator (not just tracked time)
+                    target_sec = DAILY_TARGET_HOURS * 3600
+                    pct = min(100.0, (productive_sec / target_sec * 100)) if target_sec > 0 else 0
                     prod_h = productive_sec / 3600.0
                     display_total_h = min(total_h, DAILY_TARGET_HOURS)
                     display_prod_h = min(prod_h, DAILY_TARGET_HOURS)
