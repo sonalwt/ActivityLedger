@@ -8,6 +8,7 @@ Only inserts when:
   4. Activity comes from a development editor
   5. Total editor hours on this project > 2 hours
 """
+from typing import Optional
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
 
@@ -74,7 +75,7 @@ def _is_dev_editor(app_name: str) -> bool:
     return any(editor in app_lower for editor in DEV_EDITOR_NAMES)
 
 
-def resolve_or_create_project(db, project_name: str, app_name: str, logger=None) -> int | None:
+def resolve_or_create_project(db, project_name: str, app_name: str, logger=None) -> Optional[int]:
     """
     Look up project_id from projects table.
     If not found and conditions are met (dev editor, valid name, >2h editor work),
