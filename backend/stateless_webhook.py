@@ -407,16 +407,10 @@ async def receive_activitywatch_webhook_stateless(
                                 project_info['project_name'] = resolved
                                 project_info['project_type'] = 'Development'
 
-                        # Look up project_id from projects table if project_name matches
+                        # Look up project_id from projects table, auto-insert if dev editor + valid name + >2h
                         from models import ActivityRecord, Project
-                        project_id = None
-                        if project_info['project_name']:
-                            project_row = db.query(Project).filter(
-                                Project.is_active == True,
-                                func.lower(Project.name) == project_info['project_name'].lower()
-                            ).first()
-                            if project_row:
-                                project_id = project_row.id
+                        from project_auto_insert import resolve_or_create_project
+                        project_id = resolve_or_create_project(db, project_info['project_name'], app_name, logger)
 
                         # Create activity record (store developer_id as string, no FK)
                         activity_record = ActivityRecord(

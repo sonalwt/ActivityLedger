@@ -182,18 +182,24 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                         "subcategory": "general"
                     }
 
+                # Resolve project_id — auto-insert into projects table if conditions met
+                from project_auto_insert import resolve_or_create_project
+                import logging as _logging
+                _sync_logger = _logging.getLogger(__name__)
+                project_id = resolve_or_create_project(db, project_name, app_name, _sync_logger)
+
                 # Insert activity record with duplicate prevention
                 insert_query = text("""
                     INSERT INTO activity_records (
                         developer_id, application_name, window_title,
                         url, file_path, duration, timestamp,
                         category, project_name, project_type,
-                        created_at
+                        project_id, created_at
                     ) VALUES (
                         :developer_id, :application_name, :window_title,
                         :url, :file_path, :duration, :timestamp,
                         :category, :project_name, :project_type,
-                        :created_at
+                        :project_id, :created_at
                     )
                 """)
 
@@ -209,6 +215,7 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                         "category": category_info["category"],
                         "project_name": project_name,
                         "project_type": category_info["subcategory"],
+                        "project_id": project_id,
                         "created_at": datetime.now(timezone.utc)
                     })
                     db.flush()

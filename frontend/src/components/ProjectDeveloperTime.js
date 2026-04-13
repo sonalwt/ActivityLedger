@@ -1,7 +1,7 @@
 // ProjectDeveloperTime.js - Project-wise Developer Time Spent View (Analytics-style UI)
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
-import { Calendar, Users, Clock, ChevronDown, FolderOpen, TrendingUp, Search, X, Layers, DollarSign } from 'lucide-react';
+import { Calendar, Users, Clock, ChevronDown, FolderOpen, TrendingUp, Search, X, Layers} from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -350,7 +350,7 @@ function ProjectDeveloperTime({ onBack }) {
           </div>
           <div className="pdt-summary-card">
             <div className="pdt-summary-icon" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}>
-              <DollarSign size={20} color="white" />
+              <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'white' }}>₹</span>
             </div>
             <div className="pdt-summary-content">
               <div className="pdt-summary-value">{summary.total_cost ? `₹${summary.total_cost.toLocaleString()}` : '₹0'}</div>
@@ -359,7 +359,7 @@ function ProjectDeveloperTime({ onBack }) {
           </div>
           <div className="pdt-summary-card">
             <div className="pdt-summary-icon" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
-              <DollarSign size={20} color="white" />
+              <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'white' }}>₹</span>
             </div>
             <div className="pdt-summary-content">
               <div className="pdt-summary-value">{summary.resource_cost ? `₹${summary.resource_cost.toLocaleString()}` : '₹0'}</div>
