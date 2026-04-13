@@ -51,6 +51,7 @@ WORK_BROWSER_KEYWORDS = [
 
 # Daily target hours for productivity calculation
 DAILY_TARGET_HOURS = 8.0
+MIN_WORKING_DAY_HOURS = 2.0
 
 
 def _resolve_project_period(period: str, start_date_str: Optional[str], end_date_str: Optional[str]):
@@ -206,7 +207,9 @@ async def get_developer_productivity_hours(
             if total_h <= 2:
                 continue
             prod_h = d["productive"] / 3600.0
-            pct = (prod_h / total_h * 100) if total_h > 0 else 0
+            # Use max(total_working_hours, 8h) as denominator
+            denominator_h = max(total_h, DAILY_TARGET_HOURS)
+            pct = min(100.0, (prod_h / denominator_h * 100)) if denominator_h > 0 else 0
 
             daily_stats.append({
                 "date": day_key.isoformat(),
@@ -235,7 +238,15 @@ async def get_developer_productivity_hours(
             "is_productive": (info["category"] or "").lower() in PRODUCTIVE_CATEGORIES
         } for app_name, info in sorted_apps]
 
-        overall_productivity = (total_productive_hours / total_work_hours * 100) if total_work_hours > 0 else 0
+        # Overall productivity: sum of per-day max(tracked, 8h) as denominator
+        total_denominator_hours = 0.0
+        for day_key in sorted(daily_data.keys()):
+            d = daily_data[day_key]
+            day_h = d["total"] / 3600.0
+            if day_h <= 2:
+                continue
+            total_denominator_hours += max(day_h, DAILY_TARGET_HOURS)
+        overall_productivity = min(100.0, (total_productive_hours / total_denominator_hours * 100)) if total_denominator_hours > 0 else 0
         avg_daily_hours = total_work_hours / len(daily_stats) if daily_stats else 0
 
         return {
@@ -453,10 +464,19 @@ async def get_all_developers_productivity_summary(
             end = datetime.now(timezone.utc)
 
         # Single SQL query: per-developer totals + metadata
-        # Work Activity % = productive_duration / total_duration * 100
-        # (same formula as individual developer dashboard)
+        # Productivity % = productive_hours / max(tracked_per_day, 8h) * 100
         query = text("""
-            WITH dev_stats AS (
+            WITH daily_totals AS (
+                SELECT
+                    ar.developer_id,
+                    DATE(ar.timestamp) AS work_date,
+                    SUM(ar.duration) AS day_seconds
+                FROM activity_records ar
+                WHERE ar.timestamp >= :start_date
+                  AND ar.timestamp <= :end_date
+                GROUP BY ar.developer_id, DATE(ar.timestamp)
+            ),
+            dev_stats AS (
                 SELECT
                     ar.developer_id,
                     SUM(ar.duration) AS total_seconds,
@@ -464,7 +484,13 @@ async def get_all_developers_productivity_summary(
                         WHEN COALESCE(ar.category, '') NOT IN ('entertainment', 'non-work')
                         THEN ar.duration ELSE 0
                     END) AS productive_seconds,
-                    COUNT(DISTINCT DATE(ar.timestamp)) AS active_days,
+                    (SELECT COUNT(*) FROM daily_totals dt
+                     WHERE dt.developer_id = ar.developer_id
+                       AND dt.day_seconds >= :min_day_seconds) AS active_days,
+                    (SELECT COALESCE(SUM(GREATEST(dt.day_seconds, :daily_target_seconds)), 0)
+                     FROM daily_totals dt
+                     WHERE dt.developer_id = ar.developer_id
+                       AND dt.day_seconds >= :min_day_seconds) AS denominator_seconds,
                     COUNT(DISTINCT ar.project_name) AS projects_worked,
                     COUNT(ar.id) AS total_activities
                 FROM activity_records ar
@@ -483,6 +509,7 @@ async def get_all_developers_productivity_summary(
                 COALESCE(ds.total_seconds, 0) AS total_seconds,
                 COALESCE(ds.productive_seconds, 0) AS productive_seconds,
                 COALESCE(ds.active_days, 0) AS active_days,
+                COALESCE(ds.denominator_seconds, 0) AS denominator_seconds,
                 COALESCE(ds.projects_worked, 0) AS projects_worked,
                 COALESCE(ds.total_activities, 0) AS total_activities,
                 la.last_activity
@@ -495,7 +522,9 @@ async def get_all_developers_productivity_summary(
 
         developer_stats = db.execute(query, {
             "start_date": start,
-            "end_date": end
+            "end_date": end,
+            "min_day_seconds": MIN_WORKING_DAY_HOURS * 3600,
+            "daily_target_seconds": DAILY_TARGET_HOURS * 3600
         }).fetchall()
 
         developers = []
@@ -511,9 +540,10 @@ async def get_all_developers_productivity_summary(
 
             total_hours = total_seconds / 3600.0
             productive_hours = productive_seconds / 3600.0
+            denom_seconds = float(row.denominator_seconds)
 
-            # Work Activity % = productive / total (same as individual dashboard)
-            productivity_percentage = min(100.0, (productive_seconds / total_seconds * 100)) if total_seconds > 0 else 0.0
+            # Productivity % = productive / sum_of_per_day_max(tracked, 8h)
+            productivity_percentage = min(100.0, (productive_seconds / denom_seconds * 100)) if denom_seconds > 0 else 0.0
 
             # Determine status based on last activity
             status = "offline"
