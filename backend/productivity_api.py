@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Define productive applications/categories
+# Define productive applications/categories...
 CODING_CATEGORIES = ['Development', 'IDE', 'Code', 'Terminal', 'Documentation']
 CODING_APPS = [
     'Visual Studio Code', 'IntelliJ IDEA', 'PyCharm', 'WebStorm', 'Android Studio',
