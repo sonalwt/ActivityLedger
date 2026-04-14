@@ -719,6 +719,93 @@ async def update_activity_project(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _auto_insert_projects_on_load(db: Session):
+    """
+    Auto-insert qualifying projects into the projects table on dashboard load.
+    Uses the same conditions as project_auto_insert.py:
+      1. project_name exists and is not generic
+      2. Name length > 4 characters
+      3. Name is not in the excluded folders list
+      4. Activity comes from a development editor
+      5. Total editor hours on this project > 2 hours
+    """
+    from project_auto_insert import _is_valid_project_name, DEV_EDITOR_NAMES, _DEV_EDITORS_SQL
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        # Find all distinct project names from activity_records that:
+        # - come from dev editors
+        # - have > 2 hours total editor time
+        # - are not already in the projects table
+        candidates_query = text(f"""
+            SELECT ar.project_name, COALESCE(SUM(ar.duration), 0) / 3600.0 as editor_hours
+            FROM activity_records ar
+            WHERE ar.project_name IS NOT NULL
+              AND ar.project_name != ''
+              AND LENGTH(ar.project_name) > 4
+              AND LOWER(ar.application_name) IN ({_DEV_EDITORS_SQL})
+              AND NOT EXISTS (
+                  SELECT 1 FROM projects p
+                  WHERE p.is_active = true AND LOWER(p.name) = LOWER(ar.project_name)
+              )
+            GROUP BY ar.project_name
+            HAVING COALESCE(SUM(ar.duration), 0) / 3600.0 > 2.0
+        """)
+
+        candidates = db.execute(candidates_query).fetchall()
+
+        inserted_count = 0
+        for row in candidates:
+            project_name = row[0]
+            editor_hours = float(row[1])
+
+            # Apply the same validation as project_auto_insert
+            if not _is_valid_project_name(project_name):
+                continue
+
+            try:
+                new_project = Project(
+                    name=project_name,
+                    description=f"Auto-added from dev editors ({editor_hours:.1f}h)",
+                    is_active=True
+                )
+                db.add(new_project)
+                db.flush()
+
+                inserted_count += 1
+                logger.info(f"Dashboard auto-inserted project '{project_name}' (id={new_project.id}, {editor_hours:.1f}h)")
+            except IntegrityError:
+                db.rollback()
+                continue
+
+        if inserted_count > 0:
+            db.commit()
+            logger.info(f"Dashboard auto-inserted {inserted_count} new project(s)")
+
+        # Update activity_records project_id for all active projects
+        # Covers newly inserted projects AND existing projects with stale/missing project_id
+        update_query = text("""
+            UPDATE activity_records ar
+            SET project_id = p.id
+            FROM projects p
+            WHERE p.is_active = true
+              AND LOWER(ar.project_name) = LOWER(p.name)
+              AND (ar.project_id IS NULL OR ar.project_id != p.id)
+        """)
+        result = db.execute(update_query)
+        if result.rowcount > 0:
+            db.commit()
+            logger.info(f"Updated project_id for {result.rowcount} activity records")
+
+    except Exception as e:
+        logger.error(f"Error in auto-insert projects on load: {e}")
+        # Don't fail the dashboard load if auto-insert fails
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 @router.get("/api/all-projects")
 async def get_all_projects(
     period: str = Query("current_month",
@@ -730,6 +817,9 @@ async def get_all_projects(
     """Get list of projects from the projects table with aggregated hours from activity_records."""
     try:
         from datetime import datetime, timezone
+
+        # Auto-insert qualifying projects before fetching
+        _auto_insert_projects_on_load(db)
 
         # Resolve date range from period
         start, end = _resolve_project_period(period, start_date, end_date)
