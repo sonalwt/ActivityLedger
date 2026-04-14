@@ -47,6 +47,7 @@ EXCLUDED_FOLDER_NAMES = {
     'downloads', 'desktop', 'documents', 'users', 'home',
     'prelogin', 'imports', 'cursor', '.claude',
     'general', 'unknown', 'nodeserver', 'ajaxservice',
+    'startup', 'scripts', 'mails',
 }
 
 # SQL IN clause for dev editors
