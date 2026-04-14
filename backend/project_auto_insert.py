@@ -87,14 +87,13 @@ def resolve_or_create_project(db, project_name: str, app_name: str, logger=None)
     if not project_name:
         return None
 
-    # Step 1: Check if project already exists
+    # Step 1: Check if project already exists (active or inactive)
     from models import Project
     project_row = db.query(Project).filter(
-        Project.is_active == True,
         func.lower(Project.name) == project_name.lower()
     ).first()
     if project_row:
-        return project_row.id
+        return project_row.id if project_row.is_active else None
 
     # Step 2: Validate — must be dev editor + valid name
     if not _is_dev_editor(app_name) or not _is_valid_project_name(project_name):
