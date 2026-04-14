@@ -746,7 +746,7 @@ def _auto_insert_projects_on_load(db: Session):
               AND LOWER(ar.application_name) IN ({_DEV_EDITORS_SQL})
               AND NOT EXISTS (
                   SELECT 1 FROM projects p
-                  WHERE p.is_active = true AND LOWER(p.name) = LOWER(ar.project_name)
+                  WHERE LOWER(p.name) = LOWER(ar.project_name)
               )
             GROUP BY ar.project_name
             HAVING COALESCE(SUM(ar.duration), 0) / 3600.0 > 2.0
@@ -764,6 +764,7 @@ def _auto_insert_projects_on_load(db: Session):
                 continue
 
             try:
+                nested = db.begin_nested()
                 new_project = Project(
                     name=project_name,
                     description=f"Auto-added from dev editors ({editor_hours:.1f}h)",
@@ -775,7 +776,7 @@ def _auto_insert_projects_on_load(db: Session):
                 inserted_count += 1
                 logger.info(f"Dashboard auto-inserted project '{project_name}' (id={new_project.id}, {editor_hours:.1f}h)")
             except IntegrityError:
-                db.rollback()
+                nested.rollback()
                 continue
 
         if inserted_count > 0:
