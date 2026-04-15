@@ -42,7 +42,7 @@ class ActivityRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Project information fields
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True, index=True)  # FK to projects table
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to projects table
     project_name = Column(String, index=True, nullable=True)  # Extracted project name
     project_type = Column(String, nullable=True)  # Development, Server Management, etc.
     project_file = Column(String, nullable=True)  # File or activity within project

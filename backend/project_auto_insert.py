@@ -27,6 +27,7 @@ DEV_EDITOR_NAMES = [
     'atom', 'atom.exe',
     'netbeans', 'netbeans64.exe', 'netbeans.exe',
     'vim', 'nvim', 'emacs',
+    'filezilla', 'filezilla.exe',
 ]
 
 # Common code subfolders, framework dirs, system folders — not real projects
@@ -47,7 +48,8 @@ EXCLUDED_FOLDER_NAMES = {
     'downloads', 'desktop', 'documents', 'users', 'home',
     'prelogin', 'imports', 'cursor', '.claude',
     'general', 'unknown', 'nodeserver', 'ajaxservice',
-    'startup', 'scripts', 'mails',
+    'startup',
+    'switch', 'transactions', 'sql_data',
 }
 
 # SQL IN clause for dev editors

@@ -11,6 +11,7 @@ import './ProjectDeveloperTime.css';
 
 const PERIOD_OPTIONS = [
   { value: 'current_week', label: 'Current Week' },
+  { value: 'last_week', label: 'Last Week' },
   { value: 'current_month', label: 'Current Month' },
   { value: 'last_month', label: 'Last Month' },
   { value: '3_months', label: 'Last 3 Months' },
