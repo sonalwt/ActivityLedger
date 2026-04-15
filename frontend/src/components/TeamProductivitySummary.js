@@ -48,6 +48,11 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
       };
 
       switch (currentDateRange) {
+        case 'today':
+          startDate = new Date(now);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          break;
         case 'this_week':
           startDate = getMonday(now);
           endDate.setHours(23, 59, 59, 999);
@@ -145,6 +150,7 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
           onChange={(e) => handleDateRangeChange(e.target.value)}
           className="team-header-select"
         >
+          <option value="today">Today</option>
           <option value="this_week">Current Week</option>
           <option value="last_week">Last Week</option>
           <option value="this_month">Current Month</option>

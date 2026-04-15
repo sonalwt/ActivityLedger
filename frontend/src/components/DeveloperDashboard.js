@@ -41,6 +41,10 @@ function DeveloperDashboard({ developer, onBack }) {
     const now = new Date();
     const weekOpts = { weekStartsOn: 1 };
     switch (range) {
+      case "today":
+        setStartDate(startOfDay(now));
+        setEndDate(endOfDay(now));
+        break;
       case "this_week":
         setStartDate(startOfWeek(now, weekOpts));
         setEndDate(endOfDay(now));
@@ -269,6 +273,7 @@ function DeveloperDashboard({ developer, onBack }) {
             value={quickRange}
             onChange={(e) => applyQuickRange(e.target.value)}
           >
+            <option value="today">Today</option>
             <option value="this_week">Current Week</option>
             <option value="last_week">Last Week</option>
             <option value="this_month">Current Month</option>
