@@ -31,11 +31,29 @@ router = APIRouter()
 
 models.Base.metadata.create_all(bind=engine)
 
-# Auto-migrate: add project_id column to activity_records if missing
+# Auto-migrate: add project_id column to activity_records if missing, with SET NULL on delete
 try:
     with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE activity_records ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id)"))
+        conn.execute(text("ALTER TABLE activity_records ADD COLUMN IF NOT EXISTS project_id INTEGER"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_activity_project_id ON activity_records(project_id)"))
+        # Drop old FK (if exists) and recreate with ON DELETE SET NULL
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                -- Drop existing FK constraint if it exists
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'activity_records_project_id_fkey'
+                      AND table_name = 'activity_records'
+                ) THEN
+                    ALTER TABLE activity_records DROP CONSTRAINT activity_records_project_id_fkey;
+                END IF;
+                -- Add FK with ON DELETE SET NULL
+                ALTER TABLE activity_records
+                    ADD CONSTRAINT activity_records_project_id_fkey
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL;
+            END $$;
+        """))
         conn.commit()
 except Exception as e:
     print(f"Migration note (project_id): {e}")

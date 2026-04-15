@@ -71,6 +71,15 @@ def _resolve_project_period(period: str, start_date_str: Optional[str], end_date
         monday = today - timedelta(days=days_since_monday)
         start = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
         end = now
+    elif period == "last_week":
+        # Monday to Sunday of previous week
+        days_since_monday = today.weekday()
+        this_monday = today - timedelta(days=days_since_monday)
+        last_monday = this_monday - timedelta(days=7)
+        last_sunday = this_monday - timedelta(days=1)
+        start = datetime(last_monday.year, last_monday.month, last_monday.day, tzinfo=timezone.utc)
+        end = datetime(last_sunday.year, last_sunday.month, last_sunday.day,
+                      23, 59, 59, tzinfo=timezone.utc)
     elif period == "last_month":
         first_of_this_month = date(today.year, today.month, 1)
         last_month_end = first_of_this_month - timedelta(days=1)
@@ -719,37 +728,112 @@ async def update_activity_project(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _is_browser_server_noise(name: str) -> bool:
+    """Filter out browser/server noise that is not a real project."""
+    import re
+    if not name:
+        return True
+    nl = name.lower().strip()
+
+    # Application/tool names — not projects
+    app_names = {
+        'google chrome', 'microsoft edge', 'firefox', 'brave', 'opera',
+        'termius', 'putty', 'mobaxterm', 'winscp',
+        'notepad', 'notepad++', 'claude', 'chatgpt', 'copilot',
+        'microsoft sql server management studio', 'anydesk', 'youtube',
+        'whatsapp', 'instagram', 'facebook', 'twitter', 'telegram',
+        'mysql workbench', 'program manager', 'excel', 'onvue',
+    }
+    if nl in app_names:
+        return True
+
+    # Generic browser/email/system noise
+    noise_patterns = [
+        'new tab', 'blank', 'google search', 'google sheets', 'google slides',
+        'google drive', 'google docs', 'google chrome', 'microsoft edge',
+        'first economy mail', 'radiant mail', 'radiant-mail',
+        'notification center', 'download collateral', 'fetch all',
+        'attendance detail', 'scheme list', 'scheme edit', 'ga data sheet',
+        'scrum board', 'latest data required', 'screen lock', 'lock screen',
+        'windows default', 'sign-in', 'task manager', 'file explorer',
+        'inbox', 'sent mail', 'draft', 'spam', 'trash',
+        'regular growth', 'search result', 'open file',
+        'google keep', 'snipping tool', 'windows shell',
+    ]
+    if any(p in nl for p in noise_patterns):
+        return True
+
+    # SQL query files (SQLQuery1.sql, etc.)
+    if re.match(r'^sqlquery\d', nl):
+        return True
+
+    # Drive letters (d:, c:)
+    if re.match(r'^[a-z]:$', nl):
+        return True
+
+    # Person names: "Firstname Lastname" pattern
+    if re.match(r'^[A-Z][a-z]+ [A-Z][a-z]+$', name) and len(name) < 25:
+        return True
+
+    # Action verb prefixes
+    if re.match(r'^(get |create |download |import |generate |update |register |call to )', nl):
+        return True
+
+    # File extensions (except domain names like .com, .in)
+    if re.search(r'\.\w{1,5}$', nl) and not re.search(r'\.(com|in|org|net|io|co)$', nl):
+        return True
+
+    # URLs or file paths
+    if nl.startswith('http') or '/' in name or '\\' in name:
+        return True
+
+    # Inbox with count — "Inbox (6)", "Inbox (14)"
+    if re.search(r'\(\d+\)', name):
+        return True
+
+    return False
+
+
 def _auto_insert_projects_on_load(db: Session):
     """
     Auto-insert qualifying projects into the projects table on dashboard load.
-    Uses the same conditions as project_auto_insert.py:
-      1. project_name exists and is not generic
-      2. Name length > 4 characters
-      3. Name is not in the excluded folders list
-      4. Activity comes from a development editor
-      5. Total editor hours on this project > 2 hours
+    Considers three types of work:
+      - IDE/editor work (dev editor apps) — threshold: >2 hours
+      - Server work (category: server) — threshold: >3 hours
+      - Browser work (category: browser) — threshold: >5 hours + at least 2 developers
+    Projects must pass name validation and not already exist in the projects table.
     """
-    from project_auto_insert import _is_valid_project_name, DEV_EDITOR_NAMES, _DEV_EDITORS_SQL
+    from project_auto_insert import _is_valid_project_name, DEV_EDITOR_NAMES
     from sqlalchemy.exc import IntegrityError
 
+    # Build LIKE conditions for dev editors (substring match)
+    editor_like_conditions = " OR ".join(
+        f"LOWER(ar.application_name) LIKE '%{e}%'" for e in DEV_EDITOR_NAMES
+    )
+
     try:
-        # Find all distinct project names from activity_records that:
-        # - come from dev editors
-        # - have > 2 hours total editor time
-        # - are not already in the projects table
+        # Get per-project hours split by work type (IDE, server, browser)
         candidates_query = text(f"""
-            SELECT ar.project_name, COALESCE(SUM(ar.duration), 0) / 3600.0 as editor_hours
+            SELECT
+                ar.project_name,
+                COALESCE(SUM(ar.duration), 0) / 3600.0 as total_hours,
+                COALESCE(SUM(CASE WHEN ({editor_like_conditions})
+                    THEN ar.duration ELSE 0 END), 0) / 3600.0 as ide_hours,
+                COALESCE(SUM(CASE WHEN ar.category = 'server'
+                    THEN ar.duration ELSE 0 END), 0) / 3600.0 as server_hours,
+                COALESCE(SUM(CASE WHEN ar.category = 'browser'
+                    THEN ar.duration ELSE 0 END), 0) / 3600.0 as browser_hours,
+                COUNT(DISTINCT ar.developer_id) as dev_count
             FROM activity_records ar
             WHERE ar.project_name IS NOT NULL
               AND ar.project_name != ''
               AND LENGTH(ar.project_name) > 4
-              AND LOWER(ar.application_name) IN ({_DEV_EDITORS_SQL})
+              AND ar.category IN ('productive', 'coding', 'server', 'browser')
               AND NOT EXISTS (
                   SELECT 1 FROM projects p
                   WHERE LOWER(p.name) = LOWER(ar.project_name)
               )
             GROUP BY ar.project_name
-            HAVING COALESCE(SUM(ar.duration), 0) / 3600.0 > 2.0
         """)
 
         candidates = db.execute(candidates_query).fetchall()
@@ -757,24 +841,43 @@ def _auto_insert_projects_on_load(db: Session):
         inserted_count = 0
         for row in candidates:
             project_name = row[0]
-            editor_hours = float(row[1])
+            total_hours = float(row[1])
+            ide_hours = float(row[2])
+            server_hours = float(row[3])
+            browser_hours = float(row[4])
+            dev_count = int(row[5])
 
-            # Apply the same validation as project_auto_insert
+            # Check thresholds by work type
+            source = ''
+            if ide_hours > 2.0:
+                source = f"IDE {ide_hours:.1f}h"
+            elif server_hours > 3.0:
+                source = f"Server {server_hours:.1f}h"
+            elif browser_hours > 5.0 and dev_count >= 2:
+                source = f"Browser {browser_hours:.1f}h, {dev_count} devs"
+            else:
+                continue
+
+            # Name validation (excluded folders, generic names)
             if not _is_valid_project_name(project_name):
+                continue
+
+            # Browser/server noise filter (app names, person names, etc.)
+            if _is_browser_server_noise(project_name):
                 continue
 
             try:
                 nested = db.begin_nested()
                 new_project = Project(
                     name=project_name,
-                    description=f"Auto-added from dev editors ({editor_hours:.1f}h)",
+                    description=f"Auto-added ({source})",
                     is_active=True
                 )
                 db.add(new_project)
                 db.flush()
 
                 inserted_count += 1
-                logger.info(f"Dashboard auto-inserted project '{project_name}' (id={new_project.id}, {editor_hours:.1f}h)")
+                logger.info(f"Dashboard auto-inserted project '{project_name}' (id={new_project.id}, {source})")
             except IntegrityError:
                 nested.rollback()
                 continue
