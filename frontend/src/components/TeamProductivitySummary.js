@@ -6,7 +6,7 @@ const TeamProductivitySummary = ({ onDataLoaded, dateRange, onDateRangeChange })
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [localDateRange, setLocalDateRange] = useState('this_week');
+  const [localDateRange, setLocalDateRange] = useState('today');
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 

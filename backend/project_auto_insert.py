@@ -113,21 +113,20 @@ def resolve_or_create_project(db, project_name: str, app_name: str, logger=None)
     if editor_hours <= 2.0:
         return None
 
-    # Step 4: Insert new project
+    # Step 4: Insert new project (use savepoint to avoid corrupting parent transaction)
     try:
-        new_project = Project(
-            name=project_name,
-            description=f"Auto-added from dev editors ({editor_hours:.1f}h)",
-            is_active=True
-        )
-        db.add(new_project)
-        db.flush()
+        with db.begin_nested():
+            new_project = Project(
+                name=project_name,
+                description=f"Auto-added from dev editors ({editor_hours:.1f}h)",
+                is_active=True
+            )
+            db.add(new_project)
         if logger:
             logger.info(f"Auto-inserted project '{project_name}' ({editor_hours:.1f}h from editors)")
         return new_project.id
     except IntegrityError:
-        db.rollback()
-        # Concurrent insert — fetch existing
+        # Concurrent insert — savepoint auto-rolled back, fetch existing
         project_row = db.query(Project).filter(
             func.lower(Project.name) == project_name.lower()
         ).first()

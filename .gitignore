@@ -111,3 +111,4 @@ temp_*.json
 *.pyc
 2026-04-15_backup_ankita_gholap.json
 fetch_*
+agent*

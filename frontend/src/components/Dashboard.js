@@ -14,7 +14,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [productivityLoaded, setProductivityLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState('this_week');
+  const [dateRange, setDateRange] = useState('today');
   // Use environment variable or relative path (proxy handles routing)
   const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com'; // Use empty string for relative URLs via proxy
 
