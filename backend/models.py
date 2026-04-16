@@ -20,13 +20,10 @@ class ActivityRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    # Multi-developer support (stateless) - Enhanced
+
+    # Multi-developer support (stateless)
     developer_id = Column(String, index=True, nullable=True)  # String identifier, no FK
-    developer_name = Column(String(255), index=True, nullable=True)  # Developer display name
-    developer_hostname = Column(String(255), nullable=True)  # Hostname of developer machine
-    device_id = Column(String(255), nullable=True)  # ActivityWatch device ID
-    
+
     application_name = Column(String, index=True)
     window_title = Column(Text)
     url = Column(Text, nullable=True)  # For browser activities
@@ -35,12 +32,13 @@ class ActivityRecord(Base):
     specific_process = Column(String, nullable=True)  # For system processes
     detailed_activity = Column(Text, nullable=True)  # Enhanced description
     category = Column(String, index=True)  # browser, ide, productivity, etc.
+    subcategory = Column(String, nullable=True)
+    category_confidence = Column(Float, nullable=True)
     duration = Column(Float)  # Duration in seconds
     timestamp = Column(DateTime(timezone=True))  # Original activity timestamp
-    activity_timestamp = Column(DateTime(timezone=True), nullable=True)  # For better querying
-    bucket_name = Column(String(255), nullable=True)  # ActivityWatch bucket name
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    activity_data = Column(Text, nullable=True)  # Extra activity metadata
+
     # Project information fields
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to projects table
     project_name = Column(String, index=True, nullable=True)  # Extracted project name

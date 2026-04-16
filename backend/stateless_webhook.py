@@ -338,15 +338,15 @@ async def receive_activitywatch_webhook_stateless(
                             continue
                         try:
                             ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-                            db.add(AFKRecord(
-                                developer_id=developer_id,
-                                status=afk_status,
-                                duration=float(dur),
-                                timestamp=ts
-                            ))
-                            db.flush()
+                            with db.begin_nested():
+                                db.add(AFKRecord(
+                                    developer_id=developer_id,
+                                    status=afk_status,
+                                    duration=float(dur),
+                                    timestamp=ts
+                                ))
                         except IntegrityError:
-                            db.rollback()
+                            pass  # Duplicate — savepoint auto-rolled back
                         except Exception as e:
                             logger.error(f"Error processing AFK event: {e}")
                     continue  # Skip to next bucket
@@ -355,15 +355,15 @@ async def receive_activitywatch_webhook_stateless(
                 for event in bucket_data:
                     if not isinstance(event, dict):
                         continue
-                    
+
                     # Extract event data
                     timestamp_str = event.get('timestamp')
                     duration = event.get('duration', 0)
                     data = event.get('data', {})
-                    
+
                     if not timestamp_str or duration < 5:  # Skip very short activities
                         continue
-                    
+
                     try:
                         # Parse timestamp
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
@@ -400,12 +400,26 @@ async def receive_activitywatch_webhook_stateless(
                                 project_info['project_name'] = resolved
                                 project_info['project_type'] = 'Development'
                         # Also check if VS Code project name is actually a FileZilla site name
-                        # e.g. "file.js - node server - Visual Studio Code" where "node server" is a site
                         elif project_info['project_name'] and category == 'development':
                             resolved = resolve_ide_project(db, developer_id, timestamp, project_info['project_name'])
                             if resolved and resolved != project_info['project_name']:
                                 project_info['project_name'] = resolved
                                 project_info['project_type'] = 'Development'
+
+                        # For non-development activities (browser, system, etc.),
+                        # inherit project from the most recent IDE/editor activity
+                        if category != 'development':
+                            from models import ActivityRecord as AR
+                            recent_dev = db.query(AR.project_name).filter(
+                                AR.developer_id == developer_id,
+                                AR.category == 'development',
+                                AR.project_name.isnot(None),
+                                AR.project_name != 'IDE Work',
+                                AR.timestamp <= timestamp,
+                                AR.timestamp >= timestamp - timedelta(minutes=30),
+                            ).order_by(AR.timestamp.desc()).first()
+                            if recent_dev and recent_dev[0]:
+                                project_info['project_name'] = recent_dev[0]
 
                         # Look up project_id from projects table, auto-insert if dev editor + valid name + >2h
                         from models import ActivityRecord, Project
@@ -428,17 +442,16 @@ async def receive_activitywatch_webhook_stateless(
                             detailed_activity=project_info['detailed_activity']
                         )
 
-                        db.add(activity_record)
                         try:
-                            db.flush()
+                            with db.begin_nested():
+                                db.add(activity_record)
                             processed_activities += 1
                         except IntegrityError:
-                            db.rollback()
                             skipped_duplicates += 1
                             continue
                         
                     except Exception as e:
-                        logger.error(f"Error processing event: {e}")
+                        logger.error(f"Error processing event: {e}", exc_info=True)
                         continue
         
         # Commit all changes

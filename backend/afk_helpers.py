@@ -33,8 +33,23 @@ MIN_WORKING_DAY_HOURS = 2.0  # Only count days with > 2h total activity
 # ---------------------------------------------------------------------------
 # Core AFK overlap functions (extracted from activity_categorization_api.py)
 # ---------------------------------------------------------------------------
+def _merge_intervals(intervals: List[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
+    """Merge overlapping/adjacent intervals into non-overlapping intervals."""
+    if not intervals:
+        return []
+    sorted_iv = sorted(intervals, key=lambda x: x[0])
+    merged = [sorted_iv[0]]
+    for start, end in sorted_iv[1:]:
+        if start <= merged[-1][1]:
+            # Overlapping or adjacent — extend
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def build_not_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
-    """Build sorted list of (start, end) intervals where user was active."""
+    """Build sorted, merged list of (start, end) intervals where user was active."""
     intervals = []
     for row in afk_rows:
         if row.status == "not-afk":
@@ -43,12 +58,11 @@ def build_not_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
                 start = start.replace(tzinfo=timezone.utc)
             end = start + timedelta(seconds=row.duration)
             intervals.append((start, end))
-    intervals.sort(key=lambda x: x[0])
-    return intervals
+    return _merge_intervals(intervals)
 
 
 def build_all_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
-    """Build sorted list of (start, end) for ALL afk records (both afk + not-afk).
+    """Build sorted, merged list of (start, end) for ALL afk records (both afk + not-afk).
     Used to determine which time periods have AFK watcher coverage."""
     intervals = []
     for row in afk_rows:
@@ -57,8 +71,7 @@ def build_all_afk_intervals(afk_rows) -> List[Tuple[datetime, datetime]]:
             start = start.replace(tzinfo=timezone.utc)
         end = start + timedelta(seconds=row.duration)
         intervals.append((start, end))
-    intervals.sort(key=lambda x: x[0])
-    return intervals
+    return _merge_intervals(intervals)
 
 
 def compute_active_duration(
