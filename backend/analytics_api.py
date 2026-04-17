@@ -264,6 +264,7 @@ async def get_developer_analytics(
         daily_analytics = []
         total_work_hours = 0.0
         total_productive_hours = 0.0
+        total_productivity_pct = 0.0
         working_days = 0
         leave_days = 0
 
@@ -320,6 +321,7 @@ async def get_developer_analytics(
                     }
                     total_work_hours += display_total_h
                     total_productive_hours += display_prod_h
+                    total_productivity_pct += round(pct, 1)
                     working_days += 1
             else:
                 # No activity at all
@@ -351,7 +353,7 @@ async def get_developer_analytics(
 
         avg_work_hours = round(total_work_hours / working_days, 2) if working_days > 0 else 0
         avg_productivity = round(
-            (total_productive_hours / total_work_hours * 100) if total_work_hours > 0 else 0, 1
+            (total_productivity_pct / working_days) if working_days > 0 else 0, 1
         )
         avg_productivity = min(avg_productivity, 100.0)
 
