@@ -185,13 +185,15 @@ function DeveloperDashboard({ developer, onBack }) {
     const fileName = filePath ? filePath.split(/[/\\]/).pop() : '';
 
     if (!title || !title.trim()) {
-      return fileName || projectName || 'Unknown';
+      return projectName ? `${projectName} - ${fileName || 'Unknown'}` : fileName || 'Unknown';
     }
     if (IDE_NAMES.includes(title.trim().toLowerCase())) {
-      const detail = fileName || projectName;
-      return detail ? `${title.trim()} - ${detail}` : title;
+      if (projectName) {
+        return fileName ? `${projectName} - ${fileName}` : projectName;
+      }
+      return fileName ? `${title.trim()} - ${fileName}` : title;
     }
-    return title
+    const cleaned = title
       .replace(/ - Google Chrome$/, '')
       .replace(/ - Mozilla Firefox$/, '')
       .replace(/ - Microsoft Edge$/, '')
@@ -199,6 +201,10 @@ function DeveloperDashboard({ developer, onBack }) {
       .replace(/ – .*$/, '')
       .trim()
       .slice(0, 120);
+    if (projectName && !cleaned.toLowerCase().includes(projectName.toLowerCase())) {
+      return `${projectName} - ${cleaned}`;
+    }
+    return cleaned;
   };
 
   const formatActivityDate = (value) => {

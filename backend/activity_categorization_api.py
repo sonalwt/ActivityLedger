@@ -227,7 +227,8 @@ async def get_categorized_activities(
             dedup = {}
 
             for a in acts:
-                key = a["window_title"].strip().lower()
+                project = (a.get("project_name") or "").strip().lower()
+                key = f"{a['window_title'].strip().lower()}||{project}"
 
                 if key not in dedup:
                     dedup[key] = {
