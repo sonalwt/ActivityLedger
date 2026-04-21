@@ -63,8 +63,10 @@ function ProjectDeveloperTime({ onBack }) {
       );
       if (response.ok) {
         const data = await response.json();
+        const excludedNames = ['scripts', 'ide work', 'mails'];
         const filteredProjects = (data.projects || []).filter(p =>
-          p.project_name && p.project_name.trim() !== ''
+          p.project_name && p.project_name.trim() !== '' &&
+          !excludedNames.includes(p.project_name.toLowerCase())
         );
         setProjects(filteredProjects);
       } else {
