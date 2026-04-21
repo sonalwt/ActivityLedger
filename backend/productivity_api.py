@@ -986,7 +986,11 @@ async def get_all_projects(
             date_filter = "AND ar.timestamp >= :start_date AND ar.timestamp <= :end_date"
             query_params = {"start_date": start, "end_date": end}
 
+        # Excluded project names (noise/non-project entries)
+        excluded_projects = ['scripts', 'ide work', 'mails']
+
         # Fetch all active projects from projects table, with aggregated hours from activity_records
+        # Only return projects where developers spent more than 3 hours
         projects_query = db.execute(text(f"""
             SELECT
                 p.id,
@@ -1000,7 +1004,9 @@ async def get_all_projects(
             LEFT JOIN activity_records ar ON ar.project_id = p.id
                 {date_filter}
             WHERE p.is_active = true
+              AND LOWER(p.name) NOT IN ('scripts', 'ide work', 'mails')
             GROUP BY p.id, p.name, p.description, p.total_cost
+            HAVING COALESCE(SUM(ar.duration) / 3600.0, 0) > 3
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
