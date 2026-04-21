@@ -205,6 +205,53 @@ def _run_osascript_multi(*lines, timeout=5):
 
 
 # ---------------------------------------------------------------------------
+# IDE Project Folder Detection (from process working directory)
+# ---------------------------------------------------------------------------
+IDE_APP_NAMES = {'visual studio code', 'code', 'cursor'}
+_ide_project_cache = {}  # {app_lower: {"project": str, "time": float}}
+
+
+def _get_ide_project_folder(app_name):
+    """Get project folder name from IDE process working directory. Cached for 5 min."""
+    app_lower = (app_name or "").lower()
+    if app_lower not in IDE_APP_NAMES:
+        return None
+
+    # Check cache (valid for 5 minutes)
+    cached = _ide_project_cache.get(app_lower)
+    if cached and time.time() - cached["time"] < 300:
+        return cached["project"]
+
+    try:
+        # Get PID of the app
+        pid_str = _run_osascript(
+            f'tell application "System Events" to get unix id of '
+            f'first application process whose displayed name is "{app_name}"',
+            timeout=3,
+        )
+        if not pid_str:
+            return None
+
+        # Get working directory via lsof
+        result = subprocess.run(
+            ['lsof', '-p', pid_str, '-d', 'cwd', '-Fn'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith('n') and line != 'n':
+                    cwd = line[1:]  # Remove 'n' prefix
+                    project = os.path.basename(cwd)
+                    if project and project != '/':
+                        _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
+                        return project
+
+        return None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # AppleScript — App name + Window title (multiple fallback strategies)
 # ---------------------------------------------------------------------------
 def get_active_window_info():
@@ -312,6 +359,10 @@ def get_active_window_info():
         info = {"app": app_name, "title": title}
         if url:
             info["url"] = url
+        # Add project folder from IDE process (if applicable)
+        project = _get_ide_project_folder(app_name)
+        if project:
+            info["project"] = project
         return info
 
     except Exception as e:
@@ -383,6 +434,7 @@ class WindowTracker:
         self.current_app = None
         self.current_title = None
         self.current_url = None
+        self.current_project = None
         self.session_start = None
 
         # Smart AFK: track when screen content last changed
@@ -417,6 +469,7 @@ class WindowTracker:
                 self.current_app = new_app
                 self.current_title = new_title
                 self.current_url = new_url
+                self.current_project = info.get("project")
                 self.session_start = now
             else:
                 # Update URL even if app/title didn't change (tab URL can change)
@@ -436,6 +489,8 @@ class WindowTracker:
                 }
                 if self.current_url:
                     event_data["url"] = self.current_url
+                if self.current_project:
+                    event_data["project"] = self.current_project
                 self.window_events.append({
                     "timestamp": self.session_start.isoformat(),
                     "duration": round(duration, 1),

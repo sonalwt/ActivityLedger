@@ -189,6 +189,33 @@ BROWSER_NAMES = frozenset(list(BROWSER_SCRIPTS.keys()) + [
 
 _log = logging.getLogger("activity_agent")
 
+# IDE Project Folder Detection
+IDE_APP_NAMES = {'visual studio code', 'code', 'cursor'}
+_ide_project_cache = {}
+
+def _get_ide_project_folder(app_name):
+    """Get project folder from IDE process working directory. Cached 5 min."""
+    app_lower = (app_name or "").lower()
+    if app_lower not in IDE_APP_NAMES: return None
+    cached = _ide_project_cache.get(app_lower)
+    if cached and time.time() - cached["time"] < 300: return cached["project"]
+    try:
+        pid_str = _run_osascript(
+            f'tell application "System Events" to get unix id of '
+            f'first application process whose displayed name is "{app_name}"', timeout=3)
+        if not pid_str: return None
+        result = subprocess.run(['lsof', '-p', pid_str, '-d', 'cwd', '-Fn'],
+            capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith('n') and line != 'n':
+                    project = os.path.basename(line[1:])
+                    if project and project != '/':
+                        _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
+                        return project
+        return None
+    except Exception: return None
+
 def _run_osascript(script, timeout=3):
     """Run a single-line AppleScript and return stdout, or None."""
     try:
@@ -293,6 +320,8 @@ def get_active_window_info():
         _log.debug(f"Captured: app={app_name}, title={title}, url={url}")
         info = {"app": app_name, "title": title}
         if url: info["url"] = url
+        project = _get_ide_project_folder(app_name)
+        if project: info["project"] = project
         return info
     except Exception as e:
         _log.debug(f"get_active_window_info error: {e}")
@@ -329,7 +358,7 @@ class WindowTracker:
     def __init__(self, afk_timeout):
         self.afk_timeout = afk_timeout
         self.current_app = None; self.current_title = None; self.current_url = None
-        self.session_start = None
+        self.current_project = None; self.session_start = None
         self.last_screen_change = datetime.now(timezone.utc)  # Smart AFK: track screen changes
         self.afk_state = "not-afk"; self.afk_start = None; self.active_start = datetime.now(timezone.utc)
         self.window_events = []; self.afk_events = []
@@ -343,7 +372,8 @@ class WindowTracker:
                 self.last_screen_change = now  # Screen content changed
                 self._close_window_session(now)
                 self.current_app = new_app; self.current_title = new_title
-                self.current_url = new_url; self.session_start = now
+                self.current_url = new_url; self.current_project = info.get("project")
+                self.session_start = now
             else:
                 self.current_url = new_url
         self._update_afk(now, idle_secs)
@@ -354,6 +384,7 @@ class WindowTracker:
             if duration >= 5:
                 event_data = {"app": self.current_app, "title": self.current_title or ""}
                 if self.current_url: event_data["url"] = self.current_url
+                if self.current_project: event_data["project"] = self.current_project
                 self.window_events.append({"timestamp": self.session_start.isoformat(), "duration": round(duration, 1),
                     "data": event_data})
 
