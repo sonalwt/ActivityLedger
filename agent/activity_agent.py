@@ -200,6 +200,10 @@ class WindowTracker:
         self.current_title = None
         self.session_start = None
 
+        # Smart AFK: track when screen content last changed
+        # (prevents false AFK when using AI tools like Claude Code)
+        self.last_screen_change = datetime.now(timezone.utc)
+
         # AFK state
         self.afk_state = "not-afk"
         self.afk_start = None
@@ -214,23 +218,22 @@ class WindowTracker:
         now = datetime.now(timezone.utc)
         idle_secs = get_idle_seconds()
 
-        # --- AFK state machine ---
-        self._update_afk(now, idle_secs)
-
-        # --- Active window tracking ---
+        # --- Active window tracking (BEFORE AFK check) ---
         info = get_active_window_info()
-        if info is None:
-            return
+        if info is not None:
+            new_app = info["app"]
+            new_title = info["title"]
 
-        new_app = info["app"]
-        new_title = info["title"]
+            # If window changed, close previous session and open a new one
+            if new_app != self.current_app or new_title != self.current_title:
+                self.last_screen_change = now  # Screen content changed
+                self._close_window_session(now)
+                self.current_app = new_app
+                self.current_title = new_title
+                self.session_start = now
 
-        # If window changed, close previous session and open a new one
-        if new_app != self.current_app or new_title != self.current_title:
-            self._close_window_session(now)
-            self.current_app = new_app
-            self.current_title = new_title
-            self.session_start = now
+        # --- AFK state machine (uses last_screen_change) ---
+        self._update_afk(now, idle_secs)
 
     def _close_window_session(self, now):
         """Emit a completed window event."""
@@ -247,8 +250,18 @@ class WindowTracker:
                 })
 
     def _update_afk(self, now, idle_secs):
-        """Update AFK state machine and emit events on transitions."""
+        """Update AFK state machine and emit events on transitions.
+
+        Smart AFK: If the screen content is actively changing (e.g. AI tool
+        like Claude Code is making edits, files switching), the user is still
+        engaged even without keyboard/mouse input. Don't mark as AFK.
+        """
+        secs_since_screen_change = (now - self.last_screen_change).total_seconds()
+        screen_active = secs_since_screen_change < self.afk_timeout
+
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
+            if screen_active:
+                return  # Screen content is changing — user is monitoring (AI tool, etc.)
             # ACTIVE → AFK
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:

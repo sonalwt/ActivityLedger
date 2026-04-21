@@ -144,20 +144,155 @@ def generate_token(developer_id, master_secret):
     _cached_year = current_year; return _cached_token
 
 SKIP_TITLES = frozenset(["", "program manager", "task switching", "task view",
-    "windows default lock screen", "lock screen", "new tab", "blank", "notification center", "loginwindow"])
+    "windows default lock screen", "lock screen", "new tab", "blank",
+    "notification center", "loginwindow", "missing value"])
+
+# Browser apps with AppleScript support for tab title + URL
+BROWSER_SCRIPTS = {
+    "Google Chrome": {
+        "title": 'tell application "Google Chrome" to get title of active tab of front window',
+        "url": 'tell application "Google Chrome" to get URL of active tab of front window',
+    },
+    "Google Chrome Canary": {
+        "title": 'tell application "Google Chrome Canary" to get title of active tab of front window',
+        "url": 'tell application "Google Chrome Canary" to get URL of active tab of front window',
+    },
+    "Safari": {
+        "title": 'tell application "Safari" to get name of current tab of front window',
+        "url": 'tell application "Safari" to get URL of current tab of front window',
+    },
+    "Brave Browser": {
+        "title": 'tell application "Brave Browser" to get title of active tab of front window',
+        "url": 'tell application "Brave Browser" to get URL of active tab of front window',
+    },
+    "Microsoft Edge": {
+        "title": 'tell application "Microsoft Edge" to get title of active tab of front window',
+        "url": 'tell application "Microsoft Edge" to get URL of active tab of front window',
+    },
+    "Vivaldi": {
+        "title": 'tell application "Vivaldi" to get title of active tab of front window',
+        "url": 'tell application "Vivaldi" to get URL of active tab of front window',
+    },
+    "Opera": {
+        "title": 'tell application "Opera" to get title of active tab of front window',
+        "url": 'tell application "Opera" to get URL of active tab of front window',
+    },
+}
+
+BROWSER_NAMES = frozenset(list(BROWSER_SCRIPTS.keys()) + [
+    "Firefox", "Arc", "Orion", "Waterfox", "Chromium",
+])
+
+_log = logging.getLogger("activity_agent")
+
+def _run_osascript(script, timeout=3):
+    """Run a single-line AppleScript and return stdout, or None."""
+    try:
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            val = result.stdout.strip()
+            if val and val.lower() != "missing value": return val
+    except (subprocess.TimeoutExpired, Exception): pass
+    return None
+
+def _run_osascript_multi(*lines, timeout=5):
+    """Run a multi-line AppleScript using separate -e flags (most reliable)."""
+    try:
+        cmd = ["osascript"]
+        for line in lines:
+            cmd.extend(["-e", line])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            val = result.stdout.strip()
+            if val and val.lower() != "missing value": return val
+    except (subprocess.TimeoutExpired, Exception): pass
+    return None
 
 def get_active_window_info():
+    """Return {"app": ..., "title": ..., "url": ...} or None.
+    Tries multiple methods to capture window info reliably:
+    1. Combined System Events script (displayed name + window title)
+    2. Separate one-liner calls as fallback
+    3. App-specific scripting for IDEs (Cursor, VS Code, etc.)
+    4. Browser-specific scripting for tab title + URL
+    """
     try:
-        app_script = 'tell application "System Events" to get name of first application process whose frontmost is true'
-        app_result = subprocess.run(["osascript", "-e", app_script], capture_output=True, text=True, timeout=5)
-        if app_result.returncode != 0 or not app_result.stdout.strip(): return None
-        app_name = app_result.stdout.strip()
-        title_script = 'tell application "System Events" to get name of front window of (first application process whose frontmost is true)'
-        title_result = subprocess.run(["osascript", "-e", title_script], capture_output=True, text=True, timeout=5)
-        title = title_result.stdout.strip() if title_result.returncode == 0 else app_name
+        # Step 1: Get app display name + window title (combined, reliable)
+        combined = _run_osascript_multi(
+            'tell application "System Events"',
+            '  set fp to first application process whose frontmost is true',
+            '  set appName to displayed name of fp',
+            '  set windowTitle to ""',
+            '  try',
+            '    set windowTitle to name of front window of fp',
+            '  end try',
+            '  if windowTitle is "" or windowTitle is missing value then',
+            '    try',
+            '      set windowTitle to value of attribute "AXTitle" of front window of fp',
+            '    end try',
+            '  end if',
+            '  return appName & "|||" & windowTitle',
+            'end tell',
+        )
+
+        app_name = None
+        title = None
+
+        if combined and "|||" in combined:
+            parts = combined.split("|||", 1)
+            app_name = parts[0].strip()
+            title = parts[1].strip() if len(parts) > 1 else ""
+            if not title: title = None
+
+        # Step 2: Fallback — separate one-liner calls
+        if not app_name:
+            app_name = _run_osascript(
+                'tell application "System Events" to get displayed name of '
+                'first application process whose frontmost is true', timeout=5)
+        if not app_name:
+            app_name = _run_osascript(
+                'tell application "System Events" to get name of '
+                'first application process whose frontmost is true', timeout=5)
+        if not app_name:
+            return None
+
+        if not title:
+            title = _run_osascript(
+                'tell application "System Events" to get name of front window '
+                'of (first application process whose frontmost is true)', timeout=5)
+        if not title:
+            title = _run_osascript(
+                'tell application "System Events" to get value of attribute "AXTitle" '
+                'of front window of (first application process whose frontmost is true)', timeout=5)
+
+        # Step 3: App-specific scripting for IDEs (Electron apps)
+        if not title or title == app_name:
+            app_title = _run_osascript(
+                f'tell application "{app_name}" to get name of front window', timeout=3)
+            if app_title: title = app_title
+
+        # Step 4: Browser — get tab title + URL
+        url = None
+        if app_name in BROWSER_SCRIPTS:
+            scripts = BROWSER_SCRIPTS[app_name]
+            tab_title = _run_osascript(scripts["title"])
+            tab_url = _run_osascript(scripts["url"])
+            if tab_url: url = tab_url
+            if tab_title: title = f"{tab_title} - {app_name}"
+        elif app_name in BROWSER_NAMES and (not title or title == app_name):
+            pass  # Firefox/Arc etc. — use System Events title already captured
+
+        # Step 5: Final handling
+        if not title: title = app_name
         if title.lower() in SKIP_TITLES: return None
-        return {"app": app_name, "title": title}
-    except: return None
+
+        _log.debug(f"Captured: app={app_name}, title={title}, url={url}")
+        info = {"app": app_name, "title": title}
+        if url: info["url"] = url
+        return info
+    except Exception as e:
+        _log.debug(f"get_active_window_info error: {e}")
+        return None
 
 def get_idle_seconds():
     try:
@@ -168,31 +303,62 @@ def get_idle_seconds():
         return 0.0
     except: return 0.0
 
+def check_accessibility():
+    """Warn if Accessibility permission is not granted."""
+    try:
+        test_script = ('tell application "System Events" to get name of '
+                       'first application process whose frontmost is true')
+        result = subprocess.run(["osascript", "-e", test_script], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            stderr = result.stderr.lower()
+            if "not allowed assistive access" in stderr or "1002" in stderr:
+                print("=" * 55)
+                print("  ERROR: Accessibility permission required!")
+                print("  Go to: System Settings > Privacy & Security")
+                print("         > Accessibility")
+                print("  and enable Terminal or the agent binary.")
+                print("=" * 55)
+                sys.exit(1)
+    except Exception: pass
+
 class WindowTracker:
     def __init__(self, afk_timeout):
         self.afk_timeout = afk_timeout
-        self.current_app = None; self.current_title = None; self.session_start = None
+        self.current_app = None; self.current_title = None; self.current_url = None
+        self.session_start = None
+        self.last_screen_change = datetime.now(timezone.utc)  # Smart AFK: track screen changes
         self.afk_state = "not-afk"; self.afk_start = None; self.active_start = datetime.now(timezone.utc)
         self.window_events = []; self.afk_events = []
 
     def tick(self):
         now = datetime.now(timezone.utc); idle_secs = get_idle_seconds()
-        self._update_afk(now, idle_secs)
         info = get_active_window_info()
-        if info is None: return
-        if info["app"] != self.current_app or info["title"] != self.current_title:
-            self._close_window_session(now)
-            self.current_app = info["app"]; self.current_title = info["title"]; self.session_start = now
+        if info is not None:
+            new_app = info["app"]; new_title = info["title"]; new_url = info.get("url")
+            if new_app != self.current_app or new_title != self.current_title:
+                self.last_screen_change = now  # Screen content changed
+                self._close_window_session(now)
+                self.current_app = new_app; self.current_title = new_title
+                self.current_url = new_url; self.session_start = now
+            else:
+                self.current_url = new_url
+        self._update_afk(now, idle_secs)
 
     def _close_window_session(self, now):
         if self.current_app and self.session_start:
             duration = (now - self.session_start).total_seconds()
             if duration >= 5:
+                event_data = {"app": self.current_app, "title": self.current_title or ""}
+                if self.current_url: event_data["url"] = self.current_url
                 self.window_events.append({"timestamp": self.session_start.isoformat(), "duration": round(duration, 1),
-                    "data": {"app": self.current_app, "title": self.current_title or ""}})
+                    "data": event_data})
 
     def _update_afk(self, now, idle_secs):
+        # Smart AFK: if screen content is changing (AI tool working), don't go AFK
+        secs_since_screen_change = (now - self.last_screen_change).total_seconds()
+        screen_active = secs_since_screen_change < self.afk_timeout
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
+            if screen_active: return  # Screen changing — user is monitoring
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:
                 active_dur = (afk_started - self.active_start).total_seconds()
@@ -265,6 +431,8 @@ class SyncManager:
 class ActivityAgent:
     def __init__(self):
         self.config = load_config(); self.logger = setup_logging(self.config)
+        self.logger.info("Checking macOS Accessibility permission...")
+        check_accessibility()
         self.tracker = WindowTracker(afk_timeout=self.config["afk_timeout_seconds"])
         self.sync_mgr = SyncManager(self.config, self.logger)
         self.running = True; self.last_sync = time.time()
@@ -276,9 +444,18 @@ class ActivityAgent:
         self.tracker.flush_current(); w, a = self.tracker.drain_events()
         self.sync_mgr.add_events(w, a); self.sync_mgr._save_queue(); self.logger.info("Saved pending events on exit")
 
+    def _log_startup_diagnostic(self):
+        """Log what the agent can capture on startup."""
+        info = get_active_window_info()
+        if info:
+            self.logger.info(f"Startup capture test: app={info.get('app')}, title={info.get('title')}, url={info.get('url', 'N/A')}")
+        else:
+            self.logger.warning("Startup capture test: FAILED to get any window info")
+
     def run(self):
         self.logger.info("=" * 50); self.logger.info("Activity Agent started (macOS)")
         self.logger.info(f"Developer: {self.config['developer_id']}"); self.logger.info(f"Server: {self.config['server_url']}")
+        self._log_startup_diagnostic()
         while self.running:
             try:
                 self.tracker.tick()
@@ -300,10 +477,10 @@ PLIST_FILE="$PLIST_DIR/com.activityledger.agent.plist"
 PYTHON_PATH="$(command -v python3)"
 mkdir -p "$PLIST_DIR"
 
-# Unload existing if present
-if launchctl list 2>/dev/null | grep -q "com.activityledger.agent"; then
-    launchctl unload "$PLIST_FILE" 2>/dev/null || true
-fi
+# Stop any existing agent — always try unload + kill
+launchctl unload "$PLIST_FILE" 2>/dev/null || true
+pkill -f "activity_agent_mac.py" 2>/dev/null || true
+sleep 1
 
 cat > "$PLIST_FILE" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
