@@ -347,6 +347,9 @@ class WindowTracker:
         self.current_title = None
         self.session_start = None
 
+        # Smart AFK: track when screen content last changed
+        self.last_screen_change = datetime.now(timezone.utc)
+
         self.afk_state = "not-afk"
         self.afk_start = None
         self.active_start = datetime.now(timezone.utc)
@@ -358,20 +361,19 @@ class WindowTracker:
         now = datetime.now(timezone.utc)
         idle_secs = get_idle_seconds()
 
-        self._update_afk(now, idle_secs)
-
         info = get_active_window_info()
-        if info is None:
-            return
+        if info is not None:
+            new_app = info["app"]
+            new_title = info["title"]
 
-        new_app = info["app"]
-        new_title = info["title"]
+            if new_app != self.current_app or new_title != self.current_title:
+                self.last_screen_change = now  # Screen content changed
+                self._close_window_session(now)
+                self.current_app = new_app
+                self.current_title = new_title
+                self.session_start = now
 
-        if new_app != self.current_app or new_title != self.current_title:
-            self._close_window_session(now)
-            self.current_app = new_app
-            self.current_title = new_title
-            self.session_start = now
+        self._update_afk(now, idle_secs)
 
     def _close_window_session(self, now):
         if self.current_app and self.session_start:
@@ -387,7 +389,13 @@ class WindowTracker:
                 })
 
     def _update_afk(self, now, idle_secs):
+        # Smart AFK: if screen content is changing (AI tool working), don't go AFK
+        secs_since_screen_change = (now - self.last_screen_change).total_seconds()
+        screen_active = secs_since_screen_change < self.afk_timeout
+
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
+            if screen_active:
+                return  # Screen changing — user is monitoring
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:
                 active_dur = (afk_started - self.active_start).total_seconds()
