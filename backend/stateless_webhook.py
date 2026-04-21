@@ -410,12 +410,28 @@ async def receive_activitywatch_webhook_stateless(
                         if aw_file and not project_info.get('file_path'):
                             project_info['file_path'] = aw_file
 
-                        # If VS Code has no project, resolve from FileZilla or recent activity
+                        # If VS Code has no project, resolve from recent IDE activity or FileZilla
                         if project_info['project_name'] == 'IDE Work' and category == 'development':
-                            resolved = resolve_ide_project(db, developer_id, timestamp)
-                            if resolved:
-                                project_info['project_name'] = resolved
+                            # Try: recent activity from the same IDE app (e.g. when using Claude Code)
+                            from models import ActivityRecord as AR2
+                            recent_ide = db.query(AR2.project_name).filter(
+                                AR2.developer_id == developer_id,
+                                AR2.application_name == app_name,
+                                AR2.project_name.isnot(None),
+                                AR2.project_name != 'IDE Work',
+                                AR2.project_name != '',
+                                AR2.timestamp <= timestamp,
+                                AR2.timestamp >= timestamp - timedelta(minutes=30),
+                            ).order_by(AR2.timestamp.desc()).first()
+                            if recent_ide and recent_ide[0]:
+                                project_info['project_name'] = recent_ide[0]
                                 project_info['project_type'] = 'Development'
+                            else:
+                                # Fallback: check FileZilla
+                                resolved = resolve_ide_project(db, developer_id, timestamp)
+                                if resolved:
+                                    project_info['project_name'] = resolved
+                                    project_info['project_type'] = 'Development'
                         # Also check if VS Code project name is actually a FileZilla site name
                         elif project_info['project_name'] and category == 'development':
                             resolved = resolve_ide_project(db, developer_id, timestamp, project_info['project_name'])

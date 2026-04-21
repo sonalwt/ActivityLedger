@@ -17,6 +17,8 @@ import logging
 import socket
 import ctypes
 import ctypes.wintypes as wintypes
+import subprocess
+import re
 import atexit
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -168,6 +170,55 @@ def get_active_window_info():
 
 
 # ---------------------------------------------------------------------------
+# IDE Project Folder Detection (from process command line)
+# ---------------------------------------------------------------------------
+IDE_PROCESS_NAMES = {'code.exe', 'cursor.exe'}
+_ide_project_cache = {}  # {app_lower: {"project": str, "time": float}}
+
+
+def _get_ide_project_folder(app_name):
+    """Get project folder name from IDE process command line. Cached for 5 min."""
+    app_lower = (app_name or "").lower()
+    if app_lower not in IDE_PROCESS_NAMES:
+        return None
+
+    # Check cache (valid for 5 minutes)
+    cached = _ide_project_cache.get(app_lower)
+    if cached and time.time() - cached["time"] < 300:
+        return cached["project"]
+
+    try:
+        result = subprocess.run(
+            ['wmic', 'process', 'where', f"Name='{app_lower}'",
+             'get', 'CommandLine', '/VALUE'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
+        )
+        if result.returncode != 0:
+            return None
+
+        for line in result.stdout.strip().split('\n'):
+            line = line.strip()
+            if not line.startswith('CommandLine='):
+                continue
+            cmdline = line[len('CommandLine='):]
+            if '--type=' in cmdline:
+                continue  # Skip renderer/GPU/utility processes
+
+            # Extract folder paths: "exe_path" "folder_path"
+            paths = re.findall(r'"([A-Za-z]:\\[^"]+)"', cmdline)
+            for path in paths[1:]:  # Skip first path (exe)
+                if os.path.isdir(path):
+                    project = os.path.basename(path)
+                    _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
+                    return project
+
+        return None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Win32 API — Idle / AFK Detection
 # ---------------------------------------------------------------------------
 class LASTINPUTINFO(Structure):
@@ -198,6 +249,7 @@ class WindowTracker:
         # Current window session
         self.current_app = None
         self.current_title = None
+        self.current_project = None
         self.session_start = None
 
         # Smart AFK: track when screen content last changed
@@ -230,6 +282,7 @@ class WindowTracker:
                 self._close_window_session(now)
                 self.current_app = new_app
                 self.current_title = new_title
+                self.current_project = _get_ide_project_folder(new_app)
                 self.session_start = now
 
         # --- AFK state machine (uses last_screen_change) ---
@@ -240,13 +293,16 @@ class WindowTracker:
         if self.current_app and self.session_start:
             duration = (now - self.session_start).total_seconds()
             if duration >= 5:  # Backend skips < 5s
+                event_data = {
+                    "app": self.current_app,
+                    "title": self.current_title or "",
+                }
+                if self.current_project:
+                    event_data["project"] = self.current_project
                 self.window_events.append({
                     "timestamp": self.session_start.isoformat(),
                     "duration": round(duration, 1),
-                    "data": {
-                        "app": self.current_app,
-                        "title": self.current_title or "",
-                    },
+                    "data": event_data,
                 })
 
     def _update_afk(self, now, idle_secs):

@@ -240,6 +240,51 @@ def _get_window_gdbus():
 # Detect which method works on this system
 _window_method = None
 
+# ---------------------------------------------------------------------------
+# IDE Project Folder Detection (from /proc/<pid>/cwd)
+# ---------------------------------------------------------------------------
+IDE_PROCESS_NAMES = {'code', 'cursor', 'code-oss'}
+_ide_project_cache = {}  # {app_lower: {"project": str, "time": float}}
+
+
+def _get_ide_project_folder(app_name):
+    """Get project folder name from IDE process working directory. Cached for 5 min."""
+    app_lower = (app_name or "").lower()
+    if app_lower not in IDE_PROCESS_NAMES:
+        return None
+
+    # Check cache (valid for 5 minutes)
+    cached = _ide_project_cache.get(app_lower)
+    if cached and time.time() - cached["time"] < 300:
+        return cached["project"]
+
+    try:
+        # Find PID of the main IDE process (not a helper/renderer)
+        result = subprocess.run(
+            ['pgrep', '-f', app_lower],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+
+        for pid in result.stdout.strip().split('\n'):
+            pid = pid.strip()
+            if not pid:
+                continue
+            cwd_link = f"/proc/{pid}/cwd"
+            if os.path.islink(cwd_link):
+                cwd = os.readlink(cwd_link)
+                # Skip system dirs — we want project folders
+                if cwd and cwd != '/' and not cwd.startswith('/usr'):
+                    project = os.path.basename(cwd)
+                    if project:
+                        _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
+                        return project
+
+        return None
+    except Exception:
+        return None
+
 
 def get_active_window_info():
     """Return {"app": "AppName", "title": "Window Title"} or None."""
@@ -249,6 +294,10 @@ def get_active_window_info():
     if _window_method:
         result = _window_method()
         if result and result["title"].lower() not in SKIP_TITLES:
+            # Add project folder from IDE process (if applicable)
+            project = _get_ide_project_folder(result["app"])
+            if project:
+                result["project"] = project
             return result
 
     # Try all methods in order of preference
@@ -257,6 +306,9 @@ def get_active_window_info():
         if result:
             _window_method = method  # Cache working method
             if result["title"].lower() not in SKIP_TITLES:
+                project = _get_ide_project_folder(result["app"])
+                if project:
+                    result["project"] = project
                 return result
             return None
 
@@ -345,6 +397,7 @@ class WindowTracker:
 
         self.current_app = None
         self.current_title = None
+        self.current_project = None
         self.session_start = None
 
         # Smart AFK: track when screen content last changed
@@ -371,6 +424,7 @@ class WindowTracker:
                 self._close_window_session(now)
                 self.current_app = new_app
                 self.current_title = new_title
+                self.current_project = info.get("project")
                 self.session_start = now
 
         self._update_afk(now, idle_secs)
@@ -379,13 +433,16 @@ class WindowTracker:
         if self.current_app and self.session_start:
             duration = (now - self.session_start).total_seconds()
             if duration >= 5:
+                event_data = {
+                    "app": self.current_app,
+                    "title": self.current_title or "",
+                }
+                if self.current_project:
+                    event_data["project"] = self.current_project
                 self.window_events.append({
                     "timestamp": self.session_start.isoformat(),
                     "duration": round(duration, 1),
-                    "data": {
-                        "app": self.current_app,
-                        "title": self.current_title or "",
-                    },
+                    "data": event_data,
                 })
 
     def _update_afk(self, now, idle_secs):
