@@ -157,6 +157,10 @@ BROWSER_SCRIPTS = {
         "title": 'tell application "Opera" to get title of active tab of front window',
         "url": 'tell application "Opera" to get URL of active tab of front window',
     },
+    "Dia": {
+        "title": 'tell application "Dia" to get title of active tab of front window',
+        "url": 'tell application "Dia" to get URL of active tab of front window',
+    },
 }
 
 # App names that are browsers (for URL capture and title formatting)

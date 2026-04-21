@@ -223,7 +223,7 @@ class ActivityCategorizer:
 
         # ── 0a. ALL browser apps -> categorize by content ──
         browser_apps = ["chrome.exe", "google chrome", "firefox", "msedge",
-                        "brave", "opera", "safari", "vivaldi", "arc"]
+                        "brave", "opera", "safari", "vivaldi", "arc", "dia"]
         is_browser_app = any(b in app_lower for b in browser_apps)
         if is_browser_app:
             # Check server keywords first (AWS, StatusCake, etc. in browser = server)
