@@ -46,8 +46,8 @@ def categorize_application(app_name: str, window_title: str = "") -> str:
     if any(browser in app_name_lower for browser in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave']):
         return 'browser'
     
-    # IDEs and Code Editors
-    if any(ide in app_name_lower for ide in ['vscode', 'visual studio', 'pycharm', 'intellij', 'sublime', 'atom', 'vim', 'emacs', 'notepad++', 'cursor', 'code']):
+    # IDEs and Code Editors (Windows + Mac + Linux)
+    if any(ide in app_name_lower for ide in ['vscode', 'visual studio', 'pycharm', 'intellij', 'sublime', 'atom', 'vim', 'nvim', 'neovim', 'macvim', 'emacs', 'notepad++', 'cursor', 'code', 'xcode', 'android studio', 'fleet', 'bbedit', 'textmate', 'nova', 'coteditor']):
         return 'development'
     
     # Database Tools
@@ -62,8 +62,8 @@ def categorize_application(app_name: str, window_title: str = "") -> str:
     if any(media in app_name_lower for media in ['spotify', 'youtube', 'vlc', 'media player', 'netflix', 'twitch']):
         return 'entertainment'
     
-    # System processes
-    if any(system in app_name_lower for system in ['explorer', 'finder', 'terminal', 'cmd', 'powershell', 'task manager', 'lock', 'dwm', 'winlogon']):
+    # System processes (Windows + Mac + Linux)
+    if any(system in app_name_lower for system in ['explorer', 'finder', 'terminal', 'iterm', 'cmd', 'powershell', 'task manager', 'activity monitor', 'lock', 'dwm', 'winlogon', 'preview', 'dia', 'nautilus', 'thunar']):
         return 'system'
     
     return 'other'
@@ -167,10 +167,17 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
     window_title_lower = window_title.lower() if window_title else ""
     
     # IDE Project Detection
-    ide_names = ['visual studio code', 'cursor', 'code', 'pycharm', 'intellij', 'sublime text', 'atom']
-    if any(ide in app_name_lower for ide in ['cursor', 'vscode', 'code', 'pycharm', 'intellij']):
-        # Support both " | " and " - " delimiters (VS Code titleSeparator setting)
-        separator = ' | ' if ' | ' in window_title else ' - '
+    ide_names = ['visual studio code', 'cursor', 'code', 'pycharm', 'intellij', 'sublime text', 'atom', 'xcode', 'android studio', 'fleet', 'bbedit', 'textmate', 'nova', 'coteditor']
+    if any(ide in app_name_lower for ide in ['cursor', 'vscode', 'code', 'pycharm', 'intellij', 'xcode', 'android studio', 'fleet', 'sublime', 'bbedit', 'textmate', 'nova', 'coteditor']):
+        # Support " | ", " - ", and " — " (em dash, used by Mac) delimiters
+        if ' | ' in window_title:
+            separator = ' | '
+        elif ' \u2014 ' in window_title:
+            separator = ' \u2014 '
+        elif ' \u2013 ' in window_title:
+            separator = ' \u2013 '
+        else:
+            separator = ' - '
         if separator in window_title:
             parts = window_title.split(separator)
             # Filter out the IDE name from parts
@@ -262,8 +269,9 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
             })
             return project_info
     
-    # File Explorer - extract project name from path
-    if 'explorer' in app_name_lower and ' - file explorer' in window_title_lower:
+    # File Explorer / Finder (Mac) / Nautilus (Linux) - extract project name from path
+    if ('explorer' in app_name_lower and ' - file explorer' in window_title_lower) or \
+       app_name_lower in ['finder', 'nautilus', 'thunar', 'dolphin', 'nemo']:
         path = window_title.split(' - ')[0].strip()
         # Extract last folder name from path as project name
         import re
@@ -372,6 +380,8 @@ async def receive_activitywatch_webhook_stateless(
                         app_name = data.get('app') or data.get('application', 'Unknown')
                         window_title = data.get('title', '')
                         url = data.get('url', None)
+                        aw_project = data.get('project', '')
+                        aw_file = data.get('file', '')
                         
                         # Skip if no meaningful data
                         if not app_name or app_name == 'Unknown':
@@ -392,6 +402,13 @@ async def receive_activitywatch_webhook_stateless(
                         # Categorize and extract project info
                         category = categorize_application(app_name, window_title)
                         project_info = extract_project_info(window_title, app_name, url)
+
+                        # Use ActivityWatch project/file fields if available (e.g., from aw-watcher-vscode)
+                        if aw_project and (not project_info['project_name'] or project_info['project_name'] == 'IDE Work'):
+                            project_info['project_name'] = aw_project
+                            project_info['project_type'] = 'Development'
+                        if aw_file and not project_info.get('file_path'):
+                            project_info['file_path'] = aw_file
 
                         # If VS Code has no project, resolve from FileZilla or recent activity
                         if project_info['project_name'] == 'IDE Work' and category == 'development':

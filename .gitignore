@@ -111,4 +111,26 @@ temp_*.json
 *.pyc
 2026-04-15_backup_ankita_gholap.json
 fetch_*
-agent*
+# Agent build artifacts and runtime files (keep source files tracked)
+agent/dist/
+agent/build/
+agent/config.json
+agent/pending_events.json
+agent/*.log
+agent/.agent.lock
+agent_mac/dist/
+agent_mac/build/
+agent_mac/config.json
+agent_mac/pending_events.json
+agent_mac/*.log
+agent_mac/.agent.lock
+agent_mac/agent_stdout.log
+agent_mac/agent_stderr.log
+agent_linux/dist/
+agent_linux/build/
+agent_linux/config.json
+agent_linux/pending_events.json
+agent_linux/*.log
+agent_linux/.agent.lock
+agent_linux/agent_stdout.log
+agent_linux/agent_stderr.log

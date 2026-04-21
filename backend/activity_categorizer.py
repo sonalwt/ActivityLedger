@@ -58,16 +58,20 @@ class ActivityCategorizer:
 
         # 🟩 coding apps/tools (checked by app_name or specific indicators)
         self.coding_apps = [
-            # IDEs
+            # IDEs (Windows + Mac + Linux)
             "vscode", "code.exe", "cursor", "pycharm", "intellij",
-            "webstorm", "phpstorm", "sublime", "atom", "vim", "nvim",
+            "webstorm", "phpstorm", "sublime", "sublime text", "atom",
+            "vim", "nvim", "neovim", "macvim",
             "emacs", "notepad++", "visual studio", "claude code",
             "android studio", "xcode", "rider", "goland", "rubymine",
-            "clion", "datagrip",
-            # Terminals
+            "clion", "datagrip", "fleet",
+            # Mac-specific IDEs/editors
+            "bbedit", "coteditor", "nova", "textmate",
+            # Terminals (Windows + Mac + Linux)
             "windowsterminal", "windows terminal", "powershell",
             "cmd.exe", "pwsh.exe", "git bash", "mintty", "conemu",
             "cmder", "hyper", "warp", "alacritty", "wezterm",
+            "terminal", "iterm", "iterm2",
             # Microsoft Office
             "winword", "excel", "powerpnt", "onenote", "msword",
             "microsoft word", "microsoft excel", "microsoft powerpoint",
@@ -295,7 +299,8 @@ class ActivityCategorizer:
             "webstorm", "phpstorm", "sublime", "atom", " vim ",
             "emacs", "notepad++", "visual studio", "claude code",
             "android studio", "xcode", "rider", "goland", "rubymine",
-            "clion", "datagrip"
+            "clion", "datagrip", "fleet", "neovim", "nvim", "macvim",
+            "bbedit", "coteditor", "nova", "textmate",
         ]
         if any(ide in text for ide in ide_indicators):
             return ("coding", 1.0)
@@ -303,7 +308,11 @@ class ActivityCategorizer:
         terminal_indicators = [
             "windowsterminal", "windows terminal", "powershell",
             "cmd.exe", "pwsh.exe", "git bash", "mintty",
-            "conemu", "cmder", "command prompt"
+            "conemu", "cmder", "command prompt",
+            # Mac/Linux terminals
+            "terminal", "iterm", "iterm2", "warp", "alacritty",
+            "wezterm", "hyper", "kitty", "gnome-terminal",
+            "konsole", "tilix", "guake",
         ]
         if any(t in text for t in terminal_indicators):
             return ("coding", 1.0)

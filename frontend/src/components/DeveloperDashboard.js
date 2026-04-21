@@ -181,14 +181,17 @@ function DeveloperDashboard({ developer, onBack }) {
 
   const IDE_NAMES = ['visual studio code', 'code', 'cursor', 'pycharm', 'intellij'];
 
+  const GENERIC_PROJECTS = ['general', 'ide work', 'unknown', 'work'];
+
   const formatActivityTitle = (title, projectName, filePath) => {
     const fileName = filePath ? filePath.split(/[/\\]/).pop() : '';
+    const hasProject = projectName && !GENERIC_PROJECTS.includes(projectName.trim().toLowerCase());
 
     if (!title || !title.trim()) {
-      return projectName ? `${projectName} - ${fileName || 'Unknown'}` : fileName || 'Unknown';
+      return hasProject ? `${projectName} - ${fileName || 'Unknown'}` : fileName || 'Unknown';
     }
     if (IDE_NAMES.includes(title.trim().toLowerCase())) {
-      if (projectName) {
+      if (hasProject) {
         return fileName ? `${projectName} - ${fileName}` : projectName;
       }
       return fileName ? `${title.trim()} - ${fileName}` : title;
@@ -201,7 +204,7 @@ function DeveloperDashboard({ developer, onBack }) {
       .replace(/ – .*$/, '')
       .trim()
       .slice(0, 120);
-    if (projectName && !cleaned.toLowerCase().includes(projectName.toLowerCase())) {
+    if (hasProject && !cleaned.toLowerCase().includes(projectName.toLowerCase())) {
       return `${projectName} - ${cleaned}`;
     }
     return cleaned;
