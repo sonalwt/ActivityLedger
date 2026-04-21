@@ -118,7 +118,7 @@ def generate_token(developer_id: str, master_secret: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# macOS — Active Window Info (via AppleScript / osascript)
+# macOS — Active Window Info (AppleScript)
 # ---------------------------------------------------------------------------
 # Titles to ignore (system/lock screens)
 SKIP_TITLES = frozenset([
@@ -159,7 +159,7 @@ BROWSER_SCRIPTS = {
     },
 }
 
-# App names that are browsers but may not have AppleScript support
+# App names that are browsers (for URL capture and title formatting)
 BROWSER_NAMES = frozenset(list(BROWSER_SCRIPTS.keys()) + [
     "Firefox", "Arc", "Orion", "Waterfox", "Chromium",
 ])
@@ -181,94 +181,121 @@ def _run_osascript(script, timeout=3):
     return None
 
 
-def _get_window_title(app_name):
-    """Get window title using multiple fallback methods."""
-    # Method 1: name of front window via System Events (most common)
-    title = _run_osascript(
-        'tell application "System Events" to get name of front window '
-        'of (first application process whose frontmost is true)',
-        timeout=5,
-    )
-    if title:
-        return title
+# ---------------------------------------------------------------------------
+# AppleScript — App name + Window title
+# ---------------------------------------------------------------------------
+def _get_active_window_applescript():
+    """Get active window info using AppleScript.
 
-    # Method 2: AXTitle attribute (works for some apps where name fails)
-    title = _run_osascript(
-        'tell application "System Events" to get value of attribute "AXTitle" '
-        'of front window of (first application process whose frontmost is true)',
-        timeout=5,
-    )
-    if title:
-        return title
-
-    # Method 3: Try using the app's own AppleScript interface
-    title = _run_osascript(
-        f'tell application "{app_name}" to get name of front window',
-        timeout=5,
-    )
-    return title
-
-
-def get_active_window_info():
-    """Return {"app": "AppName", "title": "Window Title", "url": "..."} or None.
-
-    For browsers, uses app-specific AppleScript to capture the actual tab title
-    and URL. For other apps, falls back through multiple System Events methods.
+    Uses 'displayed name' for proper app names (e.g. "Visual Studio Code" not "Code")
+    and multiple fallback methods for window titles.
+    Returns (app_display_name, window_title) or None.
     """
-    try:
-        # Get frontmost application name
+    # Single combined script: gets displayed name + window title in one call
+    combined = _run_osascript(
+        'tell application "System Events"\n'
+        '  set fp to first application process whose frontmost is true\n'
+        '  set appName to displayed name of fp\n'
+        '  set windowTitle to ""\n'
+        '  try\n'
+        '    set windowTitle to name of front window of fp\n'
+        '  end try\n'
+        '  if windowTitle is "" or windowTitle is missing value then\n'
+        '    try\n'
+        '      set windowTitle to value of attribute "AXTitle" of front window of fp\n'
+        '    end try\n'
+        '  end if\n'
+        '  return appName & "|||" & windowTitle\n'
+        'end tell',
+        timeout=5,
+    )
+    if combined and "|||" in combined:
+        parts = combined.split("|||", 1)
+        app_name = parts[0].strip()
+        title = parts[1].strip() if len(parts) > 1 else ""
+        if app_name:
+            return (app_name, title if title else None)
+
+    # Fallback: separate calls if combined script fails
+    app_name = _run_osascript(
+        'tell application "System Events" to get displayed name of '
+        'first application process whose frontmost is true',
+        timeout=5,
+    )
+    if not app_name:
+        # Last resort: process name
         app_name = _run_osascript(
             'tell application "System Events" to get name of '
             'first application process whose frontmost is true',
             timeout=5,
         )
-        if not app_name:
+    if not app_name:
+        return None
+
+    title = _run_osascript(
+        'tell application "System Events" to get name of front window '
+        'of (first application process whose frontmost is true)',
+        timeout=5,
+    )
+    if not title:
+        title = _run_osascript(
+            'tell application "System Events" to get value of attribute "AXTitle" '
+            'of front window of (first application process whose frontmost is true)',
+            timeout=5,
+        )
+
+    return (app_name, title if title else None)
+
+
+# ---------------------------------------------------------------------------
+# Combined: best effort with all methods
+# ---------------------------------------------------------------------------
+def get_active_window_info():
+    """Return {"app": ..., "title": ..., "url": ...} or None.
+
+    Uses 'displayed name' for proper app names + browser-specific AppleScript
+    for tab titles and URLs.
+    """
+    try:
+        # --- Step 1: Get app name + window title ---
+        result = _get_active_window_applescript()
+        if not result:
             return None
 
-        # --- Browser: get tab title + URL via app-specific AppleScript ---
-        if app_name in BROWSER_SCRIPTS:
+        app_name, title = result
+
+        # --- Step 2: For browsers, get tab title + URL ---
+        is_browser = app_name in BROWSER_NAMES
+        url = None
+
+        if is_browser and app_name in BROWSER_SCRIPTS:
             scripts = BROWSER_SCRIPTS[app_name]
             tab_title = _run_osascript(scripts["title"])
             tab_url = _run_osascript(scripts["url"])
-            if tab_title:
-                # Format like Windows: "Page Title - Browser Name"
+
+            if tab_url:
+                url = tab_url
+
+            # If we didn't get a window title, use the browser tab title
+
+            if not title and tab_title:
                 title = f"{tab_title} - {app_name}"
-                if title.lower() in SKIP_TITLES:
-                    return None
-                result = {"app": app_name, "title": title}
-                if tab_url:
-                    result["url"] = tab_url
-                return result
-            # If app-specific script failed, fall through to generic approach
+            elif tab_title and title and title == app_name:
+                # Title was just the app name (fallback), use tab title
+                title = f"{tab_title} - {app_name}"
 
-        # --- Browser without AppleScript support (Firefox, Arc, etc.) ---
-        # or browser where app-specific script failed
-        is_browser = app_name in BROWSER_NAMES
-
-        # --- Generic: get window title via System Events ---
-        title = _get_window_title(app_name)
-
+        # --- Step 3: Final title handling ---
         if not title:
-            # Last resort: use app name itself (better than nothing)
-            title = app_name
+            title = app_name  # Last resort
 
         if title.lower() in SKIP_TITLES:
             return None
 
-        result = {"app": app_name, "title": title}
+        info = {"app": app_name, "title": title}
+        if url:
+            info["url"] = url
+        return info
 
-        # For browsers where we couldn't get app-specific tab info,
-        # the System Events title usually includes the page title
-        if is_browser:
-            # Try to still get URL even if title came from System Events
-            if app_name in BROWSER_SCRIPTS:
-                tab_url = _run_osascript(BROWSER_SCRIPTS[app_name]["url"])
-                if tab_url:
-                    result["url"] = tab_url
-
-        return result
-    except subprocess.TimeoutExpired:
-        return None
     except Exception:
         return None
 
