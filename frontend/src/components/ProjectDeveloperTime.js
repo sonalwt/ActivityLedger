@@ -32,6 +32,11 @@ function ProjectDeveloperTime({ onBack }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Developer multi-select filter
+  const [selectedDevelopers, setSelectedDevelopers] = useState([]);
+  const [devDropdownOpen, setDevDropdownOpen] = useState(false);
+  const devDropdownRef = useRef(null);
+
   const [period, setPeriod] = useState('current_week');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -107,11 +112,17 @@ function ProjectDeveloperTime({ onBack }) {
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
   useEffect(() => { fetchProjectData(); }, [fetchProjectData]);
 
-  // Close dropdown when clicking outside
+  // Reset developer selection when project changes
+  useEffect(() => { setSelectedDevelopers([]); }, [selectedProject]);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setDropdownOpen(false);
+      }
+      if (devDropdownRef.current && !devDropdownRef.current.contains(e.target)) {
+        setDevDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -129,11 +140,54 @@ function ProjectDeveloperTime({ onBack }) {
     return `${m}m`;
   };
 
+  // Toggle developer in multi-select
+  const toggleDeveloper = (devId) => {
+    setSelectedDevelopers(prev =>
+      prev.includes(devId) ? prev.filter(id => id !== devId) : [...prev, devId]
+    );
+  };
+
+  // Filter projectData by selected developers
+  const filteredProjectData = useMemo(() => {
+    if (!projectData) return null;
+    if (selectedDevelopers.length === 0) return projectData;
+
+    const filteredDevs = projectData.developers.filter(d =>
+      selectedDevelopers.includes(d.developer_id)
+    );
+
+    const totalHours = filteredDevs.reduce((sum, d) => sum + d.total_hours, 0);
+    const devsWithPct = filteredDevs.map(d => ({
+      ...d,
+      percentage: totalHours > 0 ? parseFloat((d.total_hours / totalHours * 100).toFixed(1)) : 0
+    }));
+
+    // Filter datewise_breakdown
+    const filteredDatewise = {};
+    if (projectData.datewise_breakdown) {
+      Object.entries(projectData.datewise_breakdown).forEach(([date, devData]) => {
+        const filtered = devData.filter(d => selectedDevelopers.includes(d.developer_id));
+        if (filtered.length > 0) filteredDatewise[date] = filtered;
+      });
+    }
+
+    return {
+      ...projectData,
+      developers: devsWithPct,
+      datewise_breakdown: filteredDatewise,
+      summary: {
+        ...projectData.summary,
+        total_hours: parseFloat(totalHours.toFixed(2)),
+        total_developers: filteredDevs.length,
+      }
+    };
+  }, [projectData, selectedDevelopers]);
+
   // Prepare chart data - day-wise or month-wise based on period
   const chartData = useMemo(() => {
-    if (!projectData?.datewise_breakdown) return [];
+    if (!filteredProjectData?.datewise_breakdown) return [];
 
-    const entries = Object.entries(projectData.datewise_breakdown)
+    const entries = Object.entries(filteredProjectData.datewise_breakdown)
       .sort(([a], [b]) => new Date(a) - new Date(b));
 
     if (isYearPeriod) {
@@ -175,18 +229,18 @@ function ProjectDeveloperTime({ onBack }) {
         return entry;
       });
     }
-  }, [projectData, isYearPeriod]);
+  }, [filteredProjectData, isYearPeriod]);
 
   // Prepare pie chart data for developer contribution
   const pieChartData = useMemo(() => {
-    if (!projectData?.developers) return [];
-    return projectData.developers.map((dev, index) => ({
+    if (!filteredProjectData?.developers) return [];
+    return filteredProjectData.developers.map((dev, index) => ({
       name: dev.developer_name || dev.developer_id,
       value: parseFloat(dev.total_hours.toFixed(2)),
       percentage: dev.percentage,
       color: COLORS[index % COLORS.length]
     }));
-  }, [projectData]);
+  }, [filteredProjectData]);
 
   // Custom tooltip for pie chart
   const CustomPieTooltip = ({ active, payload }) => {
@@ -203,7 +257,7 @@ function ProjectDeveloperTime({ onBack }) {
     return null;
   };
 
-  const summary = projectData?.summary;
+  const summary = filteredProjectData?.summary;
   const avgLabel = isYearPeriod
     ? `Avg ${(summary ? summary.total_hours / (chartData.length || 1) : 0).toFixed(1)}h/month`
     : `Avg ${(summary ? summary.total_hours / (summary.total_days || 1) : 0).toFixed(1)}h/day`;
@@ -273,6 +327,52 @@ function ProjectDeveloperTime({ onBack }) {
               </div>
             )}
           </div>
+
+          {/* Developer Multi-Select Dropdown */}
+          {projectData && projectData.developers.length > 0 && (
+            <div className="pdt-filter-group pdt-dev-filter" ref={devDropdownRef}>
+              <label><Users size={14} /> Resource</label>
+              <div className="pdt-dropdown-wrapper">
+                <div
+                  className={`pdt-dropdown-trigger ${devDropdownOpen ? 'open' : ''}`}
+                  onClick={() => setDevDropdownOpen(!devDropdownOpen)}
+                >
+                  <span className={selectedDevelopers.length > 0 ? 'pdt-selected-text' : 'pdt-placeholder-text'}>
+                    {selectedDevelopers.length === 0
+                      ? 'All Resources'
+                      : `${selectedDevelopers.length} selected`}
+                  </span>
+                  <ChevronDown className={`pdt-chevron ${devDropdownOpen ? 'rotated' : ''}`} size={16} />
+                </div>
+                {devDropdownOpen && (
+                  <div className="pdt-dropdown-menu">
+                    <div className="pdt-dropdown-actions">
+                      <button onClick={() => setSelectedDevelopers(projectData.developers.map(d => d.developer_id))}>Select All</button>
+                      <button onClick={() => setSelectedDevelopers([])}>Clear</button>
+                    </div>
+                    <div className="pdt-dropdown-options">
+                      {projectData.developers.map((dev, index) => (
+                        <div
+                          key={index}
+                          className={`pdt-dropdown-option pdt-checkbox-option ${selectedDevelopers.includes(dev.developer_id) ? 'active' : ''}`}
+                          onClick={() => toggleDeveloper(dev.developer_id)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDevelopers.includes(dev.developer_id)}
+                            readOnly
+                            className="pdt-dev-checkbox"
+                          />
+                          <span className="pdt-option-name">{dev.developer_name || dev.developer_id}</span>
+                          <span className="pdt-option-hours">{formatTime(dev.total_hours)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Period Dropdown */}
           <div className="pdt-filter-group">
@@ -373,11 +473,11 @@ function ProjectDeveloperTime({ onBack }) {
       )}
 
       {/* Developer Chips (below summary cards) */}
-      {!loading && projectData && projectData.developers.length > 0 && (
+      {!loading && filteredProjectData && filteredProjectData.developers.length > 0 && (
         <div className="pdt-developers-row">
-          <span className="pdt-developers-label"><Users size={14} /> Resources ({projectData.developers.length}):</span>
+          <span className="pdt-developers-label"><Users size={14} /> Resources ({filteredProjectData.developers.length}):</span>
           <div className="pdt-developers-chips">
-            {projectData.developers.map((dev, index) => (
+            {filteredProjectData.developers.map((dev, index) => (
               <span key={index} className="pdt-developer-chip" style={{ borderLeft: `3px solid ${COLORS[index % COLORS.length]}` }}>
                 {dev.developer_name || dev.developer_id}
               </span>
@@ -387,10 +487,10 @@ function ProjectDeveloperTime({ onBack }) {
       )}
 
       {/* Charts Section */}
-      {!loading && projectData && (
+      {!loading && filteredProjectData && (
         <div className="pdt-charts-container">
           {/* Developer Contribution - Split View */}
-          {projectData.developers.length > 1 && (
+          {filteredProjectData.developers.length > 1 && (
             <div className="pdt-chart-card">
               <div className="pdt-chart-header">
                 <h3><Users size={20} /> Resource Contribution</h3>
@@ -430,7 +530,7 @@ function ProjectDeveloperTime({ onBack }) {
                 </div>
                 <div className="pdt-split-half">
                   <div className="pdt-dev-list">
-                    {projectData.developers.map((dev, index) => (
+                    {filteredProjectData.developers.map((dev, index) => (
                       <div key={index} className="pdt-dev-item">
                         <div className="pdt-dev-info">
                           <span className="pdt-dev-dot" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
@@ -458,7 +558,7 @@ function ProjectDeveloperTime({ onBack }) {
           <div className="pdt-chart-card">
             <div className="pdt-chart-header">
               <h3><TrendingUp size={20} /> {isYearPeriod ? 'Monthly Hours Trend' : 'Daily Hours Trend'}</h3>
-              {projectData.developers.length > 0 && (
+              {filteredProjectData.developers.length > 0 && (
                 <div className="pdt-chart-legend">
                   <span className="pdt-legend-item">
                     <span className="pdt-legend-dot" style={{ background: '#667eea' }}></span>
@@ -553,7 +653,7 @@ function ProjectDeveloperTime({ onBack }) {
       )}
 
       {/* No Data */}
-      {!loading && selectedProject && projectData && projectData.developers.length === 0 && (
+      {!loading && selectedProject && filteredProjectData && filteredProjectData.developers.length === 0 && (
         <div className="pdt-no-data">
           <FolderOpen size={64} color="#d1d5db" />
           <h3>No Data Available</h3>
