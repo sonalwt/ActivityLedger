@@ -23,6 +23,7 @@ const PERIOD_OPTIONS = [
 const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
 
 function ProjectDeveloperTime({ onBack }) {
+  const [allDevelopers, setAllDevelopers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [projectData, setProjectData] = useState(null);
@@ -32,10 +33,11 @@ function ProjectDeveloperTime({ onBack }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Developer multi-select filter
+  // Developer multi-select filter (drives project filtering)
   const [selectedDevelopers, setSelectedDevelopers] = useState([]);
   const [devDropdownOpen, setDevDropdownOpen] = useState(false);
   const devDropdownRef = useRef(null);
+  const [devSearchQuery, setDevSearchQuery] = useState('');
 
   const [period, setPeriod] = useState('current_week');
   const [customStart, setCustomStart] = useState('');
@@ -56,16 +58,38 @@ function ProjectDeveloperTime({ onBack }) {
     return params;
   }, [period, customStart, customEnd]);
 
-  // Fetch projects
+  // Fetch all developers (once on mount)
+  useEffect(() => {
+    const fetchDevelopers = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE}/api/developers-orm`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setAllDevelopers(data.developers || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch developers:', err);
+      }
+    };
+    fetchDevelopers();
+  }, []);
+
+  // Fetch projects (re-fetches when developer selection or period changes)
   const fetchProjects = useCallback(async () => {
     if (period === 'custom' && (!customStart || !customEnd)) return;
     setLoadingProjects(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(
-        `${API_BASE}/api/all-projects?${buildPeriodParams()}`,
-        { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
-      );
+      let url = `${API_BASE}/api/all-projects?${buildPeriodParams()}`;
+      if (selectedDevelopers.length > 0) {
+        url += `&developer_ids=${selectedDevelopers.join(',')}`;
+      }
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
       if (response.ok) {
         const data = await response.json();
         const excludedNames = ['scripts', 'ide work', 'mails'];
@@ -83,7 +107,7 @@ function ProjectDeveloperTime({ onBack }) {
     } finally {
       setLoadingProjects(false);
     }
-  }, [buildPeriodParams]);
+  }, [buildPeriodParams, selectedDevelopers]);
 
   // Fetch project developer time data
   const fetchProjectData = useCallback(async () => {
@@ -112,8 +136,8 @@ function ProjectDeveloperTime({ onBack }) {
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
   useEffect(() => { fetchProjectData(); }, [fetchProjectData]);
 
-  // Reset developer selection when project changes
-  useEffect(() => { setSelectedDevelopers([]); }, [selectedProject]);
+  // Reset selected project when developer selection changes (projects list will refresh)
+  useEffect(() => { setSelectedProject(''); setProjectData(null); }, [selectedDevelopers]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -271,7 +295,67 @@ function ProjectDeveloperTime({ onBack }) {
       <div className="pdt-header">
         <h1><FolderOpen size={28} color="white" /> Project Time Analysis</h1>
         <div className="pdt-filters">
-          {/* Project Dropdown */}
+          {/* Developer Multi-Select Dropdown (always visible, drives project filter) */}
+          <div className="pdt-filter-group pdt-dev-filter" ref={devDropdownRef}>
+            <label><Users size={14} /> Resource</label>
+            <div className="pdt-dropdown-wrapper">
+              <div
+                className={`pdt-dropdown-trigger ${devDropdownOpen ? 'open' : ''}`}
+                onClick={() => setDevDropdownOpen(!devDropdownOpen)}
+              >
+                <span className={selectedDevelopers.length > 0 ? 'pdt-selected-text' : 'pdt-placeholder-text'}>
+                  {selectedDevelopers.length === 0
+                    ? 'All Resources'
+                    : selectedDevelopers.length === 1
+                      ? (allDevelopers.find(d => d.id === selectedDevelopers[0])?.name || '1 selected')
+                      : `${selectedDevelopers.length} selected`}
+                </span>
+                <ChevronDown className={`pdt-chevron ${devDropdownOpen ? 'rotated' : ''}`} size={16} />
+              </div>
+              {devDropdownOpen && (
+                <div className="pdt-dropdown-menu">
+                  <div className="pdt-dropdown-search">
+                    <Search size={14} className="pdt-search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Search resources..."
+                      value={devSearchQuery}
+                      onChange={(e) => setDevSearchQuery(e.target.value)}
+                      autoFocus
+                    />
+                    {devSearchQuery && (
+                      <X size={14} className="pdt-search-clear" onClick={(e) => { e.stopPropagation(); setDevSearchQuery(''); }} />
+                    )}
+                  </div>
+                  <div className="pdt-dropdown-actions">
+                    <button onClick={() => setSelectedDevelopers(allDevelopers.map(d => d.id))}>Select All</button>
+                    <button onClick={() => setSelectedDevelopers([])}>Clear</button>
+                  </div>
+                  <div className="pdt-dropdown-options">
+                    {allDevelopers
+                      .filter(d => d.name.toLowerCase().includes(devSearchQuery.toLowerCase()))
+                      .map((dev, index) => (
+                        <div
+                          key={dev.id}
+                          className={`pdt-dropdown-option pdt-checkbox-option ${selectedDevelopers.includes(dev.id) ? 'active' : ''}`}
+                          onClick={() => toggleDeveloper(dev.id)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDevelopers.includes(dev.id)}
+                            readOnly
+                            className="pdt-dev-checkbox"
+                          />
+                          <span className="pdt-option-name">{dev.name}</span>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Project Dropdown (auto-filtered by selected developers) */}
           <div className="pdt-filter-group pdt-project-filter" ref={dropdownRef}>
             <label><Layers size={14} /> Project</label>
             {loadingProjects ? (
@@ -327,52 +411,6 @@ function ProjectDeveloperTime({ onBack }) {
               </div>
             )}
           </div>
-
-          {/* Developer Multi-Select Dropdown */}
-          {projectData && projectData.developers.length > 0 && (
-            <div className="pdt-filter-group pdt-dev-filter" ref={devDropdownRef}>
-              <label><Users size={14} /> Resource</label>
-              <div className="pdt-dropdown-wrapper">
-                <div
-                  className={`pdt-dropdown-trigger ${devDropdownOpen ? 'open' : ''}`}
-                  onClick={() => setDevDropdownOpen(!devDropdownOpen)}
-                >
-                  <span className={selectedDevelopers.length > 0 ? 'pdt-selected-text' : 'pdt-placeholder-text'}>
-                    {selectedDevelopers.length === 0
-                      ? 'All Resources'
-                      : `${selectedDevelopers.length} selected`}
-                  </span>
-                  <ChevronDown className={`pdt-chevron ${devDropdownOpen ? 'rotated' : ''}`} size={16} />
-                </div>
-                {devDropdownOpen && (
-                  <div className="pdt-dropdown-menu">
-                    <div className="pdt-dropdown-actions">
-                      <button onClick={() => setSelectedDevelopers(projectData.developers.map(d => d.developer_id))}>Select All</button>
-                      <button onClick={() => setSelectedDevelopers([])}>Clear</button>
-                    </div>
-                    <div className="pdt-dropdown-options">
-                      {projectData.developers.map((dev, index) => (
-                        <div
-                          key={index}
-                          className={`pdt-dropdown-option pdt-checkbox-option ${selectedDevelopers.includes(dev.developer_id) ? 'active' : ''}`}
-                          onClick={() => toggleDeveloper(dev.developer_id)}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedDevelopers.includes(dev.developer_id)}
-                            readOnly
-                            className="pdt-dev-checkbox"
-                          />
-                          <span className="pdt-option-name">{dev.developer_name || dev.developer_id}</span>
-                          <span className="pdt-option-hours">{formatTime(dev.total_hours)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Period Dropdown */}
           <div className="pdt-filter-group">
