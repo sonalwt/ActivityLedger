@@ -579,16 +579,17 @@ async def get_all_developers_productivity_summary(
                     stats["total"] = min(stats["total"], cap)
                     stats["productive"] = min(stats["productive"], cap)
                 else:
-                    # No AFK data: cap at max 8 hours
-                    max_no_afk = DAILY_TARGET_HOURS * 3600
-                    stats["total"] = min(stats["total"], max_no_afk)
-                    stats["productive"] = min(stats["productive"], max_no_afk)
+                    # No AFK data = no proof user was at keyboard. Zero out.
+                    stats["total"] = 0.0
+                    stats["productive"] = 0.0
+                    stats["activity_count"] = 0
 
             # Aggregate across days (include if developer had any activities)
             total_seconds = 0.0
             productive_seconds = 0.0
             denom_seconds = 0.0
             active_days = 0
+            filtered_activity_count = 0
 
             for day_key, stats in daily.items():
                 if stats["activity_count"] == 0:
@@ -596,6 +597,7 @@ async def get_all_developers_productivity_summary(
                 active_days += 1
                 total_seconds += stats["total"]
                 productive_seconds += stats["productive"]
+                filtered_activity_count += stats["activity_count"]
                 denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
 
             total_hours = total_seconds / 3600.0
@@ -622,7 +624,7 @@ async def get_all_developers_productivity_summary(
                 "productivity_percentage": round(productivity_percentage, 1),
                 "active_days": active_days,
                 "projects_count": projects,
-                "activities_count": activities,
+                "activities_count": filtered_activity_count,
                 "last_activity": last_activity.isoformat() if last_activity else None,
                 "status": status
             })
