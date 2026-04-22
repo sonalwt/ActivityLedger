@@ -1000,17 +1000,20 @@ async def get_all_projects(
                     query_params[f"dev_{i}"] = did
 
         # Excluded project names (noise/non-project entries)
-        excluded_names = ['scripts', 'ide work', 'mails', 'general', 'unknown', '']
+        excluded_names = {'scripts', 'ide work', 'mails', 'general', 'unknown', '',
+                          'data', 'home', 'desktop', 'documents', 'downloads',
+                          'users', 'temp', 'tmp', 'system', 'windows', 'program files',
+                          'appdata', 'local', 'roaming', 'new tab', 'google', 'settings'}
 
         # Query from activity_records directly, LEFT JOIN projects for metadata.
-        # This captures ALL activities (including browser work where project_id is NULL
-        # but project_name is set).
+        # Use LOWER(ar.project_name) to merge case variations (e.g. "Mahindra" vs "mahindra").
         projects_query = db.execute(text(f"""
             SELECT
-                ar.project_name,
-                p.id as project_id,
-                p.description,
-                COALESCE(p.total_cost, 0) as total_cost,
+                LOWER(ar.project_name) as project_key,
+                MAX(ar.project_name) as project_name,
+                MAX(p.id) as project_id,
+                MAX(p.description) as description,
+                COALESCE(MAX(p.total_cost), 0) as total_cost,
                 COALESCE(SUM(ar.duration) / 3600.0, 0) as total_hours,
                 COALESCE(COUNT(ar.id), 0) as activity_count,
                 COUNT(DISTINCT ar.developer_id) as developer_count
@@ -1021,25 +1024,28 @@ async def get_all_projects(
                 AND ar.project_name != 'general'
                 {date_filter}
                 {dev_filter}
-            GROUP BY ar.project_name, p.id, p.description, p.total_cost
+            GROUP BY LOWER(ar.project_name)
             HAVING SUM(ar.duration) > 1800
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
         projects = []
         for row in projects_query:
-            pname = row[0]
+            pname = row[1]  # MAX(ar.project_name) - original casing
             # Skip excluded project names
             if pname and pname.lower() in excluded_names:
                 continue
+            # Skip very short names (likely noise from path extraction)
+            if pname and len(pname) <= 2:
+                continue
             projects.append({
-                "project_id": row[1],
+                "project_id": row[2],
                 "project_name": pname,
-                "description": row[2],
-                "total_cost": round(float(row[3]), 2) if row[3] else 0,
-                "total_hours": round(float(row[4]), 2),
-                "activity_count": row[5],
-                "developer_count": row[6]
+                "description": row[3],
+                "total_cost": round(float(row[4]), 2) if row[4] else 0,
+                "total_hours": round(float(row[5]), 2),
+                "activity_count": row[6],
+                "developer_count": row[7]
             })
 
         return {
