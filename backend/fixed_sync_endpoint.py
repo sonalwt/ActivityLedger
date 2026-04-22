@@ -34,6 +34,36 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
         saved_afk = 0
         last_ftp_project = None  # Track active FileZilla/FTP project context
 
+        # Common code subfolders that are NOT real project names
+        _code_subfolders = {'src', 'components', 'pages', 'utils', 'hooks', 'services',
+                            'models', 'views', 'controllers', 'routes', 'middleware',
+                            'helpers', 'config', 'public', 'static', 'assets', 'styles',
+                            'css', 'js', 'images', 'fonts', 'templates', 'layouts',
+                            'modules', 'features', 'store', 'reducers', 'actions',
+                            'types', 'interfaces', 'constants', 'api',
+                            'backend', 'frontend', 'server', 'client', 'app', 'lib',
+                            'dist', 'build', 'node_modules', 'vendor', 'packages',
+                            'test', 'tests', 'spec', 'scripts', '__tests__', 'e2e'}
+        _noise_folders = {"unknown", "", "users", "home", "documents", "downloads", "desktop",
+                          "data", "projects", "repos", "work", "dev", "code", "sites",
+                          "applications", "program files", "appdata", "local", "roaming",
+                          "var", "tmp", "temp", "opt", "usr", "bin", "lib", "etc"}
+
+        def _find_project_in_path(path_str):
+            """Walk up a path to find a meaningful project folder name."""
+            clean = path_str.replace("\\", "/").rstrip("/")
+            parts = [p for p in clean.split("/") if p.strip()]
+            for i in range(len(parts) - 1, -1, -1):
+                part = parts[i].strip()
+                if not part or len(part) < 2:
+                    continue
+                if len(part) <= 2 and ':' in part:
+                    continue
+                if part.lower() in _code_subfolders or part.lower() in _noise_folders:
+                    continue
+                return part
+            return None
+
         # Process dedicated AFK data from sync payload (if provided)
         afk_data = sync_data.get("afk_data", [])
         for afk_event in afk_data:
@@ -127,38 +157,27 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                 if ftp_project:
                     last_ftp_project = ftp_project
 
-                # Extract project name from ORIGINAL title (before cleaning)
-                project_name = extract_project_name(window_title, app_name)
+                # Strip browser suffixes BEFORE extracting project name
+                title_for_extract = window_title
+                for sfx in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Dia"]:
+                    title_for_extract = title_for_extract.replace(sfx, "")
 
-                # If VS Code watcher provided a project path, extract folder name from it
-                if vscode_project and project_name in ("general", "Unknown", ""):
-                    # VS Code project comes as path like "/e:/projects/sinoglobal_mail"
-                    clean_project = vscode_project.replace("\\", "/").rstrip("/")
-                    folder_name = clean_project.split("/")[-1] if "/" in clean_project else clean_project
-                    if folder_name and folder_name.lower() not in ("unknown", "") and len(folder_name) >= 2:
-                        project_name = folder_name
+                # Extract project name
+                project_name = extract_project_name(title_for_extract, app_name)
 
-                # Fallback: extract project from file_path when VS Code didn't send project
+                # If VS Code watcher provided a project path, extract meaningful name
+                # (walk up the path to skip subfolders like "components", "src", etc.)
+                if vscode_project and (project_name in ("general", "Unknown", "") or project_name.lower() in _code_subfolders):
+                    better_name = _find_project_in_path(vscode_project)
+                    if better_name:
+                        project_name = better_name
+
+                # Fallback: extract project from file_path
                 # e.g. "e:/projects/timesheet/backend/main.py" → "timesheet"
-                if project_name in ("general", "Unknown", "") and file_path:
-                    clean_fp = file_path.replace("\\", "/").rstrip("/")
-                    parts = clean_fp.split("/")
-                    # Find the project folder (parent of typical code folders like src, backend, frontend, etc.)
-                    code_folders = {'src', 'backend', 'frontend', 'app', 'lib', 'public',
-                                    'server', 'client', 'api', 'dist', 'build', 'node_modules',
-                                    'vendor', 'packages', 'config', 'tests', 'test', 'scripts'}
-                    found_project = None
-                    for i, part in enumerate(parts):
-                        if part.lower() in code_folders and i > 0:
-                            found_project = parts[i - 1]
-                            break
-                    # If no code folder found, use the parent folder of the file
-                    if not found_project and len(parts) >= 3:
-                        # Skip drive letter (e:) and take the deepest meaningful folder
-                        # e.g. "e:/projects/myapp/index.js" → "myapp"
-                        found_project = parts[-2]
-                    if found_project and found_project.lower() not in ("unknown", "", "users", "home", "documents", "downloads", "desktop") and len(found_project) >= 2:
-                        project_name = found_project
+                if (project_name in ("general", "Unknown", "") or project_name.lower() in _code_subfolders) and file_path:
+                    better_name = _find_project_in_path(file_path)
+                    if better_name:
+                        project_name = better_name
 
                 # If VS Code/IDE returns "general", use FileZilla context
                 if project_name == "general" and last_ftp_project:
@@ -169,7 +188,7 @@ async def receive_sync_data(sync_data: dict, db: Session = Depends(get_db)):
                         print(f"  -> Used FTP context: '{last_ftp_project}' for '{window_title[:40]}'...")
 
                 # Clean window title for display/categorization
-                for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Visual Studio Code"]:
+                for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Visual Studio Code", " - Dia"]:
                     window_title = window_title.replace(suffix, "")
 
                 category_info = categorizer.get_detailed_category(window_title, app_name)
@@ -256,10 +275,32 @@ def extract_project_name(window_title: str, app_name: str) -> str:
     # IDE detection: VS Code, Cursor, Code.exe, etc.
     is_ide = any(ide in app_lower for ide in ['code', 'cursor', 'vscode', 'pycharm', 'intellij', 'webstorm', 'sublime', 'atom'])
 
+    # Early exit: if window title is just the IDE/app name itself, return "general"
+    # (e.g. title="Cursor" for Cursor app, title="Code" for VS Code)
+    ide_only_names = {'cursor', 'code', 'visual studio code', 'vs code', 'pycharm', 'intellij',
+                      'webstorm', 'sublime text', 'atom', 'github desktop', 'postman', 'terminal',
+                      'finder', 'explorer', 'textedit', 'preview', 'console', 'calendar',
+                      'openvpn connect', 'dia', 'gmail', 'new tab', 'file', 'pdf'}
+    if window_title.strip().lower() in ide_only_names:
+        return "general"
+
+    # Common code subfolders that are NOT project names
+    _subfolder_names = {'src', 'components', 'pages', 'utils', 'hooks', 'services',
+                        'models', 'views', 'controllers', 'routes', 'middleware',
+                        'helpers', 'config', 'public', 'static', 'assets', 'styles',
+                        'modules', 'features', 'store', 'types', 'api',
+                        'backend', 'frontend', 'server', 'client', 'app', 'lib',
+                        'dist', 'build', 'test', 'tests', 'scripts'}
+
     # Pattern 1: "filename - projectname - Visual Studio Code/Cursor/Code"
     vscode_match = re.search(r' - ([^-]+) - (?:Visual Studio Code|VS Code|Cursor|Code)$', window_title)
     if vscode_match:
-        return vscode_match.group(1).strip()
+        name = vscode_match.group(1).strip()
+        # If extracted name is a common subfolder, return "general" so sync
+        # can fall back to vscode_project path for the real project name
+        if name.lower() in _subfolder_names:
+            return "general"
+        return name
 
     # Pattern 2: "[Claude Code] projectname\file" or similar tool prefixes
     claude_match = re.search(r'\[Claude Code\]\s*([^\\\/]+)', window_title)
@@ -300,7 +341,7 @@ def extract_project_name(window_title: str, app_name: str) -> str:
         return folder_match.group(1)
 
     # Pattern 8: Browser tabs - extract meaningful project name
-    is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'brave', 'opera', 'safari'])
+    is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'brave', 'opera', 'safari', 'dia'])
     if is_browser:
         # Remove browser suffix dynamically (last " - BrowserName" pattern)
         clean = re.sub(r'\s*-\s*\S+\s*$', '', window_title).strip() if ' - ' in window_title else window_title.strip()

@@ -22,7 +22,7 @@ from sqlalchemy import text
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-BROWSER_APPS = ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera']
+BROWSER_APPS = ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'dia']
 MAX_SINGLE_EVENT_DURATION = 900  # 15-min fallback cap when no AFK coverage
 PRODUCTIVE_CATEGORIES = ('coding', 'development', 'database', 'productivity', 'browser',
                          'productive', 'server', 'system', 'other')  # both old & new category names

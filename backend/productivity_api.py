@@ -1003,7 +1003,9 @@ async def get_all_projects(
         excluded_names = {'scripts', 'ide work', 'mails', 'general', 'unknown', '',
                           'data', 'home', 'desktop', 'documents', 'downloads',
                           'users', 'temp', 'tmp', 'system', 'windows', 'program files',
-                          'appdata', 'local', 'roaming', 'new tab', 'google', 'settings'}
+                          'appdata', 'local', 'roaming', 'new tab', 'google', 'settings',
+                          'dia', 'terminal', 'console', 'finder', 'postman', 'gmail',
+                          'cursor', 'code', 'calendar', 'preview', 'file', 'pdf'}
 
         # Query from activity_records directly, LEFT JOIN projects for metadata.
         # Use LOWER(ar.project_name) to merge case variations (e.g. "Mahindra" vs "mahindra").
