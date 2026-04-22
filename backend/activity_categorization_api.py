@@ -189,10 +189,12 @@ async def get_categorized_activities(
                     not_afk_intervals
                 )
                 raw_duration = min(active_seconds, raw_duration)
-            elif not has_afk_data and raw_duration > 900:
-                # Without AFK data we cannot verify the user was active.
-                # Cap every single event at 15 min (browser AND IDE/other apps).
-                raw_duration = 900
+            elif not has_afk_data:
+                # No AFK data = no proof the user was at the keyboard.
+                # System could be off or AFK watcher not running.
+                # Zero out durations — activity records alone are not
+                # reliable without AFK confirmation.
+                raw_duration = 0
 
             act = {
                 "id": row.id,
@@ -310,6 +312,13 @@ async def get_categorized_activities(
                 for a in acts[:10]
             ]
 
+
+        # ============================================================
+        # When no AFK data, the time-span calculation is unreliable
+        # (system may have been off). Use capped durations instead.
+        # ============================================================
+        if not has_afk_data:
+            actual_work_seconds = tracked_total_sec
 
         # ============================================================
         # Return Response
