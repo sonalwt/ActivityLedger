@@ -1007,6 +1007,8 @@ async def get_all_projects(
         having_clause = "HAVING COALESCE(SUM(ar.duration), 0) > 0" if dev_filter else ""
 
         # Fetch active projects with period-specific hours
+        # Join on both project_id and project_name to capture browser activities
+        # (browser activities have project_name set but project_id is NULL)
         projects_query = db.execute(text(f"""
             SELECT
                 p.id,
@@ -1017,7 +1019,8 @@ async def get_all_projects(
                 COALESCE(COUNT(ar.id), 0) as activity_count,
                 COUNT(DISTINCT ar.developer_id) as developer_count
             FROM projects p
-            {join_type} activity_records ar ON ar.project_id = p.id
+            {join_type} activity_records ar
+                ON (ar.project_id = p.id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(p.name)))
                 {date_filter}
                 {dev_filter}
             WHERE p.is_active = true
@@ -1164,15 +1167,18 @@ async def get_project_developers_time(
         project_total_cost = float(project_row[1]) if project_row else 0
 
         # Handle "Unassigned" project
+        # Match on both project_id and project_name to capture browser activities
+        # (browser activities have project_name set but project_id is NULL)
         if project_name == "Unassigned":
-            project_filter = "ar.project_id IS NULL"
+            project_filter = "ar.project_id IS NULL AND (ar.project_name IS NULL OR ar.project_name = '')"
         elif project_id:
-            project_filter = "ar.project_id = :project_id"
+            project_filter = "(ar.project_id = :project_id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(:project_name_str)))"
         else:
-            project_filter = "1=0"  # No matching project, return empty
+            project_filter = "LOWER(ar.project_name) = LOWER(:project_name_str)"
 
         query_params = {
             "project_id": project_id,
+            "project_name_str": project_name,
             "start_date": start,
             "end_date": end
         }
@@ -1221,7 +1227,7 @@ async def get_project_developers_time(
                 COUNT(DISTINCT DATE(ar.timestamp)) as overall_days
             FROM activity_records ar
             WHERE ({project_filter})
-        """), {"project_id": project_id}).fetchone()
+        """), {"project_id": project_id, "project_name_str": project_name}).fetchone()
 
         overall_hours = round(float(overall_query[0]), 2) if overall_query else 0
         overall_days = overall_query[1] if overall_query else 0
@@ -1237,7 +1243,7 @@ async def get_project_developers_time(
                 GROUP BY ar.developer_id
             ) ar_hours
             LEFT JOIN developers d ON ar_hours.developer_id = d.developer_id
-        """), {"project_id": project_id}).fetchone()
+        """), {"project_id": project_id, "project_name_str": project_name}).fetchone()
 
         lifetime_resource_cost = round(float(lifetime_cost_query[0]), 2) if lifetime_cost_query else 0
 
