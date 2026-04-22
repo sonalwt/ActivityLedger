@@ -119,23 +119,24 @@ def compute_adjusted_duration(timestamp, raw_duration, application_name,
     if raw_duration <= 0:
         return 0.0
 
+    # No AFK data at all = no proof the user was at the keyboard.
+    # System could be off or AFK watcher not running. Return 0.
+    if not all_afk_intervals:
+        return 0.0
+
     act_start = timestamp
     if act_start.tzinfo is None:
         act_start = act_start.replace(tzinfo=timezone.utc)
     act_end = act_start + timedelta(seconds=raw_duration)
 
-    # Only apply AFK adjustment if the AFK watcher was running during this activity
-    if all_afk_intervals and _has_afk_coverage(act_start, act_end, all_afk_intervals):
+    # AFK watcher was running during this activity — use overlap with not-afk
+    if _has_afk_coverage(act_start, act_end, all_afk_intervals):
         active = compute_active_duration(act_start, act_end, not_afk_intervals)
         return min(active, raw_duration)
 
-    # No AFK coverage — fallback: cap long browser events at 15 min
-    if raw_duration > MAX_SINGLE_EVENT_DURATION:
-        app_lower = (application_name or "").lower()
-        if any(b in app_lower for b in BROWSER_APPS):
-            return MAX_SINGLE_EVENT_DURATION
-
-    return raw_duration
+    # AFK watcher was running but doesn't cover this specific event's time window.
+    # This means the event is outside AFK-tracked hours — return 0.
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
