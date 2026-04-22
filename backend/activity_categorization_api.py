@@ -259,7 +259,7 @@ async def get_categorized_activities(
                 for item in merged_list:
                     title_lower = item["window_title"].strip().lower()
                     app_lower = item.get("application_name", "").lower()
-                    is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera'])
+                    is_browser = any(b in app_lower for b in ['chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'dia'])
                     if is_browser:
                         if any(kw in title_lower for kw in email_keywords):
                             item["duration"] = min(item["duration"], EMAIL_TOTAL_CAP)

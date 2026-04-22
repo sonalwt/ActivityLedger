@@ -30,7 +30,7 @@ _SKIP_TITLES = frozenset([
     'task view', 'windows default lock screen', 'new tab', 'blank',
 ])
 _SYSTEM_TITLES = frozenset(['search', 'task manager', 'control panel'])
-_BROWSER_APPS = ('chrome', 'firefox', 'edge', 'safari', 'brave', 'opera')
+_BROWSER_APPS = ('chrome', 'firefox', 'edge', 'safari', 'brave', 'opera', 'dia')
 _EMAIL_KEYWORDS = (
     "mail", "inbox", "compose", "@gmail", "@outlook",
     "@yahoo", "@hotmail", "webmail", "thunderbird",
