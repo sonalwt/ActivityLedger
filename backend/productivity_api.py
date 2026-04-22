@@ -1022,7 +1022,7 @@ async def get_all_projects(
                 {date_filter}
                 {dev_filter}
             GROUP BY ar.project_name, p.id, p.description, p.total_cost
-            HAVING SUM(ar.duration) > 0
+            HAVING SUM(ar.duration) > 1800
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
