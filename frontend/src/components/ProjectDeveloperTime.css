@@ -627,6 +627,45 @@
   margin-top: 16px;
 }
 
+/* ── Developer Multi-Select Dropdown ── */
+.pdt-dropdown-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 8px;
+}
+
+.pdt-dropdown-actions button {
+  padding: 4px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #667eea;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdt-dropdown-actions button:hover {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.pdt-checkbox-option {
+  gap: 10px;
+}
+
+.pdt-dev-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #667eea;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* ── No Data ── */
 .pdt-no-data {
   text-align: center;
