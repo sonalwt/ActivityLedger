@@ -995,7 +995,7 @@ async def get_all_projects(
             dev_id_list = [d.strip() for d in developer_ids.split(",") if d.strip()]
             if dev_id_list:
                 placeholders = ", ".join([f":dev_{i}" for i in range(len(dev_id_list))])
-                dev_filter = f"AND ar.developer_id IN ({placeholders})"
+                dev_filter = f"AND ar.developer_id::VARCHAR IN ({placeholders})"
                 for i, did in enumerate(dev_id_list):
                     query_params[f"dev_{i}"] = did
 
@@ -1004,6 +1004,7 @@ async def get_all_projects(
 
         # Use INNER JOIN when filtering by developer (only show their projects)
         join_type = "INNER JOIN" if dev_filter else "LEFT JOIN"
+        having_clause = "HAVING COALESCE(SUM(ar.duration), 0) > 0" if dev_filter else ""
 
         # Fetch active projects with period-specific hours
         projects_query = db.execute(text(f"""
@@ -1021,7 +1022,7 @@ async def get_all_projects(
                 {dev_filter}
             WHERE p.is_active = true
             GROUP BY p.id, p.name, p.description, p.total_cost
-            HAVING COALESCE(SUM(ar.duration), 0) > 0
+            {having_clause}
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
