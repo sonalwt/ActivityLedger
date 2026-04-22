@@ -969,6 +969,7 @@ async def get_all_projects(
         description="Filter: current_month, last_month, current_year, last_year, custom"),
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    developer_ids: Optional[str] = Query(None, description="Comma-separated developer IDs to filter projects"),
     db: Session = Depends(get_db)
 ):
     """Get list of projects from the projects table with aggregated hours from activity_records."""
@@ -988,6 +989,16 @@ async def get_all_projects(
             date_filter = "AND ar.timestamp >= :start_date AND ar.timestamp <= :end_date"
             query_params = {"start_date": start, "end_date": end}
 
+        # Developer filter
+        dev_filter = ""
+        if developer_ids:
+            dev_id_list = [d.strip() for d in developer_ids.split(",") if d.strip()]
+            if dev_id_list:
+                placeholders = ", ".join([f":dev_{i}" for i in range(len(dev_id_list))])
+                dev_filter = f"AND ar.developer_id IN ({placeholders})"
+                for i, did in enumerate(dev_id_list):
+                    query_params[f"dev_{i}"] = did
+
         # Excluded project names (noise/non-project entries)
         excluded_names = ['scripts', 'ide work', 'mails']
 
@@ -1004,6 +1015,7 @@ async def get_all_projects(
             FROM projects p
             LEFT JOIN activity_records ar ON ar.project_id = p.id
                 {date_filter}
+                {dev_filter}
             WHERE p.is_active = true
             GROUP BY p.id, p.name, p.description, p.total_cost
             ORDER BY total_hours DESC
