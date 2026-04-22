@@ -1002,7 +1002,10 @@ async def get_all_projects(
         # Excluded project names (noise/non-project entries)
         excluded_names = ['scripts', 'ide work', 'mails']
 
-        # Fetch all active projects with period-specific hours
+        # Use INNER JOIN when filtering by developer (only show their projects)
+        join_type = "INNER JOIN" if dev_filter else "LEFT JOIN"
+
+        # Fetch active projects with period-specific hours
         projects_query = db.execute(text(f"""
             SELECT
                 p.id,
@@ -1013,11 +1016,12 @@ async def get_all_projects(
                 COALESCE(COUNT(ar.id), 0) as activity_count,
                 COUNT(DISTINCT ar.developer_id) as developer_count
             FROM projects p
-            LEFT JOIN activity_records ar ON ar.project_id = p.id
+            {join_type} activity_records ar ON ar.project_id = p.id
                 {date_filter}
                 {dev_filter}
             WHERE p.is_active = true
             GROUP BY p.id, p.name, p.description, p.total_cost
+            HAVING COALESCE(SUM(ar.duration), 0) > 0
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
