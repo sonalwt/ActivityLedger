@@ -272,7 +272,8 @@ async def get_categorized_activities(
                 item["duration_hours"] = round(d/3600, 3)
                 item["duration_display"] = format_duration(d)
 
-            # Sort by longest duration
+            # Remove zero-duration activities and sort by longest duration
+            merged_list = [item for item in merged_list if item["duration"] > 0]
             grouped_output[cat] = sorted(merged_list, key=lambda x: x["duration"], reverse=True)
 
 
