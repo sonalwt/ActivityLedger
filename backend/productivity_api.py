@@ -1000,46 +1000,43 @@ async def get_all_projects(
                     query_params[f"dev_{i}"] = did
 
         # Excluded project names (noise/non-project entries)
-        excluded_names = ['scripts', 'ide work', 'mails']
+        excluded_names = ['scripts', 'ide work', 'mails', 'general', 'unknown', '']
 
-        # Use INNER JOIN when filtering by developer (only show their projects)
-        join_type = "INNER JOIN" if dev_filter else "LEFT JOIN"
-        having_clause = "HAVING COALESCE(SUM(ar.duration), 0) > 0" if dev_filter else ""
-
-        # Fetch active projects with period-specific hours
-        # Join on both project_id and project_name to capture browser activities
-        # (browser activities have project_name set but project_id is NULL)
+        # Query from activity_records directly, LEFT JOIN projects for metadata.
+        # This captures ALL activities (including browser work where project_id is NULL
+        # but project_name is set).
         projects_query = db.execute(text(f"""
             SELECT
-                p.id,
-                p.name as project_name,
+                ar.project_name,
+                p.id as project_id,
                 p.description,
                 COALESCE(p.total_cost, 0) as total_cost,
                 COALESCE(SUM(ar.duration) / 3600.0, 0) as total_hours,
                 COALESCE(COUNT(ar.id), 0) as activity_count,
                 COUNT(DISTINCT ar.developer_id) as developer_count
-            FROM projects p
-            {join_type} activity_records ar
-                ON (ar.project_id = p.id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(p.name)))
+            FROM activity_records ar
+            LEFT JOIN projects p ON (ar.project_id = p.id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(p.name)))
+            WHERE ar.project_name IS NOT NULL
+                AND ar.project_name != ''
+                AND ar.project_name != 'general'
                 {date_filter}
                 {dev_filter}
-            WHERE p.is_active = true
-            GROUP BY p.id, p.name, p.description, p.total_cost
-            {having_clause}
+            GROUP BY ar.project_name, p.id, p.description, p.total_cost
+            HAVING SUM(ar.duration) > 0
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
         projects = []
         for row in projects_query:
-            project_name = row[1]
+            pname = row[0]
             # Skip excluded project names
-            if project_name and project_name.lower() in excluded_names:
+            if pname and pname.lower() in excluded_names:
                 continue
             projects.append({
-                "project_id": row[0],
-                "project_name": project_name,
+                "project_id": row[1],
+                "project_name": pname,
                 "description": row[2],
-                "total_cost": round(float(row[3]), 2),
+                "total_cost": round(float(row[3]), 2) if row[3] else 0,
                 "total_hours": round(float(row[4]), 2),
                 "activity_count": row[5],
                 "developer_count": row[6]
