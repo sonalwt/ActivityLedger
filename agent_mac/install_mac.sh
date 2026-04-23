@@ -336,6 +336,17 @@ def get_idle_seconds():
         return 0.0
     except: return 0.0
 
+def is_screen_locked():
+    """Check if Mac screen is locked, screensaver active, or display sleeping."""
+    try:
+        app = _run_osascript(
+            'tell application "System Events" to get name of first application '
+            'process whose frontmost is true', timeout=3)
+        if app is None: return True
+        if app.lower() in ("loginwindow", "screensaverengine"): return True
+    except Exception: pass
+    return False
+
 def check_accessibility():
     """Warn if Accessibility permission is not granted."""
     try:
@@ -470,7 +481,7 @@ class ActivityAgent:
         check_accessibility()
         self.tracker = WindowTracker(afk_timeout=self.config["afk_timeout_seconds"])
         self.sync_mgr = SyncManager(self.config, self.logger)
-        self.running = True; self.last_sync = time.time()
+        self.running = True; self.last_sync = time.time(); self.idle_paused = False
         signal.signal(signal.SIGTERM, self._shutdown); signal.signal(signal.SIGINT, self._shutdown)
         atexit.register(self._on_exit)
 
@@ -493,11 +504,49 @@ class ActivityAgent:
         self._log_startup_diagnostic()
         while self.running:
             try:
-                self.tracker.tick()
+                idle_secs = get_idle_seconds()
+                screen_locked = is_screen_locked()
+                afk_timeout = self.config["afk_timeout_seconds"]
+                should_pause = idle_secs >= afk_timeout or screen_locked
+                if not self.idle_paused:
+                    if should_pause:
+                        now_dt = datetime.now(timezone.utc)
+                        afk_started = now_dt - timedelta(seconds=idle_secs)
+                        if screen_locked:
+                            self.logger.info("Screen locked — pausing activity capture")
+                        else:
+                            self.logger.info(f"System idle ({idle_secs:.0f}s) — pausing activity capture")
+                        self.tracker.flush_current()
+                        if self.tracker.afk_state == "not-afk" and self.tracker.active_start:
+                            active_dur = (afk_started - self.tracker.active_start).total_seconds()
+                            if active_dur >= 1:
+                                self.tracker.afk_events.append({"timestamp": self.tracker.active_start.isoformat(), "duration": round(active_dur, 1), "data": {"status": "not-afk"}})
+                        self.tracker.afk_state = "afk"; self.tracker.afk_start = afk_started
+                        self.tracker.current_app = None; self.tracker.current_title = None
+                        self.tracker.current_url = None; self.tracker.current_project = None
+                        self.tracker.session_start = None; self.idle_paused = True
+                    else:
+                        self.tracker.tick()
+                else:
+                    if not should_pause:
+                        now_dt = datetime.now(timezone.utc)
+                        if self.tracker.afk_start:
+                            afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
+                            if afk_dur >= 1:
+                                self.tracker.afk_events.append({"timestamp": self.tracker.afk_start.isoformat(), "duration": round(afk_dur, 1), "data": {"status": "afk"}})
+                        self.tracker.afk_state = "not-afk"; self.tracker.active_start = now_dt
+                        self.tracker.afk_start = None; self.tracker.last_screen_change = now_dt
+                        self.idle_paused = False
+                        self.logger.info("User activity detected — resuming capture")
                 now = time.time()
                 if now - self.last_sync >= self.config["sync_interval_seconds"]:
                     self.tracker.flush_current(); w, a = self.tracker.drain_events()
-                    self.sync_mgr.add_events(w, a); self.sync_mgr.sync(); self.last_sync = now
+                    self.sync_mgr.add_events(w, a)
+                    wc = len(self.sync_mgr.pending_window); ac = len(self.sync_mgr.pending_afk)
+                    if wc > 0 or ac > 0:
+                        self.logger.info(f"Syncing {wc} window + {ac} AFK events...")
+                        self.sync_mgr.sync()
+                    self.last_sync = now
                 time.sleep(self.config["capture_interval_seconds"])
             except Exception as e: self.logger.error(f"Main loop error: {e}", exc_info=True); time.sleep(5)
         self.logger.info("Activity Agent stopped")

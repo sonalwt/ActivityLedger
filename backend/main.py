@@ -132,6 +132,10 @@ app.include_router(enhanced_activity_router, tags=["activity"])
 from analytics_api import router as analytics_router
 app.include_router(analytics_router, tags=["analytics"])
 
+# Add cleanup API for removing idle/AFK activity data
+from cleanup_idle_api import router as cleanup_router
+app.include_router(cleanup_router, tags=["cleanup"])
+
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
