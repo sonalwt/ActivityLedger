@@ -4,6 +4,8 @@ Cleanup API — Delete activity records captured during idle/AFK periods.
 Retroactively removes activities that overlap with AFK time (when the developer
 was not at the keyboard). This fixes historical data that was incorrectly
 captured before the idle-pause feature was added to the agent.
+
+Includes automatic daily cleanup via background scheduler.
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -11,10 +13,120 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from database import get_db
+from collections import defaultdict
+from database import get_db, SessionLocal
 from afk_helpers import build_not_afk_intervals, build_all_afk_intervals, compute_active_duration
+import asyncio
+import logging
+
+logger = logging.getLogger("cleanup_idle")
 
 router = APIRouter()
+
+
+# ============================================================
+# BACKGROUND AUTO-CLEANUP (runs daily)
+# ============================================================
+def run_idle_cleanup_sync(days_back: int = 3) -> dict:
+    """
+    Standalone cleanup function (no FastAPI deps).
+    Deletes idle activities for the last N days for all developers.
+    Called by the background scheduler.
+    """
+    db = SessionLocal()
+    try:
+        start = (datetime.now(timezone.utc) - timedelta(days=days_back)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end = datetime.now(timezone.utc)
+
+        afk_rows = db.execute(text("""
+            SELECT developer_id, status, duration, timestamp
+            FROM afk_records
+            WHERE timestamp >= :start_date AND timestamp <= :end_date
+            ORDER BY developer_id, timestamp ASC
+        """), {"start_date": start, "end_date": end}).fetchall()
+
+        if not afk_rows:
+            logger.info("Auto-cleanup: no AFK records found — skipping")
+            return {"deleted": 0, "message": "no AFK records"}
+
+        afk_by_dev = defaultdict(list)
+        for row in afk_rows:
+            afk_by_dev[row.developer_id].append(row)
+
+        dev_intervals = {}
+        for dev_id, dev_afk_rows in afk_by_dev.items():
+            dev_intervals[dev_id] = {
+                "not_afk": build_not_afk_intervals(dev_afk_rows),
+                "all_afk": build_all_afk_intervals(dev_afk_rows),
+            }
+
+        activity_rows = db.execute(text("""
+            SELECT id, developer_id, timestamp, duration
+            FROM activity_records
+            WHERE timestamp >= :start_date AND timestamp <= :end_date
+            ORDER BY timestamp ASC
+        """), {"start_date": start, "end_date": end}).fetchall()
+
+        ids_to_delete = []
+        for row in activity_rows:
+            dev_id = row.developer_id
+            if dev_id not in dev_intervals:
+                continue
+            if not dev_intervals[dev_id]["all_afk"]:
+                continue
+
+            act_start = row.timestamp
+            if act_start.tzinfo is None:
+                act_start = act_start.replace(tzinfo=timezone.utc)
+            act_end = act_start + timedelta(seconds=row.duration or 0)
+
+            active_seconds = compute_active_duration(
+                act_start, act_end, dev_intervals[dev_id]["not_afk"]
+            )
+            if active_seconds <= 0:
+                ids_to_delete.append(row.id)
+
+        if ids_to_delete:
+            for i in range(0, len(ids_to_delete), 500):
+                batch = ids_to_delete[i:i + 500]
+                db.execute(
+                    text("DELETE FROM activity_records WHERE id = ANY(:ids)"),
+                    {"ids": batch},
+                )
+            db.commit()
+
+        result = {
+            "deleted": len(ids_to_delete),
+            "checked": len(activity_rows),
+            "range": f"{start.date()} to {end.date()}",
+        }
+        logger.info(f"Auto-cleanup: deleted {len(ids_to_delete)} idle activities "
+                     f"(checked {len(activity_rows)}, range {start.date()}-{end.date()})")
+        return result
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Auto-cleanup error: {e}")
+        return {"deleted": 0, "error": str(e)}
+    finally:
+        db.close()
+
+
+async def daily_cleanup_loop():
+    """Background loop: runs idle cleanup every 6 hours."""
+    # Wait 60 seconds after startup before first run
+    await asyncio.sleep(60)
+    while True:
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, run_idle_cleanup_sync, 3
+            )
+            logger.info(f"Scheduled cleanup result: {result}")
+        except Exception as e:
+            logger.error(f"Scheduled cleanup failed: {e}")
+        # Run every 6 hours
+        await asyncio.sleep(6 * 3600)
 
 
 @router.post("/api/admin/cleanup-idle-activities")
@@ -74,7 +186,6 @@ async def cleanup_idle_activities(
         }
 
     # Group AFK data by developer
-    from collections import defaultdict
     afk_by_dev = defaultdict(list)
     for row in afk_rows:
         afk_by_dev[row.developer_id].append(row)

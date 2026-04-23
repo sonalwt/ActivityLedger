@@ -133,8 +133,15 @@ from analytics_api import router as analytics_router
 app.include_router(analytics_router, tags=["analytics"])
 
 # Add cleanup API for removing idle/AFK activity data
-from cleanup_idle_api import router as cleanup_router
+from cleanup_idle_api import router as cleanup_router, daily_cleanup_loop
 app.include_router(cleanup_router, tags=["cleanup"])
+
+
+@app.on_event("startup")
+async def start_daily_cleanup():
+    """Launch background task that cleans idle activities every 6 hours."""
+    import asyncio
+    asyncio.create_task(daily_cleanup_loop())
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 

@@ -507,7 +507,8 @@ class ActivityAgent:
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
                 afk_timeout = self.config["afk_timeout_seconds"]
-                should_pause = idle_secs >= afk_timeout or screen_locked
+                screen_changing = (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds() < afk_timeout
+                should_pause = screen_locked or (idle_secs >= afk_timeout and not screen_changing)
                 if not self.idle_paused:
                     if should_pause:
                         now_dt = datetime.now(timezone.utc)
