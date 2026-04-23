@@ -315,11 +315,11 @@ async def get_categorized_activities(
 
 
         # ============================================================
-        # When no AFK data, the time-span calculation is unreliable
-        # (system may have been off). Use capped durations instead.
+        # Always use AFK-adjusted tracked time as actual work seconds.
+        # The time-span calculation (first→last activity) is unreliable
+        # because idle activities inflate the span.
         # ============================================================
-        if not has_afk_data:
-            actual_work_seconds = tracked_total_sec
+        actual_work_seconds = tracked_total_sec
 
         # ============================================================
         # Return Response

@@ -101,7 +101,7 @@ function DeveloperDashboard({ developer, onBack }) {
           }
         );
 
-        const totalSeconds = catData.actual_work_seconds || 0;
+        const totalSeconds = catData.total_tracked_seconds || catData.actual_work_seconds || 0;
         const grouped = catData.activities_by_category || {};
         const stats = catData.statistics || {};
 
