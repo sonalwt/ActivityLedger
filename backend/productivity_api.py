@@ -1084,15 +1084,9 @@ async def get_all_projects(
             if _re.match(r'^(fz\d*temp|tmp\d|temp\d)', pname_lower):
                 continue
 
-            # If formally registered in projects table → always show
-            if project_id:
-                pass  # accepted
-            else:
-                # Unregistered: only show if it looks like a real project/repo name
-                # Valid: single word or hyphen/underscore-separated, no spaces, no special chars
-                # Examples: mahindra-manulife-distributor, ActivityLedgerDesign, iron-ore-invoice-generator
-                if not _re.match(r'^[A-Za-z][A-Za-z0-9_-]{3,}$', pname):
-                    continue  # has spaces, brackets, dots etc. → browser tab / file title
+            # Skip names longer than 60 chars — almost certainly a browser tab title
+            if len(pname) > 60:
+                continue
             projects.append({
                 "project_id": row[2],
                 "project_name": pname,
