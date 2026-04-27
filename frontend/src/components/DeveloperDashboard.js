@@ -181,7 +181,7 @@ function DeveloperDashboard({ developer, onBack }) {
 
   const IDE_NAMES = ['visual studio code', 'code', 'cursor', 'pycharm', 'intellij'];
 
-  const GENERIC_PROJECTS = ['general', 'ide work', 'unknown', 'work'];
+  const GENERIC_PROJECTS = ['general', 'ide work', 'unknown', 'work', 'data', 'temp', 'tmp', 'src', 'app'];
 
   const formatActivityTitle = (title, projectName, filePath) => {
     const fileName = filePath ? filePath.split(/[/\\]/).pop() : '';

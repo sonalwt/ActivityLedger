@@ -290,7 +290,8 @@ def extract_project_name(window_title: str, app_name: str) -> str:
                         'helpers', 'config', 'public', 'static', 'assets', 'styles',
                         'modules', 'features', 'store', 'types', 'api',
                         'backend', 'frontend', 'server', 'client', 'app', 'lib',
-                        'dist', 'build', 'test', 'tests', 'scripts'}
+                        'dist', 'build', 'test', 'tests', 'scripts',
+                        'data', 'temp', 'tmp', 'docs', 'output', 'input', 'logs', 'cache'}
 
     # Pattern 1: "filename - projectname - Visual Studio Code/Cursor/Code"
     vscode_match = re.search(r' - ([^-]+) - (?:Visual Studio Code|VS Code|Cursor|Code)$', window_title)

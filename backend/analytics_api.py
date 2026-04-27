@@ -200,6 +200,7 @@ async def get_developer_analytics(
             end = datetime(last_month_end.year, last_month_end.month, last_month_end.day,
                           23, 59, 59, tzinfo=timezone.utc)
         elif period == "current_fy":
+            
             start, end = _get_indian_financial_year_range(0)
             if end > now:
                 end = now
