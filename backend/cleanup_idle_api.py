@@ -129,6 +129,75 @@ async def daily_cleanup_loop():
         await asyncio.sleep(6 * 3600)
 
 
+@router.delete("/api/admin/cleanup-morning-afk")
+async def cleanup_morning_afk(
+    developer_id: str = Query(..., description="Developer ID"),
+    cutoff_utc: str = Query(..., description="ISO UTC datetime — delete not-afk records BEFORE this time (e.g. 2026-04-23T03:30:00Z for 9 AM IST)"),
+    dry_run: bool = Query(True, description="True = preview only, False = actually delete"),
+    db: Session = Depends(get_db),
+):
+    """
+    Remove phantom 'not-afk' AFK records from before the developer arrived.
+
+    When a machine auto-wakes (Windows Update, BIOS schedule, etc.) before the
+    developer arrives, the agent can record phantom not-afk intervals.  This
+    endpoint deletes those records so the dashboard no longer counts the morning
+    as work time.
+
+    Typical use: pass cutoff_utc = today's work-start time in UTC.
+    Example: developer arrives at 9 AM IST → cutoff_utc = "2026-04-23T03:30:00Z"
+    """
+    try:
+        cutoff = datetime.fromisoformat(cutoff_utc.replace("Z", "+00:00"))
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="cutoff_utc must be a valid ISO datetime string")
+
+    # Preview: count what will be deleted
+    rows = db.execute(text("""
+        SELECT id, timestamp, duration, status
+        FROM afk_records
+        WHERE developer_id = :dev_id
+          AND status = 'not-afk'
+          AND timestamp < :cutoff
+          AND timestamp >= :day_start
+        ORDER BY timestamp ASC
+    """), {
+        "dev_id": developer_id,
+        "cutoff": cutoff,
+        "day_start": cutoff.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=12),
+    }).fetchall()
+
+    deleted_count = 0
+    if not dry_run and rows:
+        ids = [r.id for r in rows]
+        for i in range(0, len(ids), 500):
+            db.execute(text("DELETE FROM afk_records WHERE id = ANY(:ids)"), {"ids": ids[i:i+500]})
+        db.commit()
+        deleted_count = len(ids)
+
+    total_phantom_seconds = sum(r.duration or 0 for r in rows)
+    sample = [
+        {"timestamp": r.timestamp.isoformat(), "duration_sec": round(r.duration or 0, 1)}
+        for r in rows[:20]
+    ]
+
+    return {
+        "dry_run": dry_run,
+        "developer_id": developer_id,
+        "cutoff_utc": cutoff.isoformat(),
+        "phantom_not_afk_records": len(rows),
+        "phantom_hours": round(total_phantom_seconds / 3600, 2),
+        "actually_deleted": deleted_count,
+        "message": (
+            f"Preview: {len(rows)} phantom not-afk records ({round(total_phantom_seconds/3600,2)}h) would be removed"
+            if dry_run
+            else f"Deleted {deleted_count} phantom not-afk records"
+        ),
+        "sample": sample,
+    }
+
+
 @router.post("/api/admin/cleanup-idle-activities")
 async def cleanup_idle_activities(
     developer_id: Optional[str] = Query(None, description="Developer ID (None = all developers)"),

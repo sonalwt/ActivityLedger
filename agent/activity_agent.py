@@ -336,12 +336,18 @@ class WindowTracker:
         Smart AFK: If the screen content is actively changing (e.g. AI tool
         like Claude Code is making edits, files switching), the user is still
         engaged even without keyboard/mouse input. Don't mark as AFK.
+
+        Hard cap: beyond 2× afk_timeout of physical inactivity, always mark
+        AFK regardless of screen changes (prevents lunch breaks from being
+        counted as work when AI tools are running in background).
         """
         secs_since_screen_change = (now - self.last_screen_change).total_seconds()
         screen_active = secs_since_screen_change < self.afk_timeout
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
-            if screen_active:
+            # Only apply smart-AFK grace period if within 2× timeout.
+            # Beyond that, the user is physically away (lunch break, etc.)
+            if screen_active and idle_secs < self.afk_timeout * 2:
                 return  # Screen content is changing — user is monitoring (AI tool, etc.)
             # ACTIVE → AFK
             afk_started = now - timedelta(seconds=idle_secs)
@@ -502,6 +508,7 @@ class ActivityAgent:
         self.sync_mgr = SyncManager(self.config, self.logger)
         self.running = True
         self.last_sync = time.time()
+        self.last_tick_time = time.time()
         self.idle_paused = False
 
         signal.signal(signal.SIGTERM, self._shutdown)
@@ -533,16 +540,65 @@ class ActivityAgent:
 
         while self.running:
             try:
+                # --- Sleep/hibernate detection ---
+                # If wall-clock gap >> capture interval, the PC was suspended.
+                # Close the open window session at the moment of sleep (not now)
+                # and record an AFK event for the entire gap so the time isn't
+                # counted as active work.
+                now_wall = time.time()
+                gap = now_wall - self.last_tick_time
+                sleep_threshold = self.config["capture_interval_seconds"] + 60
+                if gap > sleep_threshold:
+                    sleep_start_dt = datetime.fromtimestamp(
+                        self.last_tick_time, tz=timezone.utc
+                    )
+                    wake_dt = datetime.fromtimestamp(now_wall, tz=timezone.utc)
+                    self.logger.info(
+                        f"Sleep/hibernate detected — {gap:.0f}s gap "
+                        f"({sleep_start_dt.strftime('%H:%M:%S')} UTC → "
+                        f"{wake_dt.strftime('%H:%M:%S')} UTC)"
+                    )
+                    if not self.idle_paused:
+                        # Close any open window session up to the sleep moment
+                        self.tracker._close_window_session(sleep_start_dt)
+                        self.tracker.current_app = None
+                        self.tracker.current_title = None
+                        self.tracker.current_project = None
+                        self.tracker.session_start = None
+                        # Emit not-afk for the active period that ended at sleep
+                        if self.tracker.afk_state == "not-afk" and self.tracker.active_start:
+                            active_dur = (sleep_start_dt - self.tracker.active_start).total_seconds()
+                            if active_dur >= 1:
+                                self.tracker.afk_events.append({
+                                    "timestamp": self.tracker.active_start.isoformat(),
+                                    "duration": round(active_dur, 1),
+                                    "data": {"status": "not-afk"},
+                                })
+                        # Emit AFK event covering the entire sleep gap
+                        self.tracker.afk_events.append({
+                            "timestamp": sleep_start_dt.isoformat(),
+                            "duration": round(gap, 1),
+                            "data": {"status": "afk"},
+                        })
+                        self.tracker.afk_state = "afk"
+                        self.tracker.afk_start = wake_dt
+                        self.idle_paused = True
+                self.last_tick_time = now_wall
+
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
                 afk_timeout = self.config["afk_timeout_seconds"]
                 # Smart pause: if screen content is actively changing (e.g. Claude Code
-                # editing files), developer is monitoring AI output — don't pause
+                # editing files), developer is monitoring AI output — don't pause.
+                # Hard cap: beyond 2× afk_timeout of physical inactivity, always
+                # pause regardless of screen changes (prevents AI tools from
+                # keeping the timer running during long breaks).
                 screen_changing = (
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                should_pause = screen_locked or (idle_secs >= afk_timeout and not screen_changing)
+                hard_afk = idle_secs >= afk_timeout * 2
+                should_pause = screen_locked or hard_afk or (idle_secs >= afk_timeout and not screen_changing)
 
                 if not self.idle_paused:
                     if should_pause:

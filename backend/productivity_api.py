@@ -1007,6 +1007,13 @@ async def get_all_projects(
                           'dia', 'terminal', 'console', 'finder', 'postman', 'gmail',
                           'cursor', 'code', 'calendar', 'preview', 'file', 'pdf'}
 
+        # Build blacklist window_title filter from the existing categorizer blacklist
+        from activity_categorizer import get_categorizer
+        _blacklisted = [s for s in get_categorizer().blacklisted_browser_sites if s and "'" not in s]
+        blacklist_filter = " AND ".join(
+            f"LOWER(ar.window_title) NOT LIKE '%{s}%'" for s in _blacklisted
+        ) if _blacklisted else "1=1"
+
         # Query from activity_records directly, LEFT JOIN projects for metadata.
         # Use LOWER(ar.project_name) to merge case variations (e.g. "Mahindra" vs "mahindra").
         projects_query = db.execute(text(f"""
@@ -1024,6 +1031,8 @@ async def get_all_projects(
             WHERE ar.project_name IS NOT NULL
                 AND ar.project_name != ''
                 AND ar.project_name != 'general'
+                AND ar.category != 'non-work'
+                AND {blacklist_filter}
                 {date_filter}
                 {dev_filter}
             GROUP BY LOWER(ar.project_name)
