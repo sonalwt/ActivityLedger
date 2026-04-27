@@ -207,6 +207,10 @@ function DeveloperDashboard({ developer, onBack }) {
     if (hasProject && !cleaned.toLowerCase().includes(projectName.toLowerCase())) {
       return `${projectName} - ${cleaned}`;
     }
+    // When title is same as project name, add file context so user knows exactly what "Data" means
+    if (hasProject && cleaned.toLowerCase() === projectName.trim().toLowerCase() && fileName) {
+      return `${projectName} - ${fileName}`;
+    }
     return cleaned;
   };
 
@@ -430,6 +434,9 @@ function DeveloperDashboard({ developer, onBack }) {
                             <div className="activity-meta">
                               <span>{act.application_name || "Unknown"}</span>
                               {act.project_name && <span> &bull; {act.project_name}</span>}
+                              {act.file_path && act.file_path.split(/[/\\]/).pop() !== act.project_name && (
+                                <span> &bull; {act.file_path.split(/[/\\]/).pop()}</span>
+                              )}
                               {act.activity_count > 1 && <span> &bull; {act.activity_count} times</span>}
                             </div>
                           </div>

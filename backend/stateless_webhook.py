@@ -261,6 +261,11 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
         
         # Fallback to window title
         if ' - ' in window_title:
+            # Skip blacklisted (non-work) sites using the existing categorizer blacklist
+            from activity_categorizer import get_categorizer
+            cat, _ = get_categorizer().categorize_activity(window_title, app_name)
+            if cat == 'non-work':
+                return project_info  # project_name stays None
             page_title = window_title.split(' - ')[0].strip()
             project_info.update({
                 'project_name': page_title,
