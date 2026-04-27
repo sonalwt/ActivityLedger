@@ -1000,12 +1000,30 @@ async def get_all_projects(
                     query_params[f"dev_{i}"] = did
 
         # Excluded project names (noise/non-project entries)
-        excluded_names = {'scripts', 'ide work', 'mails', 'general', 'unknown', '',
-                          'data', 'home', 'desktop', 'documents', 'downloads',
-                          'users', 'temp', 'tmp', 'system', 'windows', 'program files',
-                          'appdata', 'local', 'roaming', 'new tab', 'google', 'settings',
-                          'dia', 'terminal', 'console', 'finder', 'postman', 'gmail',
-                          'cursor', 'code', 'calendar', 'preview', 'file', 'pdf'}
+        excluded_names = {
+            # Generic / system noise
+            'scripts', 'ide work', 'mails', 'general', 'unknown', '',
+            'data', 'home', 'desktop', 'documents', 'downloads',
+            'users', 'temp', 'tmp', 'system', 'windows', 'program files',
+            'appdata', 'local', 'roaming', 'new tab', 'google', 'settings',
+            'terminal', 'console', 'finder', 'calendar', 'preview', 'file', 'pdf',
+            'untitled', 'untitled-1', 'welcome', 'startup', 'inbox', 'jobs',
+            # App names
+            'dia', 'cursor', 'code', 'postman', 'gmail', 'whatsapp', 'chatgpt',
+            'notepad', 'ssms', 'termius', 'shellhost', 'windowsterminal',
+            'snippingtool', 'commands', 'agent', 'client_sync',
+            # Code subfolders
+            'src', 'components', 'pages', 'utils', 'hooks', 'services',
+            'models', 'views', 'controllers', 'routes', 'middleware',
+            'helpers', 'config', 'public', 'static', 'assets', 'styles',
+            'modules', 'features', 'store', 'types', 'api', 'partials',
+            'backend', 'frontend', 'server', 'client', 'app', 'lib',
+            'dist', 'build', 'test', 'tests', 'docs', 'output', 'logs', 'cache',
+            'repositories', 'functions', 'migrations', 'imports', 'banners',
+            'seeders', 'layouts', 'design', 'nova', 'web', 'funds',
+            # Noise names from file paths / nav
+            'nav_div_ter_file_download', 'scheme list',
+        }
 
         # Build blacklist window_title filter from the existing categorizer blacklist
         from activity_categorizer import get_categorizer
@@ -1040,15 +1058,41 @@ async def get_all_projects(
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
+        import re as _re
         projects = []
         for row in projects_query:
             pname = row[1]  # MAX(ar.project_name) - original casing
-            # Skip excluded project names
-            if pname and pname.lower() in excluded_names:
+            project_id = row[2]  # MAX(p.id) — not None if formally registered
+            if not pname:
                 continue
-            # Skip very short names (likely noise from path extraction)
-            if pname and len(pname) <= 2:
+
+            pname_lower = pname.lower()
+
+            # Always skip excluded noise names
+            if pname_lower in excluded_names:
                 continue
+            # Skip very short names
+            if len(pname) <= 2:
+                continue
+            # Skip file names (have extensions like .pptx, .xlsx, .pdf, .exe)
+            if _re.search(r'\.[a-zA-Z]{2,4}$', pname):
+                continue
+            # Skip names with em dash or pipe — browser tab titles
+            if '\u2014' in pname or '\u2013' in pname or ' | ' in pname:
+                continue
+            # Skip temp folder patterns (fz3temp-2, tmp123)
+            if _re.match(r'^(fz\d*temp|tmp\d|temp\d)', pname_lower):
+                continue
+
+            # If formally registered in projects table → always show
+            if project_id:
+                pass  # accepted
+            else:
+                # Unregistered: only show if it looks like a real project/repo name
+                # Valid: single word or hyphen/underscore-separated, no spaces, no special chars
+                # Examples: mahindra-manulife-distributor, ActivityLedgerDesign, iron-ore-invoice-generator
+                if not _re.match(r'^[A-Za-z][A-Za-z0-9_-]{3,}$', pname):
+                    continue  # has spaces, brackets, dots etc. → browser tab / file title
             projects.append({
                 "project_id": row[2],
                 "project_name": pname,
