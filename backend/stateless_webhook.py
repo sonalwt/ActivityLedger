@@ -43,7 +43,7 @@ def categorize_application(app_name: str, window_title: str = "") -> str:
     window_title_lower = window_title.lower() if window_title else ""
     
     # Browsers
-    if any(browser in app_name_lower for browser in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave']):
+    if any(browser in app_name_lower for browser in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave', 'dia']):
         return 'browser'
     
     # IDEs and Code Editors (Windows + Mac + Linux)
@@ -213,12 +213,28 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
                     })
                 else:
                     # Pattern: "projectFolder | Visual Studio Code" (folder open, no file tab)
-                    project_info.update({
-                        'project_name': part,
-                        'project_type': 'Development',
-                        'file_path': None,
-                        'detailed_activity': f"Development: {part}"
-                    })
+                    # Skip generic/noise folder names — let the recent-activity fallback find the real project
+                    _noise_folders = {
+                        'src', 'components', 'pages', 'utils', 'hooks', 'services',
+                        'models', 'views', 'controllers', 'routes', 'middleware',
+                        'helpers', 'config', 'public', 'static', 'assets', 'styles',
+                        'data', 'temp', 'tmp', 'test', 'tests', 'build', 'dist',
+                        'backend', 'frontend', 'server', 'client', 'app', 'lib',
+                        'scripts', 'docs', 'output', 'input', 'logs', 'cache',
+                    }
+                    if part.lower() in _noise_folders:
+                        project_info.update({
+                            'project_name': 'IDE Work',
+                            'project_type': 'Development',
+                            'detailed_activity': f"Development: {part}"
+                        })
+                    else:
+                        project_info.update({
+                            'project_name': part,
+                            'project_type': 'Development',
+                            'file_path': None,
+                            'detailed_activity': f"Development: {part}"
+                        })
                 return project_info
 
         # No separator in title or empty after filtering — just IDE name
@@ -229,14 +245,14 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
         })
         return project_info
     
-    # Browser Project Detection
-    elif any(browser in app_name_lower for browser in ['chrome', 'firefox', 'edge', 'safari']):
+    # Browser Project Detection (including Dia browser on Mac)
+    elif any(browser in app_name_lower for browser in ['chrome', 'firefox', 'edge', 'safari', 'dia']):
         if url:
             try:
                 from urllib.parse import urlparse
                 parsed = urlparse(url)
                 domain = parsed.netloc.replace('www.', '')
-                
+
                 # Localhost development
                 if 'localhost' in domain or '127.0.0.1' in domain:
                     project_info.update({
@@ -245,7 +261,7 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
                         'detailed_activity': f"Local Development: {window_title}"
                     })
                     return project_info
-                
+
                 # Work-related domains
                 work_domains = ['github.com', 'stackoverflow.com', 'docs.', 'api.', 'developer.', 'console.']
                 if any(work_domain in domain for work_domain in work_domains):
@@ -255,10 +271,10 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
                         'detailed_activity': f"Research: {window_title}"
                     })
                     return project_info
-                
+
             except Exception:
                 pass
-        
+
         # Fallback to window title
         if ' - ' in window_title:
             # Skip blacklisted (non-work) sites using the existing categorizer blacklist
@@ -266,6 +282,35 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
             cat, _ = get_categorizer().categorize_activity(window_title, app_name)
             if cat == 'non-work':
                 return project_info  # project_name stays None
+
+            # Strip browser/app suffix (e.g. " - Dia", " - Google Chrome")
+            import re as _re
+            clean = _re.sub(r'\s*-\s*\S+\s*$', '', window_title).strip()
+
+            # Extract GitHub org/repo name — pattern: "CapOrg/repo-name"
+            # Matches titles like "PR title — Mahindra-Manulife/mahindra-manulife-retail"
+            github_match = _re.search(r'[A-Z][A-Za-z0-9-]*/([A-Za-z][A-Za-z0-9-]+)', clean)
+            if github_match:
+                repo = github_match.group(1)
+                if len(repo) > 3:
+                    project_info.update({
+                        'project_name': repo,
+                        'project_type': 'Development',
+                        'detailed_activity': f"GitHub: {clean[:80]}"
+                    })
+                    return project_info
+
+            # "Page Title | Site Name" -> use site name
+            if ' | ' in clean:
+                site = clean.split(' | ')[-1].strip()
+                if 3 < len(site) < 50:
+                    project_info.update({
+                        'project_name': site,
+                        'project_type': 'Web Browsing',
+                        'detailed_activity': f"Browsing: {site}"
+                    })
+                    return project_info
+
             page_title = window_title.split(' - ')[0].strip()
             project_info.update({
                 'project_name': page_title,
@@ -436,6 +481,22 @@ async def receive_activitywatch_webhook_stateless(
                                 resolved = resolve_ide_project(db, developer_id, timestamp)
                                 if resolved:
                                     project_info['project_name'] = resolved
+                                    project_info['project_type'] = 'Development'
+
+                            # Last resort: check concurrent browser/Dia activity for GitHub project context
+                            if project_info['project_name'] == 'IDE Work':
+                                from models import ActivityRecord as AR_browser
+                                recent_browser_proj = db.query(AR_browser.project_name).filter(
+                                    AR_browser.developer_id == developer_id,
+                                    AR_browser.category == 'browser',
+                                    AR_browser.project_name.isnot(None),
+                                    AR_browser.project_name != '',
+                                    AR_browser.project_name != 'IDE Work',
+                                    AR_browser.timestamp <= timestamp,
+                                    AR_browser.timestamp >= timestamp - timedelta(minutes=30),
+                                ).order_by(AR_browser.timestamp.desc()).first()
+                                if recent_browser_proj and recent_browser_proj[0]:
+                                    project_info['project_name'] = recent_browser_proj[0]
                                     project_info['project_type'] = 'Development'
                         # Also check if VS Code project name is actually a FileZilla site name
                         elif project_info['project_name'] and category == 'development':
