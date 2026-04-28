@@ -345,3 +345,102 @@ async def cleanup_idle_activities(
         ),
         "sample_deletions": deleted_details,
     }
+
+
+@router.delete("/api/admin/delete-activity-records")
+async def delete_activity_records_by_criteria(
+    developer_id: str = Query(..., description="Developer ID"),
+    date: str = Query(..., description="Date YYYY-MM-DD (UTC)"),
+    title_contains: Optional[str] = Query(None, description="Filter: window_title must contain this string (case-insensitive)"),
+    app_name: Optional[str] = Query(None, description="Filter: application_name must contain this string (case-insensitive)"),
+    min_duration_seconds: Optional[float] = Query(None, description="Filter: only delete records with duration >= this many seconds"),
+    max_duration_seconds: Optional[float] = Query(None, description="Filter: only delete records with duration <= this many seconds"),
+    dry_run: bool = Query(True, description="True = preview only, False = actually delete"),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete specific activity records matching criteria.
+
+    Intended for removing sleep-inflated records — e.g. a 1h 42m Gmail entry
+    caused by the Mac being closed while Gmail was open (the old agent bug).
+
+    Use dry_run=true first to confirm what will be deleted.
+
+    Example — remove the Gmail sleep record for Apr 28:
+      DELETE /api/admin/delete-activity-records
+        ?developer_id=vatsal_m_fe
+        &date=2026-04-28
+        &title_contains=Gmail
+        &min_duration_seconds=3600
+        &dry_run=false
+    """
+    day_start = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+
+    # Build query filters
+    filters = [
+        "developer_id = :dev_id",
+        "timestamp >= :day_start",
+        "timestamp < :day_end",
+    ]
+    params: dict = {
+        "dev_id": developer_id,
+        "day_start": day_start,
+        "day_end": day_end,
+    }
+    if title_contains:
+        filters.append("LOWER(window_title) LIKE :title_pattern")
+        params["title_pattern"] = f"%{title_contains.lower()}%"
+    if app_name:
+        filters.append("LOWER(application_name) LIKE :app_pattern")
+        params["app_pattern"] = f"%{app_name.lower()}%"
+    if min_duration_seconds is not None:
+        filters.append("duration >= :min_dur")
+        params["min_dur"] = min_duration_seconds
+    if max_duration_seconds is not None:
+        filters.append("duration <= :max_dur")
+        params["max_dur"] = max_duration_seconds
+
+    where_clause = " AND ".join(filters)
+    rows = db.execute(text(f"""
+        SELECT id, timestamp, duration, application_name, window_title
+        FROM activity_records
+        WHERE {where_clause}
+        ORDER BY timestamp ASC
+    """), params).fetchall()
+
+    actually_deleted = 0
+    if not dry_run and rows:
+        ids = [r.id for r in rows]
+        for i in range(0, len(ids), 500):
+            db.execute(
+                text("DELETE FROM activity_records WHERE id = ANY(:ids)"),
+                {"ids": ids[i:i + 500]},
+            )
+        db.commit()
+        actually_deleted = len(ids)
+
+    sample = [
+        {
+            "id": r.id,
+            "timestamp": r.timestamp.isoformat(),
+            "duration_min": round((r.duration or 0) / 60, 1),
+            "app": r.application_name,
+            "title": (r.window_title or "")[:100],
+        }
+        for r in rows[:50]
+    ]
+
+    return {
+        "dry_run": dry_run,
+        "developer_id": developer_id,
+        "date": date,
+        "matched": len(rows),
+        "actually_deleted": actually_deleted,
+        "message": (
+            f"Preview: {len(rows)} records matched — set dry_run=false to delete"
+            if dry_run
+            else f"Deleted {actually_deleted} activity records"
+        ),
+        "records": sample,
+    }
