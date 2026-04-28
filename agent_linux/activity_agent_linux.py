@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
     "capture_interval_seconds": 30,
     "sync_interval_seconds": 300,
     "afk_timeout_seconds": 180,
+    "shutdown_idle_seconds": 3600,
     "queue_file": str(AGENT_DIR / "pending_events.json"),
     "log_file": str(AGENT_DIR / "activity_agent.log"),
     "max_queue_size": 10000,
@@ -388,6 +389,71 @@ def get_idle_seconds() -> float:
     return 0.0  # Default: assume active
 
 
+def is_claude_code_active() -> bool:
+    """Return True if Claude Code CLI is running (claude process)."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "claude"],
+            capture_output=True, text=True, timeout=3,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+# Window title keywords that indicate an AI tool or team chat.
+# Used to keep idle state as 'productive' when reading AI responses.
+AI_TOOL_TITLE_KEYWORDS: frozenset = frozenset([
+    "claude",           # Claude.ai browser tab
+    "chatgpt",          # ChatGPT
+    "gemini",           # Google Gemini
+    "google ai studio", # AI Studio
+    "aistudio",         # AI Studio URL variant
+    "perplexity",       # Perplexity AI
+    "copilot",          # Microsoft / GitHub Copilot
+    "grok",             # Grok AI
+    "google chat",      # Google Chat
+    "google meet",      # Google Meet
+    "blackbox",         # Blackbox AI
+])
+
+
+def is_ai_tool_or_chat_active(current_title: str | None) -> bool:
+    """Return True if the active window title matches an AI tool or team chat."""
+    if not current_title:
+        return False
+    title_lower = current_title.lower()
+    return any(kw in title_lower for kw in AI_TOOL_TITLE_KEYWORDS)
+
+
+def is_screen_locked() -> bool:
+    """Best-effort check if the Linux screen/session is locked."""
+    # Try loginctl (systemd)
+    try:
+        result = subprocess.run(
+            ["loginctl", "show-session", "-p", "LockedHint", "--value"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip().lower() == "yes"
+    except Exception:
+        pass
+    # Try D-Bus screensaver (GNOME / KDE)
+    try:
+        result = subprocess.run(
+            ["dbus-send", "--print-reply",
+             "--dest=org.freedesktop.ScreenSaver",
+             "/org/freedesktop/ScreenSaver",
+             "org.freedesktop.ScreenSaver.GetActive"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            return "true" in result.stdout.lower()
+    except Exception:
+        pass
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Window Session Tracker
 # ---------------------------------------------------------------------------
@@ -446,13 +512,28 @@ class WindowTracker:
                 })
 
     def _update_afk(self, now, idle_secs):
-        # Smart AFK: if screen content is changing (AI tool working), don't go AFK
+        """Update AFK state machine and emit events on transitions.
+
+        Smart AFK rules (in priority order):
+        1. Hard cap exceeded → always AFK.
+           AI tool title: 30 min cap. All other apps: 2× afk_timeout (6 min).
+        2. Claude Code process running → not AFK.
+        3. AI tool / team chat window title active → not AFK (reading responses).
+        4. Screen content changed recently → not AFK.
+        5. Otherwise → AFK.
+        """
         secs_since_screen_change = (now - self.last_screen_change).total_seconds()
         screen_active = secs_since_screen_change < self.afk_timeout
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
-            if screen_active:
-                return  # Screen changing — user is monitoring
+            ai_title_active = is_ai_tool_or_chat_active(self.current_title)
+            hard_cap_secs = 1800 if ai_title_active else self.afk_timeout * 2
+            hard_cap_exceeded = idle_secs >= hard_cap_secs
+            claude_active = not hard_cap_exceeded and is_claude_code_active()
+            ai_active = not hard_cap_exceeded and ai_title_active
+            if not hard_cap_exceeded and (screen_active or claude_active or ai_active):
+                return  # Still productive
+            # ACTIVE → AFK
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:
                 active_dur = (afk_started - self.active_start).total_seconds()
@@ -466,6 +547,7 @@ class WindowTracker:
             self.afk_start = afk_started
 
         elif self.afk_state == "afk" and idle_secs < self.afk_timeout:
+            # AFK → ACTIVE
             if self.afk_start:
                 afk_dur = (now - self.afk_start).total_seconds()
                 if afk_dur >= 1:
@@ -604,6 +686,10 @@ class ActivityAgent:
         self.sync_mgr = SyncManager(self.config, self.logger)
         self.running = True
         self.last_sync = time.time()
+        self.last_tick_time = time.time()
+        self.idle_paused = False
+        self.idle_pause_start_time: float | None = None
+        self.deep_idle_mode = False
 
         signal.signal(signal.SIGTERM, self._shutdown)
         signal.signal(signal.SIGINT, self._shutdown)
@@ -633,8 +719,158 @@ class ActivityAgent:
 
         while self.running:
             try:
-                self.tracker.tick()
+                # --- Sleep/hibernate detection ---
+                # If wall-clock gap >> capture interval, the machine was suspended.
+                # Close the open window session at the moment of sleep and record
+                # an AFK event for the entire gap so the time isn't counted as work.
+                now_wall = time.time()
+                gap = now_wall - self.last_tick_time
+                sleep_threshold = self.config["capture_interval_seconds"] + 60
+                if gap > sleep_threshold:
+                    sleep_start_dt = datetime.fromtimestamp(
+                        self.last_tick_time, tz=timezone.utc
+                    )
+                    wake_dt = datetime.fromtimestamp(now_wall, tz=timezone.utc)
+                    self.logger.info(
+                        f"Sleep/hibernate detected — {gap:.0f}s gap "
+                        f"({sleep_start_dt.strftime('%H:%M:%S')} UTC → "
+                        f"{wake_dt.strftime('%H:%M:%S')} UTC)"
+                    )
+                    if not self.idle_paused:
+                        # Close any open window session up to the sleep moment
+                        self.tracker._close_window_session(sleep_start_dt)
+                        self.tracker.current_app = None
+                        self.tracker.current_title = None
+                        self.tracker.current_project = None
+                        self.tracker.session_start = None
+                        # Emit not-afk for the active period that ended at sleep
+                        if self.tracker.afk_state == "not-afk" and self.tracker.active_start:
+                            active_dur = (sleep_start_dt - self.tracker.active_start).total_seconds()
+                            if active_dur >= 1:
+                                self.tracker.afk_events.append({
+                                    "timestamp": self.tracker.active_start.isoformat(),
+                                    "duration": round(active_dur, 1),
+                                    "data": {"status": "not-afk"},
+                                })
+                        # Emit AFK event covering the entire sleep gap
+                        self.tracker.afk_events.append({
+                            "timestamp": sleep_start_dt.isoformat(),
+                            "duration": round(gap, 1),
+                            "data": {"status": "afk"},
+                        })
+                        self.tracker.afk_state = "afk"
+                        self.tracker.afk_start = wake_dt
+                        self.idle_paused = True
+                        self.idle_pause_start_time = time.time()
+                self.last_tick_time = now_wall
 
+                idle_secs = get_idle_seconds()
+                screen_locked = is_screen_locked()
+                afk_timeout = self.config["afk_timeout_seconds"]
+                screen_changing = (
+                    (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
+                    < afk_timeout
+                )
+                # AI tools get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
+                # Reading a long AI response easily takes 10-15 min without keyboard input.
+                ai_title_active = is_ai_tool_or_chat_active(self.tracker.current_title)
+                hard_cap_secs = 1800 if ai_title_active else afk_timeout * 2
+                hard_cap_exceeded = idle_secs >= hard_cap_secs
+                claude_active = not hard_cap_exceeded and is_claude_code_active()
+                ai_active = not hard_cap_exceeded and ai_title_active
+                should_pause = screen_locked or hard_cap_exceeded or (
+                    idle_secs >= afk_timeout and not screen_changing
+                    and not claude_active and not ai_active
+                )
+
+                if not self.idle_paused:
+                    if should_pause:
+                        # System idle / screen locked — stop capturing
+                        now_dt = datetime.now(timezone.utc)
+                        afk_started = now_dt - timedelta(seconds=idle_secs)
+                        if screen_locked:
+                            self.logger.info("Screen locked — pausing activity capture")
+                        else:
+                            self.logger.info(
+                                f"System idle ({idle_secs:.0f}s) — pausing activity capture"
+                            )
+                        # Close current window session
+                        self.tracker.flush_current()
+                        # Emit not-afk event for the active period that just ended
+                        if self.tracker.afk_state == "not-afk" and self.tracker.active_start:
+                            active_dur = (afk_started - self.tracker.active_start).total_seconds()
+                            if active_dur >= 1:
+                                self.tracker.afk_events.append({
+                                    "timestamp": self.tracker.active_start.isoformat(),
+                                    "duration": round(active_dur, 1),
+                                    "data": {"status": "not-afk"},
+                                })
+                        self.tracker.afk_state = "afk"
+                        self.tracker.afk_start = afk_started
+                        # Clear window session so nothing new is tracked
+                        self.tracker.current_app = None
+                        self.tracker.current_title = None
+                        self.tracker.current_project = None
+                        self.tracker.session_start = None
+                        self.idle_paused = True
+                        self.idle_pause_start_time = time.time()
+                    else:
+                        # System active — normal capture
+                        self.tracker.tick()
+                else:
+                    # Currently paused — wait for user to return
+                    if not should_pause:
+                        # User is back — resume capture
+                        now_dt = datetime.now(timezone.utc)
+                        if self.tracker.afk_start:
+                            afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
+                            if afk_dur >= 1:
+                                self.tracker.afk_events.append({
+                                    "timestamp": self.tracker.afk_start.isoformat(),
+                                    "duration": round(afk_dur, 1),
+                                    "data": {"status": "afk"},
+                                })
+                        self.tracker.afk_state = "not-afk"
+                        self.tracker.active_start = now_dt
+                        self.tracker.afk_start = None
+                        self.tracker.last_screen_change = now_dt
+                        self.idle_paused = False
+                        self.idle_pause_start_time = None
+                        self.logger.info("User activity detected — resuming capture")
+                    else:
+                        # Still idle — enter deep idle if idle >= shutdown_idle_seconds
+                        shutdown_secs = self.config.get("shutdown_idle_seconds", 3600)
+                        if (self.idle_pause_start_time is not None and
+                                time.time() - self.idle_pause_start_time >= shutdown_secs):
+                            self.logger.info(
+                                f"Idle for {shutdown_secs // 60:.0f}+ min — "
+                                "suspending agent; will resume automatically on user activity"
+                            )
+                            self.deep_idle_mode = True
+                            # Flush + sync all pending data before going silent
+                            self.tracker.flush_current()
+                            w_ev, a_ev = self.tracker.drain_events()
+                            self.sync_mgr.add_events(w_ev, a_ev)
+                            if self.sync_mgr.pending_window or self.sync_mgr.pending_afk:
+                                self.sync_mgr.sync()
+                            # Minimal-poll loop: ~0% CPU while waiting for activity
+                            while self.running:
+                                time.sleep(30)
+                                if get_idle_seconds() < self.config["afk_timeout_seconds"]:
+                                    self.logger.info(
+                                        "User activity detected — waking agent from deep idle"
+                                    )
+                                    self.tracker = WindowTracker(
+                                        afk_timeout=self.config["afk_timeout_seconds"]
+                                    )
+                                    self.idle_paused = False
+                                    self.idle_pause_start_time = None
+                                    self.deep_idle_mode = False
+                                    self.last_sync = time.time()
+                                    self.last_tick_time = time.time()
+                                    break
+
+                # Sync if interval elapsed (even when paused, to flush pending data)
                 now = time.time()
                 if now - self.last_sync >= self.config["sync_interval_seconds"]:
                     self.tracker.flush_current()
@@ -643,10 +879,12 @@ class ActivityAgent:
 
                     w_count = len(self.sync_mgr.pending_window)
                     a_count = len(self.sync_mgr.pending_afk)
-                    self.logger.info(f"Syncing {w_count} window + {a_count} AFK events...")
-                    self.sync_mgr.sync()
+                    if w_count > 0 or a_count > 0:
+                        self.logger.info(f"Syncing {w_count} window + {a_count} AFK events...")
+                        self.sync_mgr.sync()
                     self.last_sync = now
 
+                # Sleep until next check
                 time.sleep(self.config["capture_interval_seconds"])
 
             except Exception as e:
