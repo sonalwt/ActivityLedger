@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
     "capture_interval_seconds": 30,
     "sync_interval_seconds": 300,
     "afk_timeout_seconds": 180,
+    "shutdown_idle_seconds": 3600,
     "queue_file": str(AGENT_DIR / "pending_events.json"),
     "log_file": str(AGENT_DIR / "activity_agent.log"),
     "max_queue_size": 10000,
@@ -211,6 +212,88 @@ IDE_APP_NAMES = {'visual studio code', 'code', 'cursor'}
 _ide_project_cache = {}  # {app_lower: {"project": str, "time": float}}
 
 
+# ---------------------------------------------------------------------------
+# Cursor / VS Code — Active File from Local State Files
+# (Fallback when AppleScript AXDocument fails for Electron apps)
+# ---------------------------------------------------------------------------
+# App name → Application Support subdirectory
+_IDE_APP_SUPPORT_DIR = {
+    'cursor': 'Cursor',
+    'visual studio code': 'Code',
+    'code': 'Code',
+}
+
+_cursor_state_cache: dict = {}  # {"filename": str|None, "workspace": str|None, "time": float}
+
+
+def _get_ide_active_file_from_storage(app_lower: str):
+    """Read Cursor/VS Code local state files to get (filename, workspace).
+
+    Two sources (no AppleScript — works even when accessibility is blocked):
+    1. storage.json  → last active workspace folder name
+    2. state.vscdb   → most recently opened file (SQLite, read-only)
+
+    Returns (filename_or_None, workspace_or_None).
+    Cached per call for 10 seconds to avoid repeated disk I/O.
+    """
+    now = time.time()
+    cached = _cursor_state_cache.get(app_lower)
+    if cached and now - cached["time"] < 10:
+        return cached["filename"], cached["workspace"]
+
+    filename = None
+    workspace = None
+
+    app_dir = _IDE_APP_SUPPORT_DIR.get(app_lower)
+    if not app_dir:
+        return None, None
+
+    base = Path.home() / "Library" / "Application Support" / app_dir
+
+    # 1. Workspace folder from storage.json (electron window state)
+    try:
+        storage_path = base / "storage.json"
+        if storage_path.exists():
+            data = json.loads(storage_path.read_text(encoding="utf-8"))
+            win_state = data.get("windowsState", {})
+            last_win = win_state.get("lastActiveWindow", {})
+            folder_uri = last_win.get("folderUri", "")
+            if folder_uri.startswith("file://"):
+                workspace = folder_uri.rstrip("/").rsplit("/", 1)[-1] or None
+    except Exception:
+        pass
+
+    # 2. Most recently opened file from global SQLite state
+    try:
+        import sqlite3
+        db_path = base / "User" / "globalStorage" / "state.vscdb"
+        if db_path.exists():
+            # immutable=1 prevents acquiring locks (safe while Cursor is running)
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro&immutable=1", uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT value FROM ItemTable "
+                    "WHERE key = 'history.recentlyOpenedPathsList'"
+                ).fetchone()
+                if row:
+                    entries = json.loads(row[0]).get("entries", [])
+                    for entry in entries:
+                        file_uri = entry.get("fileUri", "")
+                        if file_uri.startswith("file://"):
+                            fn = file_uri.rstrip("/").rsplit("/", 1)[-1]
+                            # Must look like a real source file (has extension)
+                            if fn and "." in fn:
+                                filename = fn
+                                break
+            finally:
+                conn.close()
+    except Exception:
+        pass
+
+    _cursor_state_cache[app_lower] = {"filename": filename, "workspace": workspace, "time": now}
+    return filename, workspace
+
+
 def _get_ide_project_folder(app_name):
     """Get project folder name from IDE process working directory. Cached for 5 min."""
     app_lower = (app_name or "").lower()
@@ -323,14 +406,68 @@ def get_active_window_info():
 
         # === Step 3: App-specific scripting for IDEs (Electron apps) ===
         # System Events often can't read Electron window titles.
-        # Try the app's OWN scripting interface as fallback.
+        # Try multiple strategies to get a meaningful title for Cursor / VS Code.
         if not title or title == app_name:
-            app_title = _run_osascript(
-                f'tell application "{app_name}" to get name of front window',
-                timeout=3,
-            )
-            if app_title:
-                title = app_title
+            app_lower = app_name.lower()
+            if app_lower in ('cursor', 'visual studio code', 'code'):
+                # Strategy A: AXDocument gives the file:// URL of the current file.
+                # e.g. "file:///Users/vatsal/Data/src/index.tsx" → "index.tsx"
+                ax_doc = _run_osascript_multi(
+                    'tell application "System Events"',
+                    f'  tell process "{app_name}"',
+                    '    set docAttr to value of attribute "AXDocument" of front window',
+                    '    return docAttr',
+                    '  end tell',
+                    'end tell',
+                    timeout=4,
+                )
+                if ax_doc and ax_doc.startswith('file://'):
+                    filename = ax_doc.rstrip('/').rsplit('/', 1)[-1]
+                    if filename:
+                        title = f"{filename} — {app_name}"
+
+                # Strategy B: Iterate all windows to find one with a real title
+                # (Cursor sometimes has a titled main window that AXTitle misses)
+                if not title or title == app_name:
+                    all_titles = _run_osascript_multi(
+                        'tell application "System Events"',
+                        f'  tell process "{app_name}"',
+                        '    set result to ""',
+                        '    repeat with w in every window',
+                        '      set t to title of w',
+                        '      if t is not "" and t is not missing value then',
+                        f'        if t is not "{app_name}" then',
+                        '          set result to t',
+                        '          exit repeat',
+                        '        end if',
+                        '      end if',
+                        '    end repeat',
+                        '    return result',
+                        '  end tell',
+                        'end tell',
+                        timeout=4,
+                    )
+                    if all_titles:
+                        title = all_titles
+
+                # Strategy C: Read Cursor/VS Code local state files (no AppleScript).
+                # Works even when Accessibility is blocked or AXDocument returns nil.
+                # Reads storage.json (workspace folder) and state.vscdb (recent file).
+                if not title or title == app_name:
+                    ide_file, ide_workspace = _get_ide_active_file_from_storage(app_lower)
+                    if ide_file:
+                        title = f"{ide_file} — {app_name}"
+                    elif ide_workspace:
+                        title = f"{ide_workspace} — {app_name}"
+
+            # Strategy D: Generic — ask the app directly
+            if not title or title == app_name:
+                app_title = _run_osascript(
+                    f'tell application "{app_name}" to get name of front window',
+                    timeout=3,
+                )
+                if app_title:
+                    title = app_title
 
         # === Step 4: Browser — get tab title + URL ===
         url = None
@@ -427,6 +564,46 @@ def is_claude_code_active() -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+# Domains considered productive even when keyboard/mouse is idle.
+# Developer is reading AI responses or participating in team communication.
+AI_TOOL_DOMAINS: frozenset = frozenset([
+    # Claude
+    "claude.ai",
+    # ChatGPT / OpenAI
+    "chatgpt.com",
+    "chat.openai.com",
+    # Google AI
+    "gemini.google.com",
+    "aistudio.google.com",
+    # Google Chat & Meet (team communication)
+    "chat.google.com",
+    "meet.google.com",
+    # Other AI assistants
+    "perplexity.ai",
+    "copilot.microsoft.com",
+    "grok.com",
+    "phind.com",
+    "you.com",
+    "blackbox.ai",
+])
+
+
+def is_ai_tool_or_chat_active(current_url: str | None) -> bool:
+    """Return True if the active browser tab is an AI tool or team chat.
+
+    Called during idle detection to keep the session as 'productive' when
+    the developer is waiting for AI output (Claude, ChatGPT, Gemini) or
+    communicating via Google Chat / Meet — even without keyboard input.
+
+    Uses the URL last captured by the window tracker (refreshed every 30 s).
+    Callers use a 30-min hard cap for AI URLs instead of the default 6-min cap.
+    """
+    if not current_url:
+        return False
+    url_lower = current_url.lower()
+    return any(domain in url_lower for domain in AI_TOOL_DOMAINS)
 
 
 # ---------------------------------------------------------------------------
@@ -539,20 +716,25 @@ class WindowTracker:
         1. Hard cap: physical idle > 2× timeout (6 min) → always AFK,
            even if Claude Code is running (prevents overnight sessions).
         2. Claude Code process running → not AFK (user delegated to AI).
-        3. Screen content changed recently → not AFK (user is monitoring).
-        4. Otherwise → AFK.
+        3. AI tool / Google Chat open in browser → not AFK (reading responses).
+        4. Screen content changed recently → not AFK (user is monitoring).
+        5. Otherwise → AFK.
         """
         # Check if screen is still active (title/app changed recently)
         secs_since_screen_change = (now - self.last_screen_change).total_seconds()
         screen_active = secs_since_screen_change < self.afk_timeout
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
-            # Hard cap: beyond 2× timeout of physical inactivity always mark AFK
-            # (e.g. user left for lunch with Claude Code still running)
-            hard_cap_exceeded = idle_secs >= self.afk_timeout * 2
+            # Hard cap: prevents overnight / lunch-break sessions from running forever.
+            # AI tools get a 30-min cap — reading long AI responses easily takes 10+ min.
+            # Default cap: 2× afk_timeout (6 min) for all other apps.
+            ai_url_active = is_ai_tool_or_chat_active(self.current_url)
+            hard_cap_secs = 1800 if ai_url_active else self.afk_timeout * 2
+            hard_cap_exceeded = idle_secs >= hard_cap_secs
             claude_active = not hard_cap_exceeded and is_claude_code_active()
-            if not hard_cap_exceeded and (screen_active or claude_active):
-                return  # Still productive — Claude Code running or screen changing
+            ai_active = not hard_cap_exceeded and ai_url_active
+            if not hard_cap_exceeded and (screen_active or claude_active or ai_active):
+                return  # Still productive — AI tool/chat open, Claude Code running, or screen changing
             # ACTIVE → AFK
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:
@@ -716,6 +898,8 @@ class ActivityAgent:
         self.running = True
         self.last_sync = time.time()
         self.idle_paused = False
+        self.idle_pause_start_time: float | None = None  # Wall time when idle_paused became True
+        self.deep_idle_mode = False
 
         signal.signal(signal.SIGTERM, self._shutdown)
         signal.signal(signal.SIGINT, self._shutdown)
@@ -819,6 +1003,7 @@ class ActivityAgent:
                     self.tracker.active_start = wake_dt
                     self.tracker.last_screen_change = wake_dt
                     self.idle_paused = True  # Force re-evaluation on next tick
+                    self.idle_pause_start_time = time.time()
 
                 last_tick_wall = now_wall
                 # ----------------------------------------------------------
@@ -830,13 +1015,18 @@ class ActivityAgent:
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                # Hard cap: physical idle > 2× timeout always pauses (e.g. left for lunch)
-                hard_cap_exceeded = idle_secs >= afk_timeout * 2
+                # AI tools get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
+                # Reading a long AI response easily takes 10-15 min without keyboard input.
+                ai_url_active = is_ai_tool_or_chat_active(self.tracker.current_url)
+                hard_cap_secs = 1800 if ai_url_active else afk_timeout * 2
+                hard_cap_exceeded = idle_secs >= hard_cap_secs
                 # Claude Code process running counts as productive — don't pause
-                # (skip the pgrep if hard cap already exceeded to save overhead)
+                # (skip the checks if hard cap already exceeded to save overhead)
                 claude_active = not hard_cap_exceeded and is_claude_code_active()
+                ai_active = not hard_cap_exceeded and ai_url_active
                 should_pause = screen_locked or hard_cap_exceeded or (
-                    idle_secs >= afk_timeout and not screen_changing and not claude_active
+                    idle_secs >= afk_timeout and not screen_changing
+                    and not claude_active and not ai_active
                 )
 
                 if not self.idle_paused:
@@ -870,6 +1060,7 @@ class ActivityAgent:
                         self.tracker.current_project = None
                         self.tracker.session_start = None
                         self.idle_paused = True
+                        self.idle_pause_start_time = time.time()
                     else:
                         # System active — normal capture
                         self.tracker.tick()
@@ -891,7 +1082,44 @@ class ActivityAgent:
                         self.tracker.afk_start = None
                         self.tracker.last_screen_change = now_dt
                         self.idle_paused = False
+                        self.idle_pause_start_time = None
                         self.logger.info("User activity detected — resuming capture")
+                    else:
+                        # Still idle — enter deep idle if idle >= shutdown_idle_seconds.
+                        # Deep idle: stops all heavy work (AppleScript, window capture).
+                        # A 30-second poll loop waits for physical activity to resume.
+                        shutdown_secs = self.config.get("shutdown_idle_seconds", 3600)
+                        if (self.idle_pause_start_time is not None and
+                                time.time() - self.idle_pause_start_time >= shutdown_secs):
+                            self.logger.info(
+                                f"Idle for {shutdown_secs // 60:.0f}+ min — "
+                                "suspending agent; will resume automatically on user activity"
+                            )
+                            self.deep_idle_mode = True
+                            # Flush + sync all pending data before going silent
+                            self.tracker.flush_current()
+                            w_ev, a_ev = self.tracker.drain_events()
+                            self.sync_mgr.add_events(w_ev, a_ev)
+                            if self.sync_mgr.pending_window or self.sync_mgr.pending_afk:
+                                self.sync_mgr.sync()
+                            # Minimal-poll loop: ~0% CPU while waiting for activity
+                            while self.running:
+                                time.sleep(30)
+                                if get_idle_seconds() < self.config["afk_timeout_seconds"]:
+                                    # Physical activity detected — wake up
+                                    self.logger.info(
+                                        "User activity detected — waking agent from deep idle"
+                                    )
+                                    # Reinitialize tracker with clean state
+                                    self.tracker = WindowTracker(
+                                        afk_timeout=self.config["afk_timeout_seconds"]
+                                    )
+                                    self.idle_paused = False
+                                    self.idle_pause_start_time = None
+                                    self.deep_idle_mode = False
+                                    self.last_sync = time.time()
+                                    last_tick_wall = time.time()  # Prevent false sleep-gap
+                                    break
 
                 # Sync if interval elapsed (even when paused, to flush pending data)
                 now = time.time()
