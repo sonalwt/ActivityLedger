@@ -412,6 +412,23 @@ def is_screen_locked() -> bool:
     return False
 
 
+def is_claude_code_active() -> bool:
+    """Return True if Claude Code CLI is running as a process.
+
+    When Claude Code is actively working (editing files, running commands),
+    the user is productively engaged even without keyboard/mouse input.
+    Uses pgrep with an exact name match for the 'claude' binary.
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "claude"],
+            capture_output=True, text=True, timeout=3
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # macOS — Accessibility Permission Check
 # ---------------------------------------------------------------------------
@@ -518,17 +535,24 @@ class WindowTracker:
     def _update_afk(self, now, idle_secs):
         """Update AFK state machine and emit events on transitions.
 
-        Smart AFK: If the screen content is actively changing (e.g. AI tool
-        like Claude Code is making edits, files switching), the user is still
-        engaged even without keyboard/mouse input. Don't mark as AFK.
+        Smart AFK rules (in priority order):
+        1. Hard cap: physical idle > 2× timeout (6 min) → always AFK,
+           even if Claude Code is running (prevents overnight sessions).
+        2. Claude Code process running → not AFK (user delegated to AI).
+        3. Screen content changed recently → not AFK (user is monitoring).
+        4. Otherwise → AFK.
         """
         # Check if screen is still active (title/app changed recently)
         secs_since_screen_change = (now - self.last_screen_change).total_seconds()
         screen_active = secs_since_screen_change < self.afk_timeout
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
-            if screen_active:
-                return  # Screen content is changing — user is monitoring (AI tool, etc.)
+            # Hard cap: beyond 2× timeout of physical inactivity always mark AFK
+            # (e.g. user left for lunch with Claude Code still running)
+            hard_cap_exceeded = idle_secs >= self.afk_timeout * 2
+            claude_active = not hard_cap_exceeded and is_claude_code_active()
+            if not hard_cap_exceeded and (screen_active or claude_active):
+                return  # Still productive — Claude Code running or screen changing
             # ACTIVE → AFK
             afk_started = now - timedelta(seconds=idle_secs)
             if self.active_start:
@@ -729,19 +753,91 @@ class ActivityAgent:
             f"AFK timeout: {self.config['afk_timeout_seconds']}s"
         )
         self._log_startup_diagnostic()
+        last_tick_wall = time.time()
 
         while self.running:
             try:
+                # ----------------------------------------------------------
+                # Sleep / lid-close detection
+                # When macOS sleeps, the process is suspended. On wake, we
+                # resume here with a large wall-clock gap. Without this check,
+                # the entire sleep duration gets billed to the last open window.
+                # ----------------------------------------------------------
+                now_wall = time.time()
+                gap = now_wall - last_tick_wall
+                sleep_threshold = self.config["capture_interval_seconds"] + 60  # e.g. 90 s
+
+                if gap > sleep_threshold:
+                    sleep_start_dt = datetime.fromtimestamp(last_tick_wall, tz=timezone.utc)
+                    wake_dt = datetime.fromtimestamp(now_wall, tz=timezone.utc)
+                    self.logger.info(
+                        f"Sleep/wake detected: gap={gap:.0f}s "
+                        f"({sleep_start_dt.strftime('%H:%M:%S')} → {wake_dt.strftime('%H:%M:%S')})"
+                    )
+
+                    # Close the current window session ending at sleep-start
+                    # (not at wake time — that would inflate the activity duration)
+                    if self.tracker.current_app and self.tracker.session_start:
+                        sleep_duration = (sleep_start_dt - self.tracker.session_start).total_seconds()
+                        if sleep_duration >= 5:
+                            event_data = {
+                                "app": self.tracker.current_app,
+                                "title": self.tracker.current_title or "",
+                            }
+                            if self.tracker.current_url:
+                                event_data["url"] = self.tracker.current_url
+                            if self.tracker.current_project:
+                                event_data["project"] = self.tracker.current_project
+                            self.tracker.window_events.append({
+                                "timestamp": self.tracker.session_start.isoformat(),
+                                "duration": round(sleep_duration, 1),
+                                "data": event_data,
+                            })
+                    # Re-open the session from wake time
+                    self.tracker.session_start = wake_dt
+
+                    # Emit not-afk for the active period before sleep
+                    if self.tracker.afk_state == "not-afk" and self.tracker.active_start:
+                        active_dur = (sleep_start_dt - self.tracker.active_start).total_seconds()
+                        if active_dur >= 1:
+                            self.tracker.afk_events.append({
+                                "timestamp": self.tracker.active_start.isoformat(),
+                                "duration": round(active_dur, 1),
+                                "data": {"status": "not-afk"},
+                            })
+
+                    # Emit afk event spanning the entire sleep gap
+                    self.tracker.afk_events.append({
+                        "timestamp": sleep_start_dt.isoformat(),
+                        "duration": round(gap, 1),
+                        "data": {"status": "afk"},
+                    })
+
+                    # Reset state: coming out of sleep = afk until user input seen
+                    self.tracker.afk_state = "afk"
+                    self.tracker.afk_start = sleep_start_dt
+                    self.tracker.active_start = wake_dt
+                    self.tracker.last_screen_change = wake_dt
+                    self.idle_paused = True  # Force re-evaluation on next tick
+
+                last_tick_wall = now_wall
+                # ----------------------------------------------------------
+
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
                 afk_timeout = self.config["afk_timeout_seconds"]
-                # Smart pause: if screen content is actively changing (e.g. Claude Code
-                # editing files), developer is monitoring AI output — don't pause
                 screen_changing = (
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                should_pause = screen_locked or (idle_secs >= afk_timeout and not screen_changing)
+                # Hard cap: physical idle > 2× timeout always pauses (e.g. left for lunch)
+                hard_cap_exceeded = idle_secs >= afk_timeout * 2
+                # Claude Code process running counts as productive — don't pause
+                # (skip the pgrep if hard cap already exceeded to save overhead)
+                claude_active = not hard_cap_exceeded and is_claude_code_active()
+                should_pause = screen_locked or hard_cap_exceeded or (
+                    idle_secs >= afk_timeout and not screen_changing and not claude_active
+                )
 
                 if not self.idle_paused:
                     if should_pause:
