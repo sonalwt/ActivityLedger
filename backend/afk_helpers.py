@@ -108,18 +108,12 @@ def _has_afk_coverage(activity_start, activity_end, all_afk_intervals) -> bool:
 # ---------------------------------------------------------------------------
 # Single-activity duration adjustment
 # ---------------------------------------------------------------------------
-_TERMINAL_APPS = frozenset([
-    # macOS
-    'terminal', 'iterm', 'iterm2', 'warp', 'ghostty',
-    # Cross-platform
-    'hyper', 'alacritty', 'kitty',
-    # Windows
-    'windows terminal', 'windowsterminal', 'cmd', 'powershell',
-    'conemu', 'cmder', 'git bash', 'git-bash',
-    # Linux
-    'gnome-terminal', 'gnome terminal', 'konsole', 'xterm',
-    'terminator', 'tilix', 'xfce4-terminal', 'mate-terminal',
-    'lxterminal', 'urxvt', 'st',
+# AI coding tool app names — set explicitly by the new agent when it detects an AI tool
+# running in a terminal.  These bypass AFK adjustment because Claude Code / Aider / etc.
+# may wait silently for long periods (e.g. running a test suite) without keyboard input.
+# Raw duration is still capped at MAX_SINGLE_EVENT_DURATION (15 min) to prevent runaway records.
+_AI_CODING_APP_NAMES = frozenset([
+    'claude code', 'aider', 'codex', 'copilot', 'cody',
 ])
 
 
@@ -131,18 +125,24 @@ def compute_adjusted_duration(timestamp, raw_duration, application_name,
     - If AFK watcher covered this activity's time: return overlap with not-afk.
     - If no AFK coverage for this activity: use raw duration (browser cap fallback).
 
-    Special case — terminal apps (iTerm2, Terminal.app, etc.):
-    The Mac agent incorrectly marks developers as AFK after ~6 min of idle even
-    when Claude Code is running a long task silently.  Until the fixed agent is
-    deployed, skip AFK adjustment for terminal apps and use raw duration instead.
-    Overnight records are already blocked at ingestion (midnight–7 am IST filter),
-    so raw duration here is safe.
+    Special case — AI coding tools (Claude Code, Aider, Codex, etc.):
+    The agent sets app_name to the tool name (e.g. "Claude Code") when it detects
+    an AI coding tool running in a terminal.  These tools may wait silently for
+    many minutes (running tests, building) without keyboard input, causing the AFK
+    watcher to incorrectly mark the developer idle.  Raw duration is capped at
+    MAX_SINGLE_EVENT_DURATION (15 min) to prevent runaway records.
+    Overnight records are already blocked at ingestion (midnight–7 am IST filter).
     """
     if raw_duration <= 0:
         return 0.0
 
-    # Terminal apps: bypass AFK adjustment — Claude Code waits are NOT real AFK.
-    if application_name and application_name.lower() in _TERMINAL_APPS:
+    # AI coding tools: bypass AFK adjustment — Claude Code / Aider / etc. may wait
+    # silently (running tests, building) for many minutes without keyboard input, so
+    # the AFK watcher incorrectly marks the developer as idle.  The agent sets the
+    # app name to the tool name (e.g. "Claude Code") when it detects the tool running.
+    # Normal terminals (cmd, powershell, Windows Terminal, iTerm2 …) are NOT bypassed
+    # — they still go through AFK adjustment so idle browsing/reading doesn't inflate hours.
+    if application_name and application_name.lower() in _AI_CODING_APP_NAMES:
         return min(raw_duration, MAX_SINGLE_EVENT_DURATION)
 
     # No AFK data at all = no proof the user was at the keyboard.
