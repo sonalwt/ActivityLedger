@@ -355,6 +355,8 @@ async def delete_activity_records_by_criteria(
     app_name: Optional[str] = Query(None, description="Filter: application_name must contain this string (case-insensitive)"),
     min_duration_seconds: Optional[float] = Query(None, description="Filter: only delete records with duration >= this many seconds"),
     max_duration_seconds: Optional[float] = Query(None, description="Filter: only delete records with duration <= this many seconds"),
+    after_utc: Optional[str] = Query(None, description="Filter: only delete records with timestamp >= this ISO UTC datetime (e.g. 2026-04-28T18:30:00Z)"),
+    before_utc: Optional[str] = Query(None, description="Filter: only delete records with timestamp <= this ISO UTC datetime (e.g. 2026-04-29T18:30:00Z)"),
     dry_run: bool = Query(True, description="True = preview only, False = actually delete"),
     db: Session = Depends(get_db),
 ):
@@ -366,12 +368,15 @@ async def delete_activity_records_by_criteria(
 
     Use dry_run=true first to confirm what will be deleted.
 
-    Example — remove the Gmail sleep record for Apr 28:
+    Use after_utc/before_utc to target a sub-range within a UTC day — useful
+    for removing IST-date records without touching other records on the same UTC day.
+
+    Example — remove IST Apr 29 Gmail records (after IST midnight = UTC 18:30):
       DELETE /api/admin/delete-activity-records
         ?developer_id=vatsal_m_fe
         &date=2026-04-28
         &title_contains=Gmail
-        &min_duration_seconds=3600
+        &after_utc=2026-04-28T18:30:00Z
         &dry_run=false
     """
     day_start = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
@@ -388,6 +393,12 @@ async def delete_activity_records_by_criteria(
         "day_start": day_start,
         "day_end": day_end,
     }
+    if after_utc:
+        filters.append("timestamp >= :after_utc")
+        params["after_utc"] = datetime.fromisoformat(after_utc.replace("Z", "+00:00"))
+    if before_utc:
+        filters.append("timestamp <= :before_utc")
+        params["before_utc"] = datetime.fromisoformat(before_utc.replace("Z", "+00:00"))
     if title_contains:
         filters.append("LOWER(window_title) LIKE :title_pattern")
         params["title_pattern"] = f"%{title_contains.lower()}%"
@@ -435,6 +446,14 @@ async def delete_activity_records_by_criteria(
         "dry_run": dry_run,
         "developer_id": developer_id,
         "date": date,
+        "filters_applied": {
+            "title_contains": title_contains,
+            "app_name": app_name,
+            "min_duration_seconds": min_duration_seconds,
+            "max_duration_seconds": max_duration_seconds,
+            "after_utc": after_utc,
+            "before_utc": before_utc,
+        },
         "matched": len(rows),
         "actually_deleted": actually_deleted,
         "message": (
