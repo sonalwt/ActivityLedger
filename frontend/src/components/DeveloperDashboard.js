@@ -222,7 +222,7 @@ function DeveloperDashboard({ developer, onBack }) {
     if (!value) return "";
     const d = new Date(value);
     if (isNaN(d.getTime())) return "";
-    return format(d, "dd MMM yyyy");
+    return format(d, "dd MMM yyyy, hh:mm a");
   };
 
   // ---------------- PRODUCTIVITY ----------------
