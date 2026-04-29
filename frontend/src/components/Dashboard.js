@@ -9,6 +9,8 @@ const Dashboard = () => {
   const [developers, setDevelopers] = useState([]);
   const [filteredActivityCounts, setFilteredActivityCounts] = useState({});
   const [developerProductivity, setDeveloperProductivity] = useState({});
+  const [developerLastActive, setDeveloperLastActive] = useState({});
+  const [developerStatus, setDeveloperStatus] = useState({});
   const [selectedDeveloper, setSelectedDeveloper] = useState(null);
   const [environment, setEnvironment] = useState('local');
   const [loading, setLoading] = useState(true);
@@ -74,13 +76,29 @@ const Dashboard = () => {
   const handleProductivityDataLoaded = (devData) => {
     const counts = {};
     const productivity = {};
+    const lastActive = {};
+    const statuses = {};
     devData.forEach(dev => {
       counts[dev.developer_id] = dev.activities_count || 0;
       productivity[dev.developer_id] = dev.productivity_percentage || 0;
+      lastActive[dev.developer_id] = dev.last_activity || null;
+      statuses[dev.developer_id] = dev.status || 'offline';
     });
     setFilteredActivityCounts(counts);
     setDeveloperProductivity(productivity);
+    setDeveloperLastActive(lastActive);
+    setDeveloperStatus(statuses);
     setProductivityLoaded(true);
+  };
+
+  const formatLastActive = (isoString) => {
+    if (!isoString) return null;
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
   };
 
   // Show full-page loader until both developers AND productivity data are ready
@@ -167,9 +185,9 @@ const Dashboard = () => {
               return prodB - prodA; // Sort by productivity descending
             })
             .map((developer) => (
-            <div 
-              key={developer.id} 
-              className={`developer-card ${developer.status || 'unknown'}`}
+            <div
+              key={developer.id}
+              className={`developer-card ${developerStatus[developer.id] || developer.status || 'unknown'}`}
             >
               {/* Developer Header */}
               <div className="developer-header">
@@ -180,9 +198,9 @@ const Dashboard = () => {
                     </h3>
                   </div>
                 </div>
-                
-                <div className={`developer-status-badge ${developer.status || 'unknown'}`}>
-                  {developer.status.replace('_', ' ').toUpperCase()}
+
+                <div className={`developer-status-badge ${developerStatus[developer.id] || developer.status || 'unknown'}`}>
+                  {(developerStatus[developer.id] || developer.status || 'unknown').replace('_', ' ').toUpperCase()}
                 </div>
               </div>
 
@@ -211,12 +229,9 @@ const Dashboard = () => {
 
               {/* Developer Info */}
               <div className="developer-details">
-                <div className="developer-description">
-                  <strong>Description:</strong> {developer.description || 'No description'}
-                </div>
-                {developer.last_seen && (
+                {formatLastActive(developerLastActive[developer.id]) && (
                   <div className="developer-last-seen">
-                    Last seen: {new Date(developer.last_seen).toLocaleString()}
+                    Last Active: {formatLastActive(developerLastActive[developer.id])}
                   </div>
                 )}
               </div>
