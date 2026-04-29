@@ -599,14 +599,12 @@ async def get_all_developers_productivity_summary(
                 total_seconds += stats["total"]
                 productive_seconds += stats["productive"]
                 filtered_activity_count += stats["activity_count"]
-                # For today (partial day in progress) use actual tracked time as
-                # denominator so the incomplete day doesn't unfairly drag down the
-                # weekly/monthly aggregate.  Completed past days use the 8-hour
-                # target floor (so a 3-hour day still counts as a full day).
-                if day_key == today_date and stats["total"] > 0:
-                    denom_seconds += stats["total"]
-                else:
-                    denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
+                # Denominator = max(actual tracked time, 8h target) for all days.
+                # Using tracked time for today gave 100% whenever all activities were
+                # productive (productive == total after the not-afk cap).  The 8h
+                # floor ensures the percentage represents "fraction of the workday
+                # that was productive" rather than "fraction of tracked time".
+                denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
 
             total_hours = total_seconds / 3600.0
             productive_hours = productive_seconds / 3600.0
