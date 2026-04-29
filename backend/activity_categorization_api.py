@@ -328,13 +328,16 @@ async def get_categorized_activities(
         # productive (productive ≈ total keyboard time after not-afk cap).
         # ============================================================
         from collections import defaultdict as _dd
+        _IST = timezone(timedelta(hours=5, minutes=30))
         _not_afk_per_day: dict = _dd(float)
         for (naf_start, naf_end) in not_afk_intervals:
-            _not_afk_per_day[naf_start.date()] += (naf_end - naf_start).total_seconds()
+            # Use IST date so an IST workday doesn't split across two UTC dates
+            _ist_date = naf_start.astimezone(_IST).date()
+            _not_afk_per_day[_ist_date] += (naf_end - naf_start).total_seconds()
 
         _DAILY_TARGET_SEC = 8 * 3600
         _denom = 0.0
-        for _day_key, _day_cap in _not_afk_per_day.items():
+        for _day_cap in _not_afk_per_day.values():
             _denom += max(_day_cap, _DAILY_TARGET_SEC)  # always use 8h floor
 
         _productive_sec = (

@@ -541,11 +541,14 @@ async def get_all_developers_productivity_summary(
             not_afk_intervals = afk_data.not_afk_intervals if afk_data else []
             all_afk_intervals = afk_data.all_afk_intervals if afk_data else []
 
-            # Compute not-afk seconds per day (actual keyboard time)
+            # Compute not-afk seconds per day (actual keyboard time).
+            # Group by IST date so an IST workday (18:30 UTC prev → 18:30 UTC today)
+            # doesn't split across two UTC dates, which would double the denominator.
+            _IST = timezone(timedelta(hours=5, minutes=30))
             not_afk_per_day = defaultdict(float)
             for (naf_start, naf_end) in not_afk_intervals:
-                day_key = naf_start.date()
-                not_afk_per_day[day_key] += (naf_end - naf_start).total_seconds()
+                ist_date = naf_start.astimezone(_IST).date()
+                not_afk_per_day[ist_date] += (naf_end - naf_start).total_seconds()
 
             # Per-day accumulation with AFK-adjusted durations
             daily = defaultdict(lambda: {"total": 0.0, "productive": 0.0, "activity_count": 0})
@@ -563,7 +566,8 @@ async def get_all_developers_productivity_summary(
                 ts = act_row.timestamp
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
-                day_key = ts.date()
+                # Use IST date to match not_afk_per_day grouping
+                day_key = ts.astimezone(_IST).date()
 
                 daily[day_key]["total"] += adj_dur
                 daily[day_key]["activity_count"] += 1
