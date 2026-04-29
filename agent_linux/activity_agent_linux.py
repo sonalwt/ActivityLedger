@@ -389,16 +389,66 @@ def get_idle_seconds() -> float:
     return 0.0  # Default: assume active
 
 
+# AI coding CLI tools — when any of these are running the developer has
+# delegated work to AI and is productively engaged even without keyboard input.
+_AI_CODING_PROCS = ('claude', 'aider', 'codex', 'copilot', 'cody')
+_AI_TOOL_DISPLAY = {
+    'claude': 'Claude Code', 'aider': 'Aider',
+    'codex': 'Codex', 'copilot': 'Copilot', 'cody': 'Cody',
+}
+
+# Terminal app names on Linux
+_TERMINAL_APP_NAMES = frozenset([
+    'gnome-terminal', 'gnome terminal', 'konsole', 'xterm',
+    'terminator', 'tilix', 'xfce4-terminal', 'mate-terminal',
+    'lxterminal', 'urxvt', 'st', 'alacritty', 'kitty', 'hyper',
+])
+
+# Cache: (tool_name, project) — refreshed every 30 s
+_ai_tool_cache: dict = {"tool": None, "project": None, "ts": 0.0}
+
+
+def _get_ai_tool_info() -> tuple:
+    """Return (tool_name, project_folder) for a running AI coding tool, or (None, None).
+
+    Reads the tool process's working directory via /proc/<pid>/cwd so the correct
+    project is always captured even when the terminal title doesn't include it.
+    Result is cached for 30 s to avoid repeated subprocess calls every tick.
+    """
+    global _ai_tool_cache
+    now = time.time()
+    if now - _ai_tool_cache["ts"] < 30:
+        return _ai_tool_cache["tool"], _ai_tool_cache["project"]
+
+    tool_name = None
+    project = None
+    for proc in _AI_CODING_PROCS:
+        try:
+            pid_r = subprocess.run(
+                ["pgrep", "-x", proc], capture_output=True, text=True, timeout=2
+            )
+            if pid_r.returncode != 0:
+                continue
+            pid = pid_r.stdout.strip().split("\n")[0].strip()
+            tool_name = proc
+            # Read CWD from /proc (Linux-specific, fast, no extra process)
+            import os as _os
+            cwd_path = _os.readlink(f"/proc/{pid}/cwd")
+            folder = cwd_path.rstrip("/").split("/")[-1]
+            if folder and len(folder) > 2:
+                project = folder
+            break
+        except Exception:
+            continue
+
+    _ai_tool_cache = {"tool": tool_name, "project": project, "ts": now}
+    return tool_name, project
+
+
 def is_claude_code_active() -> bool:
-    """Return True if Claude Code CLI is running (claude process)."""
-    try:
-        result = subprocess.run(
-            ["pgrep", "-x", "claude"],
-            capture_output=True, text=True, timeout=3,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+    """Return True if Claude Code or any other AI coding CLI tool is running."""
+    tool, _ = _get_ai_tool_info()
+    return tool is not None
 
 
 # Window title keywords that indicate an AI tool or team chat.
@@ -485,8 +535,27 @@ class WindowTracker:
             new_app = info["app"]
             new_title = info["title"]
 
+            # When an AI coding tool is running inside a terminal, override the
+            # app/title so the activity is recorded as "Claude Code: ProjectName"
+            # instead of "gnome-terminal" / "konsole".  Project is read from the
+            # tool's /proc/<pid>/cwd — always the project root.
+            if new_app.lower() in _TERMINAL_APP_NAMES:
+                ai_tool, ai_project = _get_ai_tool_info()
+                if ai_tool:
+                    display = _AI_TOOL_DISPLAY.get(ai_tool, ai_tool.capitalize())
+                    new_app = display
+                    new_title = f"{display}: {ai_project}" if ai_project else display
+                    info["app"] = new_app
+                    info["title"] = new_title
+                    if ai_project:
+                        info["project"] = ai_project
+
             if new_app != self.current_app or new_title != self.current_title:
-                self.last_screen_change = now  # Screen content changed
+                # Only count as screen activity if user was recently active.
+                # Prevents auto-updating titles (Gmail inbox count, browser refresh)
+                # from blocking AFK detection when nobody is at the keyboard.
+                if idle_secs < self.afk_timeout:
+                    self.last_screen_change = now
                 self._close_window_session(now)
                 self.current_app = new_app
                 self.current_title = new_title
@@ -527,9 +596,13 @@ class WindowTracker:
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
             ai_title_active = is_ai_tool_or_chat_active(self.current_title)
-            hard_cap_secs = 1800 if ai_title_active else self.afk_timeout * 2
+            claude_code_running = is_claude_code_active()
+            # Claude Code and AI tools both get the 30-min hard cap.
+            # Without this, watching Claude run a long task (> 6 min) with no
+            # keyboard input would wrongly mark the developer as AFK.
+            hard_cap_secs = 1800 if (ai_title_active or claude_code_running) else self.afk_timeout * 2
             hard_cap_exceeded = idle_secs >= hard_cap_secs
-            claude_active = not hard_cap_exceeded and is_claude_code_active()
+            claude_active = not hard_cap_exceeded and claude_code_running
             ai_active = not hard_cap_exceeded and ai_title_active
             if not hard_cap_exceeded and (screen_active or claude_active or ai_active):
                 return  # Still productive
@@ -771,12 +844,14 @@ class ActivityAgent:
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                # AI tools get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
-                # Reading a long AI response easily takes 10-15 min without keyboard input.
+                # AI tools and Claude Code get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
+                # Watching Claude run a long task or reading AI responses easily takes 10-15 min
+                # without keyboard input — the old 6-min cap would wrongly mark them AFK.
                 ai_title_active = is_ai_tool_or_chat_active(self.tracker.current_title)
-                hard_cap_secs = 1800 if ai_title_active else afk_timeout * 2
+                claude_code_running = is_claude_code_active()
+                hard_cap_secs = 1800 if (ai_title_active or claude_code_running) else afk_timeout * 2
                 hard_cap_exceeded = idle_secs >= hard_cap_secs
-                claude_active = not hard_cap_exceeded and is_claude_code_active()
+                claude_active = not hard_cap_exceeded and claude_code_running
                 ai_active = not hard_cap_exceeded and ai_title_active
                 should_pause = screen_locked or hard_cap_exceeded or (
                     idle_secs >= afk_timeout and not screen_changing

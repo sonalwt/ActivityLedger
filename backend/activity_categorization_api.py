@@ -322,6 +322,36 @@ async def get_categorized_activities(
         actual_work_seconds = tracked_total_sec
 
         # ============================================================
+        # Productivity % — same formula as the team card endpoint.
+        # Denominator per day = actual not-afk time (partial today)
+        #                       or max(not-afk, 8h)  (completed days).
+        # ============================================================
+        from collections import defaultdict as _dd
+        _not_afk_per_day: dict = _dd(float)
+        for (naf_start, naf_end) in not_afk_intervals:
+            _not_afk_per_day[naf_start.date()] += (naf_end - naf_start).total_seconds()
+
+        _today_date = datetime.now(timezone.utc).date()
+        _DAILY_TARGET_SEC = 8 * 3600
+        _denom = 0.0
+        for _day_key, _day_cap in _not_afk_per_day.items():
+            if _day_key == _today_date:
+                _denom += _day_cap                          # partial day: use actual
+            else:
+                _denom += max(_day_cap, _DAILY_TARGET_SEC)  # completed day: 8h floor
+
+        _productive_sec = (
+            cat_stats.get("coding", {}).get("duration", 0)
+            + cat_stats.get("browser", {}).get("duration", 0)
+            + cat_stats.get("server", {}).get("duration", 0)
+        )
+        # Cap productive at not-afk time to prevent multi-window overcounting
+        _productive_sec = min(_productive_sec, _denom) if _denom > 0 else 0.0
+        productivity_percentage = round(
+            min(100.0, _productive_sec / _denom * 100) if _denom > 0 else 0.0, 1
+        )
+
+        # ============================================================
         # Return Response
         # ============================================================
         return {
@@ -340,6 +370,8 @@ async def get_categorized_activities(
 
             "total_tracked_seconds": tracked_total_sec,
             "total_tracked_hours": round(tracked_total_sec/3600, 2),
+
+            "productivity_percentage": productivity_percentage,
 
             "statistics": cat_stats,
 

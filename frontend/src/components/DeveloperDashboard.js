@@ -23,6 +23,8 @@ function DeveloperDashboard({ developer, onBack }) {
   const [trackedTime, setTrackedTime] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [categoryBreakdown, setCategoryBreakdown] = useState({});
+  const [backendProductivityPct, setBackendProductivityPct] = useState(null);
+  const [activeDaysCount, setActiveDaysCount] = useState(0);
   const [topActivities, setTopActivities] = useState([]);
   const [selectedTab, setSelectedTab] = useState(0);
   const [groupedActivities, setGroupedActivities] = useState({});
@@ -131,6 +133,8 @@ function DeveloperDashboard({ developer, onBack }) {
 
         setTotalTime(totalSeconds);
         setTrackedTime(catData.total_tracked_seconds || 0);
+        setBackendProductivityPct(catData.productivity_percentage ?? null);
+        setActiveDaysCount(Object.keys(catData.daily_work_breakdown || {}).length || 1);
         setCategoryBreakdown(breakdown);
         setTopActivities(top5);
         setActivityData(flat);
@@ -223,29 +227,27 @@ function DeveloperDashboard({ developer, onBack }) {
 
   // ---------------- PRODUCTIVITY ----------------
   const getProductivity = () => {
-    const DAILY_TARGET_SEC = 8 * 3600; // 8-hour working day target
-    const productiveSec =
-      (categoryBreakdown.coding?.duration || 0) +
-      (categoryBreakdown.server?.duration || 0) +
-      (categoryBreakdown.browser?.duration || 0);
-
-    // Count weekdays (Mon-Fri) in selected date range
-    let workingDays = 0;
-    const d = new Date(startDate);
-    const rangeEnd = new Date(endDate);
-    while (d <= rangeEnd) {
-      const day = d.getDay();
-      if (day !== 0 && day !== 6) workingDays++;
-      d.setDate(d.getDate() + 1);
-    }
-    workingDays = Math.max(workingDays, 1);
-
-    const targetSec = workingDays * DAILY_TARGET_SEC;
-    const totalSec = trackedTime || totalTime;
-    const minActiveSeconds = 2 * 3600;
-    const score = totalSec > minActiveSeconds
-      ? Math.min(100, Math.round((productiveSec / targetSec) * 100))
-      : 0;
+    // Use the backend-computed percentage when available.
+    // It uses the same AFK-adjusted + not_afk_per_day cap formula as the
+    // team card, and correctly treats today as a partial day so an incomplete
+    // workday doesn't drag down the score.
+    const score = backendProductivityPct !== null
+      ? backendProductivityPct
+      : (() => {
+          const DAILY_TARGET_SEC = 8 * 3600;
+          const productiveSec =
+            (categoryBreakdown.coding?.duration || 0) +
+            (categoryBreakdown.server?.duration || 0) +
+            (categoryBreakdown.browser?.duration || 0);
+          // Only count days that have actual tracked data (not all weekdays in range)
+          const daysWithData = Math.max(activeDaysCount || 1, 1);
+          const targetSec = daysWithData * DAILY_TARGET_SEC;
+          const totalSec = trackedTime || totalTime;
+          const minActiveSeconds = 2 * 3600;
+          return totalSec > minActiveSeconds
+            ? Math.min(100, Math.round((productiveSec / targetSec) * 100))
+            : 0;
+        })();
 
     const displayNames = { coding: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" };
     const categoryList = Object.entries(categoryBreakdown).map(([name, d]) => ({

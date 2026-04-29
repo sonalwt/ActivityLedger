@@ -46,8 +46,15 @@ def categorize_application(app_name: str, window_title: str = "") -> str:
     if any(browser in app_name_lower for browser in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'brave', 'dia']):
         return 'browser'
     
-    # IDEs and Code Editors (Windows + Mac + Linux)
-    if any(ide in app_name_lower for ide in ['vscode', 'visual studio', 'pycharm', 'intellij', 'sublime', 'atom', 'vim', 'nvim', 'neovim', 'macvim', 'emacs', 'notepad++', 'cursor', 'code', 'xcode', 'android studio', 'fleet', 'bbedit', 'textmate', 'nova', 'coteditor']):
+    # IDEs, Code Editors, and AI coding CLI tools (Windows + Mac + Linux)
+    if any(ide in app_name_lower for ide in [
+        'vscode', 'visual studio', 'pycharm', 'intellij', 'sublime', 'atom',
+        'vim', 'nvim', 'neovim', 'macvim', 'emacs', 'notepad++', 'cursor',
+        'code', 'xcode', 'android studio', 'fleet', 'bbedit', 'textmate',
+        'nova', 'coteditor',
+        # AI coding CLI tools (app names set by the agent when detected)
+        'claude code', 'aider', 'codex', 'copilot', 'cody',
+    ]):
         return 'development'
     
     # Database Tools
@@ -166,6 +173,50 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
     app_name_lower = app_name.lower() if app_name else ""
     window_title_lower = window_title.lower() if window_title else ""
     
+    # AI coding CLI tools — app name is set by the agent as "Claude Code", "Aider", etc.
+    # Possible title formats:
+    #   Mac/Linux (agent sets it): "Claude Code: ActivityLedger"
+    #   Windows (terminal title):  "C:\Projects\ActivityLedger" or "ActivityLedger"
+    #   PowerShell prompt:         "PS C:\Projects\ActivityLedger>"
+    _AI_CLI_APPS = ('claude code', 'aider', 'codex', 'copilot', 'cody')
+    if any(app_name_lower == t or app_name_lower.startswith(t) for t in _AI_CLI_APPS):
+        import re as _re
+        project = None
+
+        if ': ' in window_title:
+            # "Claude Code: ActivityLedger"
+            project = window_title.split(': ', 1)[1].strip()
+        elif ' — ' in window_title:
+            # "Claude Code — ActivityLedger"
+            project = window_title.split(' — ', 1)[1].strip()
+        elif '\\' in window_title or (window_title.startswith('/') and '/' in window_title):
+            # Windows path "C:\Projects\ActivityLedger" or Unix "/home/user/ActivityLedger"
+            # Also handles PowerShell prompt "PS C:\Projects\ActivityLedger>"
+            clean = window_title.rstrip('> \t')
+            folder = _re.split(r'[/\\]', clean)[-1].strip()
+            if folder and len(folder) > 2:
+                project = folder
+        elif window_title and window_title.strip() not in (
+                'claude', 'aider', 'codex', 'copilot', 'cody', ''):
+            # Plain folder name — Windows Terminal often shows just the CWD folder
+            candidate = window_title.strip()
+            if len(candidate) > 2:
+                project = candidate
+
+        if project and len(project) > 2:
+            project_info.update({
+                'project_name': project,
+                'project_type': 'Development',
+                'detailed_activity': f"{app_name}: {project}",
+            })
+        else:
+            project_info.update({
+                'project_name': 'AI Coding',
+                'project_type': 'Development',
+                'detailed_activity': window_title or app_name,
+            })
+        return project_info
+
     # IDE Project Detection
     ide_names = ['visual studio code', 'cursor', 'code', 'pycharm', 'intellij', 'sublime text', 'atom', 'xcode', 'android studio', 'fleet', 'bbedit', 'textmate', 'nova', 'coteditor']
     if any(ide in app_name_lower for ide in ['cursor', 'vscode', 'code', 'pycharm', 'intellij', 'xcode', 'android studio', 'fleet', 'sublime', 'bbedit', 'textmate', 'nova', 'coteditor']):
@@ -340,6 +391,55 @@ def extract_project_info(window_title: str, app_name: str, url: str = None) -> d
             })
             return project_info
 
+    # Terminal / iTerm2 / shell — extract project from working directory in title.
+    # macOS sets the terminal title to the current folder, e.g.:
+    #   "ActivityLedger — zsh"          (normal shell)
+    #   "claude — ActivityLedger — zsh" (Claude Code running)
+    #   "~/projects/ActivityLedger"     (full path variant)
+    import re as _re
+    _TERMINAL_APPS = (
+        # macOS
+        'terminal', 'iterm', 'warp', 'ghostty',
+        # Cross-platform
+        'hyper', 'alacritty', 'kitty',
+        # Windows
+        'windows terminal', 'windowsterminal', 'cmd', 'powershell', 'conemu', 'cmder',
+        # Linux
+        'gnome-terminal', 'konsole', 'xterm', 'terminator', 'tilix',
+        'xfce4-terminal', 'mate-terminal', 'lxterminal',
+    )
+    if any(t in app_name_lower for t in _TERMINAL_APPS):
+        # Strip trailing shell name (— zsh, — bash, — fish, etc.)
+        title_clean = _re.sub(
+            r'\s*[—\-]\s*(zsh|bash|fish|sh|tcsh|ksh|pwsh|powershell)\s*$',
+            '', window_title, flags=_re.IGNORECASE
+        ).strip()
+        # Split remaining parts on em-dash or regular dash
+        parts = [p.strip() for p in _re.split(r'\s*[—\-]\s*', title_clean) if p.strip()]
+        _skip = {'claude', 'zsh', 'bash', 'fish', 'sh', 'terminal', 'iterm2',
+                 'iterm', 'hyper', 'warp', '', '~'}
+        project = None
+        for part in reversed(parts):
+            if part.lower() in _skip:
+                continue
+            # Handle path-style parts: ~/projects/ActivityLedger or /Users/.../ActivityLedger
+            if '/' in part:
+                folder = part.rstrip('/').split('/')[-1]
+                if folder and len(folder) > 2 and folder.lower() not in _skip:
+                    project = folder
+                    break
+            elif len(part) > 2:
+                project = part
+                break
+        if project:
+            is_claude = any(p.lower() == 'claude' for p in parts)
+            project_info.update({
+                'project_name': project,
+                'project_type': 'Development',
+                'detailed_activity': f"{'Claude Code' if is_claude else 'Terminal'}: {project}"
+            })
+            return project_info
+
     # Default fallback
     clean_app_name = app_name.replace('.exe', '') if app_name else 'Unknown'
     project_info.update({
@@ -425,7 +525,16 @@ async def receive_activitywatch_webhook_stateless(
                     try:
                         # Parse timestamp
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        
+
+                        # Skip overnight records (midnight–7 am IST).
+                        # macOS sometimes wakes for maintenance (Time Machine, updates)
+                        # between ~2–6 am with no user present, causing false activity
+                        # from apps with auto-updating titles (e.g. Gmail inbox count).
+                        _IST = timezone(timedelta(hours=5, minutes=30))
+                        _ist_hour = timestamp.astimezone(_IST).hour
+                        if _ist_hour < 7:  # 00:00–06:59 IST
+                            continue
+
                         # Extract activity information
                         app_name = data.get('app') or data.get('application', 'Unknown')
                         window_title = data.get('title', '')
@@ -460,8 +569,29 @@ async def receive_activitywatch_webhook_stateless(
                         if aw_file and not project_info.get('file_path'):
                             project_info['file_path'] = aw_file
 
-                        # If VS Code has no project, resolve from recent IDE activity or FileZilla
-                        if project_info['project_name'] == 'IDE Work' and category == 'development':
+                        # If VS Code / terminal has no project, resolve from recent activity.
+                        # Terminal apps (iTerm2, Terminal.app) are category='system'; include them
+                        # so Claude Code sessions get the same project-lookup treatment as IDE work.
+                        _terminal_app_names = {
+                            # macOS
+                            'terminal', 'iterm2', 'iterm', 'warp', 'ghostty',
+                            # Cross-platform
+                            'hyper', 'alacritty', 'kitty',
+                            # Windows
+                            'windows terminal', 'windowsterminal', 'cmd', 'powershell',
+                            'conemu', 'cmder', 'git bash', 'git-bash',
+                            # Linux
+                            'gnome-terminal', 'konsole', 'xterm', 'terminator', 'tilix',
+                            'xfce4-terminal', 'mate-terminal', 'lxterminal',
+                        }
+                        _no_project_terminal = (
+                            category == 'system'
+                            and (app_name or '').lower() in _terminal_app_names
+                            and (not project_info['project_name']
+                                 or project_info['project_name'].lower() in _terminal_app_names)
+                        )
+                        if (project_info['project_name'] == 'IDE Work' and category == 'development') \
+                                or _no_project_terminal:
                             # Try: recent activity from the same IDE app (e.g. when using Claude Code)
                             from models import ActivityRecord as AR2
                             recent_ide = db.query(AR2.project_name).filter(
