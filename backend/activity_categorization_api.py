@@ -323,22 +323,19 @@ async def get_categorized_activities(
 
         # ============================================================
         # Productivity % — same formula as the team card endpoint.
-        # Denominator per day = actual not-afk time (partial today)
-        #                       or max(not-afk, 8h)  (completed days).
+        # Denominator per day = max(actual not-afk time, 8h target) for ALL days.
+        # Using actual tracked time for today caused 100% whenever all activities were
+        # productive (productive ≈ total keyboard time after not-afk cap).
         # ============================================================
         from collections import defaultdict as _dd
         _not_afk_per_day: dict = _dd(float)
         for (naf_start, naf_end) in not_afk_intervals:
             _not_afk_per_day[naf_start.date()] += (naf_end - naf_start).total_seconds()
 
-        _today_date = datetime.now(timezone.utc).date()
         _DAILY_TARGET_SEC = 8 * 3600
         _denom = 0.0
         for _day_key, _day_cap in _not_afk_per_day.items():
-            if _day_key == _today_date:
-                _denom += _day_cap                          # partial day: use actual
-            else:
-                _denom += max(_day_cap, _DAILY_TARGET_SEC)  # completed day: 8h floor
+            _denom += max(_day_cap, _DAILY_TARGET_SEC)  # always use 8h floor
 
         _productive_sec = (
             cat_stats.get("coding", {}).get("duration", 0)
