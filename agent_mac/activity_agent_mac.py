@@ -549,21 +549,71 @@ def is_screen_locked() -> bool:
     return False
 
 
-def is_claude_code_active() -> bool:
-    """Return True if Claude Code CLI is running as a process.
+# AI coding CLI tools — when any of these are running the developer has
+# delegated work to AI and is productively engaged even without keyboard input.
+_AI_CODING_PROCS = ('claude', 'aider', 'codex', 'copilot', 'cody')
+_AI_TOOL_DISPLAY = {
+    'claude': 'Claude Code', 'aider': 'Aider',
+    'codex': 'Codex', 'copilot': 'Copilot', 'cody': 'Cody',
+}
 
-    When Claude Code is actively working (editing files, running commands),
-    the user is productively engaged even without keyboard/mouse input.
-    Uses pgrep with an exact name match for the 'claude' binary.
+# Terminal app names — used to detect when Claude Code is running inside a terminal
+_TERMINAL_APP_NAMES = frozenset([
+    'iterm2', 'iterm', 'terminal', 'hyper', 'warp',
+    'alacritty', 'kitty', 'ghostty',
+])
+
+# Cache for AI tool detection (tool_name, project_folder) — refreshed every 30 s
+_ai_tool_cache: dict = {"tool": None, "project": None, "ts": 0.0}
+
+
+def _get_ai_tool_info() -> tuple:
+    """Return (tool_name, project_folder) for a running AI coding tool, or (None, None).
+
+    Reads the tool process's working directory via lsof so the correct project
+    is always captured even when the terminal title doesn't include it.
+    Result is cached for 30 s to avoid repeated subprocess calls every tick.
     """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-x", "claude"],
-            capture_output=True, text=True, timeout=3
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+    global _ai_tool_cache
+    now = time.time()
+    if now - _ai_tool_cache["ts"] < 30:
+        return _ai_tool_cache["tool"], _ai_tool_cache["project"]
+
+    tool_name = None
+    project = None
+    for proc in _AI_CODING_PROCS:
+        try:
+            pid_r = subprocess.run(
+                ["pgrep", "-x", proc], capture_output=True, text=True, timeout=2
+            )
+            if pid_r.returncode != 0:
+                continue
+            pid = pid_r.stdout.strip().split("\n")[0].strip()
+            tool_name = proc
+            # Read working directory from lsof
+            lsof_r = subprocess.run(
+                ["lsof", "-p", pid, "-d", "cwd", "-Fn"],
+                capture_output=True, text=True, timeout=3
+            )
+            for line in lsof_r.stdout.splitlines():
+                if line.startswith("n"):
+                    path = line[1:].rstrip("/")
+                    folder = path.split("/")[-1] if "/" in path else path
+                    if folder and len(folder) > 2:
+                        project = folder
+                    break
+            break  # Stop at first found tool
+        except Exception:
+            continue
+
+    _ai_tool_cache = {"tool": tool_name, "project": project, "ts": now}
+    return tool_name, project
+
+
+def is_claude_code_active() -> bool:
+    """Return True if Claude Code or any other AI coding CLI tool is running."""
+    tool, _ = _get_ai_tool_info()
+    return tool is not None
 
 
 # Domains considered productive even when keyboard/mouse is idle.
@@ -674,9 +724,31 @@ class WindowTracker:
             new_title = info["title"]
             new_url = info.get("url")
 
+            # When an AI coding tool (Claude Code, Aider, etc.) is running inside
+            # a terminal, override app/title so the activity is recorded as
+            # "Claude Code: ProjectName" instead of "iTerm2" / "Terminal".
+            # The project is read from the tool's working directory (always the
+            # project root), which is more reliable than parsing the terminal title.
+            if new_app.lower() in _TERMINAL_APP_NAMES:
+                ai_tool, ai_project = _get_ai_tool_info()
+                if ai_tool:
+                    display = _AI_TOOL_DISPLAY.get(ai_tool, ai_tool.capitalize())
+                    new_app = display
+                    new_title = f"{display}: {ai_project}" if ai_project else display
+                    info["app"] = new_app
+                    info["title"] = new_title
+                    if ai_project:
+                        info["project"] = ai_project
+
             # If window changed, close previous session and open a new one
             if new_app != self.current_app or new_title != self.current_title:
-                self.last_screen_change = now  # Screen content changed
+                # Only treat a title change as "screen activity" if the user was
+                # recently active (keyboard/mouse idle < afk_timeout).
+                # This prevents auto-updating titles (Gmail inbox count, browser
+                # auto-refresh) from blocking AFK detection when nobody is at
+                # the keyboard — which caused multi-hour false-active sessions.
+                if idle_secs < self.afk_timeout:
+                    self.last_screen_change = now
                 self._close_window_session(now)
                 self.current_app = new_app
                 self.current_title = new_title
@@ -729,9 +801,13 @@ class WindowTracker:
             # AI tools get a 30-min cap — reading long AI responses easily takes 10+ min.
             # Default cap: 2× afk_timeout (6 min) for all other apps.
             ai_url_active = is_ai_tool_or_chat_active(self.current_url)
-            hard_cap_secs = 1800 if ai_url_active else self.afk_timeout * 2
+            claude_code_running = is_claude_code_active()
+            # Claude Code and AI tools both get the 30-min hard cap.
+            # Without this, a developer watching Claude Code run a long task (> 6 min)
+            # with no keyboard/mouse input would be marked AFK.
+            hard_cap_secs = 1800 if (ai_url_active or claude_code_running) else self.afk_timeout * 2
             hard_cap_exceeded = idle_secs >= hard_cap_secs
-            claude_active = not hard_cap_exceeded and is_claude_code_active()
+            claude_active = not hard_cap_exceeded and claude_code_running
             ai_active = not hard_cap_exceeded and ai_url_active
             if not hard_cap_exceeded and (screen_active or claude_active or ai_active):
                 return  # Still productive — AI tool/chat open, Claude Code running, or screen changing
@@ -1015,14 +1091,14 @@ class ActivityAgent:
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                # AI tools get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
-                # Reading a long AI response easily takes 10-15 min without keyboard input.
+                # AI tools and Claude Code get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
+                # Reading a long AI response or watching Claude Code run a task easily takes 10-15 min
+                # without any keyboard/mouse input — the old 6-min cap would wrongly mark them AFK.
                 ai_url_active = is_ai_tool_or_chat_active(self.tracker.current_url)
-                hard_cap_secs = 1800 if ai_url_active else afk_timeout * 2
+                claude_code_running = is_claude_code_active()
+                hard_cap_secs = 1800 if (ai_url_active or claude_code_running) else afk_timeout * 2
                 hard_cap_exceeded = idle_secs >= hard_cap_secs
-                # Claude Code process running counts as productive — don't pause
-                # (skip the checks if hard cap already exceeded to save overhead)
-                claude_active = not hard_cap_exceeded and is_claude_code_active()
+                claude_active = not hard_cap_exceeded and claude_code_running
                 ai_active = not hard_cap_exceeded and ai_url_active
                 should_pause = screen_locked or hard_cap_exceeded or (
                     idle_secs >= afk_timeout and not screen_changing

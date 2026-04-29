@@ -240,17 +240,60 @@ def get_idle_seconds() -> float:
     return elapsed_ms / 1000.0
 
 
-def is_claude_code_active() -> bool:
-    """Return True if Claude Code CLI is running (claude.exe process)."""
+# AI coding CLI tools — when any of these are running the developer has
+# delegated work to AI and is productively engaged even without keyboard input.
+_AI_CODING_PROCESSES = {
+    'claude.exe': 'Claude Code',
+    'aider.exe':  'Aider',
+    'codex.exe':  'Codex',
+    'copilot.exe': 'Copilot',
+    'cody.exe':   'Cody',
+}
+
+# Terminal app names on Windows
+_TERMINAL_APP_NAMES = frozenset([
+    'windows terminal', 'windowsterminal', 'cmd', 'powershell',
+    'conemu', 'cmder', 'git bash', 'git-bash', 'hyper', 'alacritty',
+])
+
+# Cache: (tool_name, project) — refreshed every 30 s
+_ai_tool_cache: dict = {"tool": None, "project": None, "ts": 0.0}
+
+
+def _get_ai_tool_info() -> tuple:
+    """Return (tool_display_name, None) for a running AI coding tool on Windows.
+
+    On Windows the process CWD is not easily readable without psutil, so project
+    is left as None and the backend extracts it from the terminal window title.
+    """
+    global _ai_tool_cache
+    now = time.time()
+    if now - _ai_tool_cache["ts"] < 30:
+        return _ai_tool_cache["tool"], _ai_tool_cache["project"]
+
+    tool_name = None
     try:
         result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq claude.exe", "/NH"],
+            ["tasklist", "/NH"],
             capture_output=True, text=True, timeout=5,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            creationflags=0x08000000,
         )
-        return "claude.exe" in result.stdout.lower()
+        procs = result.stdout.lower()
+        for exe, display in _AI_CODING_PROCESSES.items():
+            if exe in procs:
+                tool_name = display
+                break
     except Exception:
-        return False
+        pass
+
+    _ai_tool_cache = {"tool": tool_name, "project": None, "ts": now}
+    return tool_name, None
+
+
+def is_claude_code_active() -> bool:
+    """Return True if Claude Code or any other AI coding CLI tool is running."""
+    tool, _ = _get_ai_tool_info()
+    return tool is not None
 
 
 # Window title keywords that indicate an AI tool or team chat.
@@ -341,9 +384,24 @@ class WindowTracker:
             new_app = info["app"]
             new_title = info["title"]
 
+            # When an AI coding tool is running inside a terminal, override the
+            # app name so the activity is recorded as "Claude Code" / "Aider" etc.
+            # instead of "Windows Terminal" / "cmd".  The title (which on Windows
+            # usually shows the CWD) is kept as-is so the backend can extract the
+            # project name from it.
+            if new_app.lower() in _TERMINAL_APP_NAMES:
+                ai_tool, _ = _get_ai_tool_info()
+                if ai_tool:
+                    new_app = ai_tool
+                    info["app"] = new_app
+
             # If window changed, close previous session and open a new one
             if new_app != self.current_app or new_title != self.current_title:
-                self.last_screen_change = now  # Screen content changed
+                # Only count as screen activity if user was recently active.
+                # Prevents auto-updating titles (Gmail inbox count, browser refresh)
+                # from blocking AFK detection when nobody is at the keyboard.
+                if idle_secs < self.afk_timeout:
+                    self.last_screen_change = now
                 self._close_window_session(now)
                 self.current_app = new_app
                 self.current_title = new_title
@@ -386,9 +444,13 @@ class WindowTracker:
 
         if self.afk_state == "not-afk" and idle_secs >= self.afk_timeout:
             ai_title_active = is_ai_tool_or_chat_active(self.current_title)
-            hard_cap_secs = 1800 if ai_title_active else self.afk_timeout * 2
+            claude_code_running = is_claude_code_active()
+            # Claude Code and AI tools both get the 30-min hard cap.
+            # Without this, watching Claude run a long task (> 6 min) with no
+            # keyboard input would wrongly mark the developer as AFK.
+            hard_cap_secs = 1800 if (ai_title_active or claude_code_running) else self.afk_timeout * 2
             hard_cap_exceeded = idle_secs >= hard_cap_secs
-            claude_active = not hard_cap_exceeded and is_claude_code_active()
+            claude_active = not hard_cap_exceeded and claude_code_running
             ai_active = not hard_cap_exceeded and ai_title_active
             if not hard_cap_exceeded and (screen_active or claude_active or ai_active):
                 return  # Still productive
@@ -638,12 +700,14 @@ class ActivityAgent:
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
                     < afk_timeout
                 )
-                # AI tools get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
-                # Reading a long AI response easily takes 10-15 min without keyboard input.
+                # AI tools and Claude Code get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
+                # Watching Claude run a long task or reading AI responses easily takes 10-15 min
+                # without keyboard input — the old 6-min cap would wrongly mark them AFK.
                 ai_title_active = is_ai_tool_or_chat_active(self.tracker.current_title)
-                hard_cap_secs = 1800 if ai_title_active else afk_timeout * 2
+                claude_code_running = is_claude_code_active()
+                hard_cap_secs = 1800 if (ai_title_active or claude_code_running) else afk_timeout * 2
                 hard_cap_exceeded = idle_secs >= hard_cap_secs
-                claude_active = not hard_cap_exceeded and is_claude_code_active()
+                claude_active = not hard_cap_exceeded and claude_code_running
                 ai_active = not hard_cap_exceeded and ai_title_active
                 should_pause = screen_locked or hard_cap_exceeded or (
                     idle_secs >= afk_timeout and not screen_changing

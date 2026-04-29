@@ -108,6 +108,21 @@ def _has_afk_coverage(activity_start, activity_end, all_afk_intervals) -> bool:
 # ---------------------------------------------------------------------------
 # Single-activity duration adjustment
 # ---------------------------------------------------------------------------
+_TERMINAL_APPS = frozenset([
+    # macOS
+    'terminal', 'iterm', 'iterm2', 'warp', 'ghostty',
+    # Cross-platform
+    'hyper', 'alacritty', 'kitty',
+    # Windows
+    'windows terminal', 'windowsterminal', 'cmd', 'powershell',
+    'conemu', 'cmder', 'git bash', 'git-bash',
+    # Linux
+    'gnome-terminal', 'gnome terminal', 'konsole', 'xterm',
+    'terminator', 'tilix', 'xfce4-terminal', 'mate-terminal',
+    'lxterminal', 'urxvt', 'st',
+])
+
+
 def compute_adjusted_duration(timestamp, raw_duration, application_name,
                               not_afk_intervals, all_afk_intervals) -> float:
     """
@@ -115,9 +130,20 @@ def compute_adjusted_duration(timestamp, raw_duration, application_name,
 
     - If AFK watcher covered this activity's time: return overlap with not-afk.
     - If no AFK coverage for this activity: use raw duration (browser cap fallback).
+
+    Special case — terminal apps (iTerm2, Terminal.app, etc.):
+    The Mac agent incorrectly marks developers as AFK after ~6 min of idle even
+    when Claude Code is running a long task silently.  Until the fixed agent is
+    deployed, skip AFK adjustment for terminal apps and use raw duration instead.
+    Overnight records are already blocked at ingestion (midnight–7 am IST filter),
+    so raw duration here is safe.
     """
     if raw_duration <= 0:
         return 0.0
+
+    # Terminal apps: bypass AFK adjustment — Claude Code waits are NOT real AFK.
+    if application_name and application_name.lower() in _TERMINAL_APPS:
+        return min(raw_duration, MAX_SINGLE_EVENT_DURATION)
 
     # No AFK data at all = no proof the user was at the keyboard.
     # System could be off or AFK watcher not running. Return 0.

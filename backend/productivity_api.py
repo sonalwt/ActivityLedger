@@ -590,6 +590,7 @@ async def get_all_developers_productivity_summary(
             denom_seconds = 0.0
             active_days = 0
             filtered_activity_count = 0
+            today_date = datetime.now(timezone.utc).date()
 
             for day_key, stats in daily.items():
                 if stats["activity_count"] == 0:
@@ -598,7 +599,14 @@ async def get_all_developers_productivity_summary(
                 total_seconds += stats["total"]
                 productive_seconds += stats["productive"]
                 filtered_activity_count += stats["activity_count"]
-                denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
+                # For today (partial day in progress) use actual tracked time as
+                # denominator so the incomplete day doesn't unfairly drag down the
+                # weekly/monthly aggregate.  Completed past days use the 8-hour
+                # target floor (so a 3-hour day still counts as a full day).
+                if day_key == today_date and stats["total"] > 0:
+                    denom_seconds += stats["total"]
+                else:
+                    denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
 
             total_hours = total_seconds / 3600.0
             productive_hours = productive_seconds / 3600.0
