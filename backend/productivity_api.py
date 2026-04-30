@@ -497,9 +497,11 @@ async def get_all_developers_productivity_summary(
                 GROUP BY developer_id
             ) ds ON ds.developer_id = d.developer_id
             LEFT JOIN (
-                SELECT developer_id, MAX(timestamp) AS last_activity
+                SELECT developer_id,
+                       MAX(timestamp + (duration * interval '1 second')) AS last_activity
                 FROM afk_records
                 WHERE status = 'not-afk'
+                AND duration >= 120
                 GROUP BY developer_id
             ) la ON la.developer_id = d.developer_id
             WHERE d.active = true

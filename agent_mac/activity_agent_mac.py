@@ -549,6 +549,35 @@ def is_screen_locked() -> bool:
     return False
 
 
+def is_display_asleep() -> bool:
+    """Return True if the display is off/sleeping (Power Nap, lid closed, display sleep).
+
+    Uses IODisplayWrangler CurrentPowerState:
+      4 = display fully on
+      3 = display dimmed (about to sleep)
+      0 = display off / sleeping
+
+    This guards against Power Nap false-positives: when macOS wakes briefly
+    for background tasks (lid closed), HIDIdleTime resets to ~0 which would
+    otherwise make the agent think the user returned to their desk.
+    """
+    try:
+        result = subprocess.run(
+            ["ioreg", "-c", "IODisplayWrangler", "-r", "-S"],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode != 0:
+            return False  # Can't tell — assume display is on
+        match = re.search(r'"CurrentPowerState"\s*=\s*(\d+)', result.stdout)
+        if match:
+            return int(match.group(1)) < 4
+        return False  # No match — assume display is on
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
+
+
 # AI coding CLI tools — when any of these are running the developer has
 # delegated work to AI and is productively engaged even without keyboard input.
 _AI_CODING_PROCS = ('claude', 'aider', 'codex', 'copilot', 'cody')
@@ -1143,23 +1172,31 @@ class ActivityAgent:
                 else:
                     # Currently paused — wait for user to return
                     if not should_pause:
-                        # User is back — screen unlocked and keyboard/mouse active
-                        now_dt = datetime.now(timezone.utc)
-                        if self.tracker.afk_start:
-                            afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
-                            if afk_dur >= 1:
-                                self.tracker.afk_events.append({
-                                    "timestamp": self.tracker.afk_start.isoformat(),
-                                    "duration": round(afk_dur, 1),
-                                    "data": {"status": "afk"},
-                                })
-                        self.tracker.afk_state = "not-afk"
-                        self.tracker.active_start = now_dt
-                        self.tracker.afk_start = None
-                        self.tracker.last_screen_change = now_dt
-                        self.idle_paused = False
-                        self.idle_pause_start_time = None
-                        self.logger.info("User activity detected — resuming capture")
+                        # Guard against Power Nap / background wake:
+                        # When macOS wakes briefly with lid closed, HIDIdleTime resets to ~0
+                        # but the display stays off. Only resume if the display is actually on.
+                        if is_display_asleep():
+                            self.logger.debug(
+                                "idle_secs low but display is off — likely Power Nap, staying paused"
+                            )
+                        else:
+                            # User is back — screen unlocked and keyboard/mouse active
+                            now_dt = datetime.now(timezone.utc)
+                            if self.tracker.afk_start:
+                                afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
+                                if afk_dur >= 1:
+                                    self.tracker.afk_events.append({
+                                        "timestamp": self.tracker.afk_start.isoformat(),
+                                        "duration": round(afk_dur, 1),
+                                        "data": {"status": "afk"},
+                                    })
+                            self.tracker.afk_state = "not-afk"
+                            self.tracker.active_start = now_dt
+                            self.tracker.afk_start = None
+                            self.tracker.last_screen_change = now_dt
+                            self.idle_paused = False
+                            self.idle_pause_start_time = None
+                            self.logger.info("User activity detected — resuming capture")
                     else:
                         # Still idle — enter deep idle if idle >= shutdown_idle_seconds.
                         # Deep idle: stops all heavy work (AppleScript, window capture).
@@ -1182,6 +1219,16 @@ class ActivityAgent:
                             while self.running:
                                 time.sleep(30)
                                 if get_idle_seconds() < self.config["afk_timeout_seconds"]:
+                                    # Guard: don't wake on Power Nap / background wake.
+                                    # HIDIdleTime resets to ~0 on any system wake, but display
+                                    # stays off when lid is closed. Only exit deep idle when
+                                    # the display is actually on (user opened the lid).
+                                    if is_display_asleep():
+                                        self.logger.debug(
+                                            "Deep idle: idle_secs low but display is off "
+                                            "— likely Power Nap, staying in deep idle"
+                                        )
+                                        continue
                                     # Physical activity detected — wake up
                                     self.logger.info(
                                         "User activity detected — waking agent from deep idle"
