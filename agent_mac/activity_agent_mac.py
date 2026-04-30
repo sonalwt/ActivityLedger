@@ -550,16 +550,16 @@ def is_screen_locked() -> bool:
 
 
 def is_display_asleep() -> bool:
-    """Return True if the display is off/sleeping (Power Nap, lid closed, display sleep).
+    """Return True if ALL displays are off/sleeping (lid closed, display sleep, Power Nap).
 
     Uses IODisplayWrangler CurrentPowerState:
       4 = display fully on
-      3 = display dimmed (about to sleep)
+      3 = display dimmed (but still visible)
       0 = display off / sleeping
 
-    This guards against Power Nap false-positives: when macOS wakes briefly
-    for background tasks (lid closed), HIDIdleTime resets to ~0 which would
-    otherwise make the agent think the user returned to their desk.
+    Checks ALL displays so that clamshell mode (lid closed + external monitor on)
+    is handled correctly — if ANY display is on (state >= 4), returns False.
+    Only returns True when every display is off, meaning nobody can see the screen.
     """
     try:
         result = subprocess.run(
@@ -568,10 +568,11 @@ def is_display_asleep() -> bool:
         )
         if result.returncode != 0:
             return False  # Can't tell — assume display is on
-        match = re.search(r'"CurrentPowerState"\s*=\s*(\d+)', result.stdout)
-        if match:
-            return int(match.group(1)) < 4
-        return False  # No match — assume display is on
+        states = [int(m) for m in re.findall(r'"CurrentPowerState"\s*=\s*(\d+)', result.stdout)]
+        if not states:
+            return False  # No display info — assume on
+        # Display is asleep only when ALL displays are below full-on state (4)
+        return all(s < 4 for s in states)
     except subprocess.TimeoutExpired:
         return False
     except Exception:
@@ -1115,6 +1116,7 @@ class ActivityAgent:
 
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
+                display_asleep = is_display_asleep()
                 afk_timeout = self.config["afk_timeout_seconds"]
                 screen_changing = (
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
@@ -1129,7 +1131,9 @@ class ActivityAgent:
                 hard_cap_exceeded = idle_secs >= hard_cap_secs
                 claude_active = not hard_cap_exceeded and claude_code_running
                 ai_active = not hard_cap_exceeded and ai_url_active
-                should_pause = screen_locked or hard_cap_exceeded or (
+                # display_asleep: all displays off = lid closed or display sleeping.
+                # This is the primary gate — if no screen is on, nobody is at the desk.
+                should_pause = screen_locked or display_asleep or hard_cap_exceeded or (
                     idle_secs >= afk_timeout and not screen_changing
                     and not claude_active and not ai_active
                 )
@@ -1141,6 +1145,8 @@ class ActivityAgent:
                         afk_started = now_dt - timedelta(seconds=idle_secs)
                         if screen_locked:
                             self.logger.info("Screen locked — pausing activity capture")
+                        elif display_asleep:
+                            self.logger.info("Display off (lid closed / display sleep) — pausing activity capture")
                         else:
                             self.logger.info(
                                 f"System idle ({idle_secs:.0f}s) — pausing activity capture"
