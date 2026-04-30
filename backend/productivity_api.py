@@ -1021,10 +1021,14 @@ async def get_all_projects(
             'appdata', 'local', 'roaming', 'new tab', 'google', 'settings',
             'terminal', 'console', 'finder', 'calendar', 'preview', 'file', 'pdf',
             'untitled', 'untitled-1', 'welcome', 'startup', 'inbox', 'jobs',
-            # App names
+            # App / tool names
             'dia', 'cursor', 'code', 'postman', 'gmail', 'whatsapp', 'chatgpt',
             'notepad', 'ssms', 'termius', 'shellhost', 'windowsterminal',
             'snippingtool', 'commands', 'agent', 'client_sync',
+            'slack', 'zoom', 'teams', 'figma', 'notion', 'chrome', 'firefox',
+            'safari', 'edge', 'brave', 'excel', 'word', 'powerpoint', 'outlook',
+            'vscodium', 'sublime', 'atom', 'vim', 'nvim', 'emacs', 'intellij',
+            'pycharm', 'webstorm', 'datagrip', 'rider', 'goland', 'clion',
             # Code subfolders
             'src', 'components', 'pages', 'utils', 'hooks', 'services',
             'models', 'views', 'controllers', 'routes', 'middleware',
@@ -1034,6 +1038,14 @@ async def get_all_projects(
             'dist', 'build', 'test', 'tests', 'docs', 'output', 'logs', 'cache',
             'repositories', 'functions', 'migrations', 'imports', 'banners',
             'seeders', 'layouts', 'design', 'nova', 'web', 'funds',
+            # Generic web/product folder names
+            'portal', 'admin', 'dashboard', 'platform', 'website', 'cms', 'crm',
+            'landing', 'ui', 'ux', 'database', 'schema', 'core', 'base',
+            'common', 'shared', 'internal', 'external', 'main', 'master',
+            'develop', 'dev', 'prod', 'staging', 'release', 'hotfix',
+            # OS / path components
+            'opt', 'usr', 'var', 'etc', 'bin', 'sbin', 'tmp',
+            'volumes', 'mnt', 'media', 'proc', 'sys', 'run',
             # Noise names from file paths / nav
             'nav_div_ter_file_download', 'scheme list',
         }
@@ -1050,7 +1062,7 @@ async def get_all_projects(
         projects_query = db.execute(text(f"""
             SELECT
                 LOWER(ar.project_name) as project_key,
-                MAX(ar.project_name) as project_name,
+                MIN(ar.project_name) as project_name,
                 MAX(p.id) as project_id,
                 MAX(p.description) as description,
                 COALESCE(MAX(p.total_cost), 0) as total_cost,
@@ -1067,14 +1079,14 @@ async def get_all_projects(
                 {date_filter}
                 {dev_filter}
             GROUP BY LOWER(ar.project_name)
-            HAVING SUM(ar.duration) > 1800
+            HAVING SUM(ar.duration) > 3600
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
         import re as _re
         projects = []
         for row in projects_query:
-            pname = row[1]  # MAX(ar.project_name) - original casing
+            pname = row[1]  # MIN(ar.project_name) - prefers capitalized casing
             project_id = row[2]  # MAX(p.id) — not None if formally registered
             if not pname:
                 continue
@@ -1084,17 +1096,29 @@ async def get_all_projects(
             # Always skip excluded noise names
             if pname_lower in excluded_names:
                 continue
-            # Skip very short names
+            # Skip very short names (1-2 chars)
             if len(pname) <= 2:
+                continue
+            # Skip pure numbers or version strings (e.g. "123", "v2", "3.0", "2024")
+            if _re.match(r'^v?\d+(\.\d+)*$', pname_lower):
+                continue
+            # Skip names that are purely numeric with common suffixes
+            if _re.match(r'^\d+(px|em|rem|vh|vw|pt|gb|mb|kb)?$', pname_lower):
                 continue
             # Skip file names (have extensions like .pptx, .xlsx, .pdf, .exe)
             if _re.search(r'\.[a-zA-Z]{2,4}$', pname):
                 continue
-            # Skip names with em dash or pipe — browser tab titles
-            if '\u2014' in pname or '\u2013' in pname or ' | ' in pname:
+            # Skip names with em dash, en dash or pipe — browser tab titles
+            if '\u2014' in pname or '\u2013' in pname or ' | ' in pname or ' - ' in pname:
                 continue
             # Skip temp folder patterns (fz3temp-2, tmp123)
             if _re.match(r'^(fz\d*temp|tmp\d|temp\d)', pname_lower):
+                continue
+            # Skip names that look like git branch names
+            if _re.match(r'^(feature|fix|bugfix|hotfix|release|chore|refactor)[\-/]', pname_lower):
+                continue
+            # Skip names containing path separators — raw file paths leaked through
+            if '/' in pname or '\\' in pname:
                 continue
 
             # Skip names longer than 60 chars — almost certainly a browser tab title
