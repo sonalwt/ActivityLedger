@@ -1024,7 +1024,8 @@ async def get_all_projects(
             # App / tool names
             'dia', 'cursor', 'code', 'postman', 'gmail', 'whatsapp', 'chatgpt',
             'notepad', 'ssms', 'termius', 'shellhost', 'windowsterminal',
-            'snippingtool', 'commands', 'agent', 'client_sync',
+            'snippingtool', 'commands', 'agent', 'agent_mac', 'agent_win',
+            'activity_agent', 'activityledgeragent', 'client_sync',
             'slack', 'zoom', 'teams', 'figma', 'notion', 'chrome', 'firefox',
             'safari', 'edge', 'brave', 'excel', 'word', 'powerpoint', 'outlook',
             'vscodium', 'sublime', 'atom', 'vim', 'nvim', 'emacs', 'intellij',
