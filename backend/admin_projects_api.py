@@ -178,6 +178,51 @@ async def admin_similar_projects(
 
 
 # ============================================================
+# GET /api/admin/projects/activity-names  — project names seen in activity records
+# ============================================================
+
+@router.get("/api/admin/projects/activity-names")
+async def admin_activity_project_names(
+    query: str = Query(""),
+    db: Session = Depends(get_db)
+):
+    """
+    Return distinct project_name values from activity_records that are similar
+    to the query string. Used to suggest keywords when adding/editing a project.
+    """
+    q = query.strip().lower()
+    if q:
+        rows = db.execute(text("""
+            SELECT project_name, COUNT(*) AS cnt
+            FROM activity_records
+            WHERE project_name IS NOT NULL
+              AND project_name != ''
+              AND (
+                  LOWER(REPLACE(project_name, '-', ' ')) LIKE :q || '%'
+                  OR LOWER(REPLACE(project_name, '-', ' ')) LIKE '%' || :q || '%'
+                  OR :q LIKE LOWER(REPLACE(project_name, '-', ' ')) || '%'
+              )
+            GROUP BY project_name
+            ORDER BY cnt DESC
+            LIMIT 10
+        """), {"q": q}).fetchall()
+    else:
+        # No query — return top names from last 30 days
+        rows = db.execute(text("""
+            SELECT project_name, COUNT(*) AS cnt
+            FROM activity_records
+            WHERE project_name IS NOT NULL
+              AND project_name != ''
+              AND timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY project_name
+            ORDER BY cnt DESC
+            LIMIT 20
+        """)).fetchall()
+
+    return {"names": [{"name": r[0], "count": r[1]} for r in rows]}
+
+
+# ============================================================
 # PUT /api/admin/projects/{id}/keywords
 # ============================================================
 

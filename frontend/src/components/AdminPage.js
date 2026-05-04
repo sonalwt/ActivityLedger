@@ -89,7 +89,9 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [similarProjects, setSimilarProjects] = useState([]);
+  const [activityNames, setActivityNames] = useState([]);
   const checkTimer = useRef(null);
+  const activityTimer = useRef(null);
 
   const checkSimilar = (val) => {
     clearTimeout(checkTimer.current);
@@ -107,7 +109,22 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
     }, 500);
   };
 
-  useEffect(() => () => clearTimeout(checkTimer.current), []);
+  const fetchActivityNames = (val) => {
+    clearTimeout(activityTimer.current);
+    activityTimer.current = setTimeout(async () => {
+      try {
+        const q = val.trim().length >= 2 ? `?query=${encodeURIComponent(val.trim())}` : '';
+        const res = await fetch(`${API_BASE}/api/admin/projects/activity-names${q}`, { headers: authHeaders() });
+        const data = await res.json();
+        setActivityNames(data.names || []);
+      } catch { setActivityNames([]); }
+    }, 400);
+  };
+
+  // Load activity name suggestions on mount (top recent names) and on name change
+  useEffect(() => { fetchActivityNames(name); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { clearTimeout(checkTimer.current); clearTimeout(activityTimer.current); }, []);
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Project name is required'); return; }
@@ -149,7 +166,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
         </label>
         <input
           value={name}
-          onChange={e => { setName(e.target.value); checkSimilar(e.target.value); }}
+          onChange={e => { setName(e.target.value); checkSimilar(e.target.value); fetchActivityNames(e.target.value); }}
           placeholder="e.g. Mahindra Manulife"
           autoFocus={mode === 'add'}
           style={{
@@ -231,6 +248,38 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
           Press Enter or comma to add each keyword.
         </p>
         <KeywordInput tags={keywords} onChange={setKeywords} />
+
+        {/* Activity record suggestions */}
+        {activityNames.length > 0 && (
+          <div style={{ marginTop: '10px' }}>
+            <p style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px', letterSpacing: '0.05em' }}>
+              Seen in activity records — click to add as keyword
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {activityNames.map(({ name: n }) => {
+                const kw = n.toLowerCase().replace(/-/g, ' ');
+                const alreadyAdded = keywords.some(k => k === kw || k === n.toLowerCase());
+                return (
+                  <button
+                    key={n}
+                    onClick={() => { if (!alreadyAdded) setKeywords(prev => [...prev, kw]); }}
+                    disabled={alreadyAdded}
+                    title={alreadyAdded ? 'Already added' : `Add "${kw}" as keyword`}
+                    style={{
+                      padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 500,
+                      border: alreadyAdded ? '1px solid #d1fae5' : '1px dashed #6ee7b7',
+                      background: alreadyAdded ? '#d1fae5' : '#f0fdf4',
+                      color: alreadyAdded ? '#065f46' : '#047857',
+                      cursor: alreadyAdded ? 'default' : 'pointer',
+                    }}
+                  >
+                    {alreadyAdded ? '✓ ' : '+ '}{n}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {error && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '8px' }}>{error}</p>}
 
