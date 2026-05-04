@@ -42,6 +42,10 @@ class ProjectUpdate(BaseModel):
     keywords: List[str] = []
     total_cost: Optional[float] = 0
 
+class MergePayload(BaseModel):
+    source_id: Optional[int] = None   # project to deactivate after merge (None in add-mode)
+    extra_keywords: List[str] = []     # keywords from the form being merged in
+
 
 # ============================================================
 # HELPERS
@@ -132,6 +136,45 @@ async def admin_create_project(payload: ProjectCreate, db: Session = Depends(get
     db.commit()
 
     return {"id": new_id, "name": payload.name.strip(), "keywords": cleaned, "message": "Project created"}
+
+
+# ============================================================
+# GET /api/admin/projects/similar  — name-prefix detection
+# ============================================================
+
+@router.get("/api/admin/projects/similar")
+async def admin_similar_projects(
+    name: str = Query(..., min_length=3),
+    exclude_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Return active projects whose name starts with, or is a prefix of, the given name."""
+    name_lower = name.strip().lower()
+    params: dict = {"name": name_lower}
+    exclude_clause = ""
+    if exclude_id is not None:
+        exclude_clause = "AND id != :exclude_id"
+        params["exclude_id"] = exclude_id
+
+    rows = db.execute(text(f"""
+        SELECT id, name, keywords
+        FROM projects
+        WHERE is_active = true
+          AND LOWER(name) != :name
+          AND (
+              LOWER(name) LIKE :name || '%'
+              OR :name LIKE LOWER(name) || '%'
+          )
+          {exclude_clause}
+        LIMIT 5
+    """), params).fetchall()
+
+    return {
+        "projects": [
+            {"id": r[0], "name": r[1], "keywords": _parse_keywords(r[2])}
+            for r in rows
+        ]
+    }
 
 
 # ============================================================
@@ -246,6 +289,62 @@ async def admin_reactivate_project(project_id: int, db: Session = Depends(get_db
     db.commit()
 
     return {"message": f"Project {project_id} reactivated"}
+
+
+# ============================================================
+# POST /api/admin/projects/{id}/merge
+# ============================================================
+
+@router.post("/api/admin/projects/{project_id}/merge")
+async def admin_merge_into_project(
+    project_id: int,
+    payload: MergePayload,
+    db: Session = Depends(get_db)
+):
+    """
+    Merge keywords into target project.
+    - Adds extra_keywords + source project's keywords to the target.
+    - If source_id provided, deactivates the source project.
+    """
+    target = db.execute(
+        text("SELECT id, name, keywords FROM projects WHERE id = :id AND is_active = true"),
+        {"id": project_id}
+    ).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target project not found or inactive")
+
+    target_keywords = _parse_keywords(target[2])
+
+    source_keywords: list = []
+    if payload.source_id:
+        source = db.execute(
+            text("SELECT keywords FROM projects WHERE id = :id"),
+            {"id": payload.source_id}
+        ).fetchone()
+        if source:
+            source_keywords = _parse_keywords(source[0])
+
+    extra = [k.strip().lower() for k in payload.extra_keywords if k.strip()]
+    # Merge: preserve order, deduplicate
+    seen: set = set(target_keywords)
+    merged = list(target_keywords)
+    for kw in source_keywords + extra:
+        if kw not in seen:
+            seen.add(kw)
+            merged.append(kw)
+
+    db.execute(text("""
+        UPDATE projects SET keywords = CAST(:keywords AS jsonb) WHERE id = :id
+    """), {"keywords": json.dumps(merged), "id": project_id})
+
+    if payload.source_id:
+        db.execute(
+            text("UPDATE projects SET is_active = false WHERE id = :id"),
+            {"id": payload.source_id}
+        )
+
+    db.commit()
+    return {"id": project_id, "name": target[1], "keywords": merged, "message": "Merged successfully"}
 
 
 # ============================================================
