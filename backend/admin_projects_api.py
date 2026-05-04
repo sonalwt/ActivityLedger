@@ -120,7 +120,7 @@ async def admin_create_project(payload: ProjectCreate, db: Session = Depends(get
 
     result = db.execute(text("""
         INSERT INTO projects (name, description, keywords, is_active, total_cost, created_at)
-        VALUES (:name, :description, :keywords::jsonb, true, :total_cost, NOW())
+        VALUES (:name, :description, CAST(:keywords AS jsonb), true, :total_cost, NOW())
         RETURNING id
     """), {
         "name": payload.name.strip(),
@@ -150,7 +150,7 @@ async def admin_update_keywords(
 
     result = db.execute(text("""
         UPDATE projects
-        SET keywords = :keywords::jsonb
+        SET keywords = CAST(:keywords AS jsonb)
         WHERE id = :id
         RETURNING id
     """), {"keywords": json.dumps(cleaned), "id": project_id})
@@ -188,7 +188,7 @@ async def admin_update_project(
             UPDATE projects
             SET name = :name,
                 description = :description,
-                keywords = :keywords::jsonb,
+                keywords = CAST(:keywords AS jsonb),
                 total_cost = :total_cost
             WHERE id = :id
             RETURNING id
