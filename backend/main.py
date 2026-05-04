@@ -58,6 +58,19 @@ try:
 except Exception as e:
     print(f"Migration note (project_id): {e}")
 
+# Auto-migrate: add keywords column to projects table for keyword-based project matching
+try:
+    with engine.connect() as conn:
+        conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS keywords JSONB NOT NULL DEFAULT '[]'::jsonb"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_projects_keywords ON projects USING GIN (keywords)"
+        ))
+        conn.commit()
+except Exception as e:
+    print(f"Migration note (keywords): {e}")
+
 app = FastAPI(title="Timesheet API", version="1.0.0")
 
 # CORS middleware - use environment-aware configuration
@@ -135,6 +148,10 @@ app.include_router(analytics_router, tags=["analytics"])
 # Add cleanup API for removing idle/AFK activity data
 from cleanup_idle_api import router as cleanup_router, daily_cleanup_loop
 app.include_router(cleanup_router, tags=["cleanup"])
+
+# Add admin projects API (keyword-based project management)
+from admin_projects_api import router as admin_projects_router
+app.include_router(admin_projects_router, tags=["admin-projects"])
 
 
 @app.on_event("startup")

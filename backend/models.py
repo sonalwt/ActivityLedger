@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, func, Boolean, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, func, Boolean, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -137,6 +137,7 @@ class Project(Base):
     description = Column(Text, nullable=True)
     total_cost = Column(Float, nullable=True, default=0)  # Total project cost/budget
     is_active = Column(Boolean, default=True)
+    keywords = Column(JSON, nullable=False, server_default='[]')  # Keyword list for activity matching
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

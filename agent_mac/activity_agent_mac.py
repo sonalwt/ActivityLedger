@@ -229,9 +229,10 @@ _cursor_state_cache: dict = {}  # {"filename": str|None, "workspace": str|None, 
 def _get_ide_active_file_from_storage(app_lower: str):
     """Read Cursor/VS Code local state files to get (filename, workspace).
 
-    Two sources (no AppleScript — works even when accessibility is blocked):
-    1. storage.json  → last active workspace folder name
-    2. state.vscdb   → most recently opened file (SQLite, read-only)
+    Sources tried in order (no AppleScript — works even when accessibility is blocked):
+    1. storage.json        → last active workspace folder name
+    2. workspace state.vscdb → workbench.editorpart.state (currently open editors)
+    3. global state.vscdb  → workbench.editorpart.state, then history fallback
 
     Returns (filename_or_None, workspace_or_None).
     Cached per call for 10 seconds to avoid repeated disk I/O.
@@ -250,7 +251,8 @@ def _get_ide_active_file_from_storage(app_lower: str):
 
     base = Path.home() / "Library" / "Application Support" / app_dir
 
-    # 1. Workspace folder from storage.json (electron window state)
+    # 1. Workspace folder + URI from storage.json
+    workspace_folder_uri = None
     try:
         storage_path = base / "storage.json"
         if storage_path.exists():
@@ -259,18 +261,59 @@ def _get_ide_active_file_from_storage(app_lower: str):
             last_win = win_state.get("lastActiveWindow", {})
             folder_uri = last_win.get("folderUri", "")
             if folder_uri.startswith("file://"):
+                workspace_folder_uri = folder_uri
                 workspace = folder_uri.rstrip("/").rsplit("/", 1)[-1] or None
     except Exception:
         pass
 
-    # 2. Most recently opened file from global SQLite state
-    try:
-        import sqlite3
-        db_path = base / "User" / "globalStorage" / "state.vscdb"
-        if db_path.exists():
-            # immutable=1 prevents acquiring locks (safe while Cursor is running)
+    import sqlite3
+
+    def _extract_active_file_from_editor_state(state_obj):
+        """Parse workbench.editorpart.state JSON and return the active filename."""
+        try:
+            groups = state_obj.get("groups", [])
+            active_group_id = state_obj.get("active")
+            for group in groups:
+                is_active = (active_group_id is not None and group.get("id") == active_group_id) or group.get("active")
+                editors = group.get("editors", [])
+                active_idx = group.get("active", 0)
+                for i, editor in enumerate(editors):
+                    resource = (editor.get("resource") or
+                                editor.get("options", {}).get("resource") or
+                                editor.get("input", {}).get("resource", ""))
+                    if isinstance(resource, str) and resource.startswith("file://"):
+                        fn = resource.rstrip("/").rsplit("/", 1)[-1]
+                        if fn and "." in fn:
+                            if is_active and i == active_idx:
+                                return fn  # exact active file in active group
+                            if not hasattr(_extract_active_file_from_editor_state, "_fallback"):
+                                _extract_active_file_from_editor_state._fallback = fn
+        except Exception:
+            pass
+        return getattr(_extract_active_file_from_editor_state, "_fallback", None)
+
+    def _query_db(db_path):
+        """Query a state.vscdb: try editor state first, fall back to history."""
+        try:
+            if not Path(db_path).exists():
+                return None
             conn = sqlite3.connect(f"file:{db_path}?mode=ro&immutable=1", uri=True)
             try:
+                # Priority 1: workbench.editorpart.state — currently open editors
+                row = conn.execute(
+                    "SELECT value FROM ItemTable WHERE key = 'workbench.editorpart.state'"
+                ).fetchone()
+                if row:
+                    try:
+                        _extract_active_file_from_editor_state._fallback = None
+                        fn = _extract_active_file_from_editor_state(json.loads(row[0]))
+                        if fn:
+                            return fn
+                    except Exception:
+                        pass
+
+                # Priority 2: recently opened history (folders opened as workspace
+                # won't have fileUri entries, but individual file opens will)
                 row = conn.execute(
                     "SELECT value FROM ItemTable "
                     "WHERE key = 'history.recentlyOpenedPathsList'"
@@ -281,21 +324,87 @@ def _get_ide_active_file_from_storage(app_lower: str):
                         file_uri = entry.get("fileUri", "")
                         if file_uri.startswith("file://"):
                             fn = file_uri.rstrip("/").rsplit("/", 1)[-1]
-                            # Must look like a real source file (has extension)
                             if fn and "." in fn:
-                                filename = fn
-                                break
+                                return fn
             finally:
                 conn.close()
-    except Exception:
-        pass
+        except Exception:
+            pass
+        return None
+
+    # 2. Workspace-specific state.vscdb (most accurate — contains current open tabs)
+    if workspace_folder_uri and not filename:
+        try:
+            ws_storage_dir = base / "User" / "workspaceStorage"
+            if ws_storage_dir.exists():
+                # Sort by mtime descending; check up to 20 most recent workspaces
+                ws_dirs = sorted(
+                    ws_storage_dir.iterdir(),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )[:20]
+                for ws_dir in ws_dirs:
+                    ws_json = ws_dir / "workspace.json"
+                    if ws_json.exists():
+                        try:
+                            ws_data = json.loads(ws_json.read_text(encoding="utf-8"))
+                            if workspace and workspace in ws_data.get("folder", ""):
+                                fn = _query_db(ws_dir / "state.vscdb")
+                                if fn:
+                                    filename = fn
+                                    break
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    # 3. Global state.vscdb fallback
+    if not filename:
+        filename = _query_db(base / "User" / "globalStorage" / "state.vscdb")
 
     _cursor_state_cache[app_lower] = {"filename": filename, "workspace": workspace, "time": now}
     return filename, workspace
 
 
+def _git_project_name(cwd: str):
+    """Extract project name from git remote origin URL.
+
+    Handles both SSH and HTTPS remotes:
+      git@github.com:company/mahindra-manulife.git  → mahindra-manulife
+      https://github.com/company/mahindra-manulife  → mahindra-manulife
+
+    Returns None if cwd is not inside a git repo or has no remote origin.
+    """
+    try:
+        result = subprocess.run(
+            ['git', '-C', cwd, 'remote', 'get-url', 'origin'],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode != 0:
+            return None
+        remote_url = result.stdout.strip()
+        if not remote_url:
+            return None
+        # Extract repo name — last path component, strip .git suffix
+        repo = remote_url.rstrip('/').split('/')[-1]
+        if ':' in repo:          # SSH form: git@host:org/repo.git → last part after ':'
+            repo = repo.split(':')[-1]
+        if repo.endswith('.git'):
+            repo = repo[:-4]
+        return repo if repo else None
+    except Exception:
+        return None
+
+
 def _get_ide_project_folder(app_name):
-    """Get project folder name from IDE process working directory. Cached for 5 min."""
+    """Get project name from IDE process.
+
+    Priority:
+      1. Git remote origin URL repo name (reliable even when folder is named "Data")
+      2. Working directory folder name (fallback)
+
+    Result cached for 5 minutes.
+    """
     app_lower = (app_name or "").lower()
     if app_lower not in IDE_APP_NAMES:
         return None
@@ -324,7 +433,10 @@ def _get_ide_project_folder(app_name):
             for line in result.stdout.strip().split('\n'):
                 if line.startswith('n') and line != 'n':
                     cwd = line[1:]  # Remove 'n' prefix
-                    project = os.path.basename(cwd)
+                    if not cwd or cwd == '/':
+                        continue
+                    # Prefer git remote repo name over raw folder name
+                    project = _git_project_name(cwd) or os.path.basename(cwd)
                     if project and project != '/':
                         _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
                         return project
