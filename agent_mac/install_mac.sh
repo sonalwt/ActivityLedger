@@ -192,9 +192,27 @@ _log = logging.getLogger("activity_agent")
 # IDE Project Folder Detection
 IDE_APP_NAMES = {'visual studio code', 'code', 'cursor'}
 _ide_project_cache = {}
+_IDE_APP_SUPPORT_DIR = {'cursor': 'Cursor', 'visual studio code': 'Code', 'code': 'Code'}
+_cursor_state_cache = {}
+
+def _git_project_name(cwd):
+    """Extract project name from git remote origin URL.
+    Handles SSH and HTTPS remotes. Returns None if not a git repo or no remote."""
+    try:
+        result = subprocess.run(
+            ['git', '-C', cwd, 'remote', 'get-url', 'origin'],
+            capture_output=True, text=True, timeout=3)
+        if result.returncode != 0: return None
+        remote_url = result.stdout.strip()
+        if not remote_url: return None
+        repo = remote_url.rstrip('/').split('/')[-1]
+        if ':' in repo: repo = repo.split(':')[-1]
+        if repo.endswith('.git'): repo = repo[:-4]
+        return repo if repo else None
+    except Exception: return None
 
 def _get_ide_project_folder(app_name):
-    """Get project folder from IDE process working directory. Cached 5 min."""
+    """Get project name from IDE process. Priority: git remote repo name > folder name. Cached 5 min."""
     app_lower = (app_name or "").lower()
     if app_lower not in IDE_APP_NAMES: return None
     cached = _ide_project_cache.get(app_lower)
@@ -209,12 +227,93 @@ def _get_ide_project_folder(app_name):
         if result.returncode == 0:
             for line in result.stdout.strip().split('\n'):
                 if line.startswith('n') and line != 'n':
-                    project = os.path.basename(line[1:])
+                    cwd = line[1:]
+                    if not cwd or cwd == '/': continue
+                    project = _git_project_name(cwd) or os.path.basename(cwd)
                     if project and project != '/':
                         _ide_project_cache[app_lower] = {"project": project, "time": time.time()}
                         return project
         return None
     except Exception: return None
+
+def _get_ide_active_file_from_storage(app_lower):
+    """Read Cursor/VS Code local state files to find the currently active file.
+    Tries workspace-specific state.vscdb first (workbench.editorpart.state),
+    then global state.vscdb, then history fallback. No AppleScript needed.
+    Cached 10 seconds."""
+    now = time.time()
+    cached = _cursor_state_cache.get(app_lower)
+    if cached and now - cached["time"] < 10: return cached["filename"], cached["workspace"]
+    filename = None; workspace = None
+    app_dir = _IDE_APP_SUPPORT_DIR.get(app_lower)
+    if not app_dir: return None, None
+    base = Path.home() / "Library" / "Application Support" / app_dir
+    workspace_folder_uri = None
+    try:
+        storage_path = base / "storage.json"
+        if storage_path.exists():
+            data = json.loads(storage_path.read_text(encoding="utf-8"))
+            last_win = data.get("windowsState", {}).get("lastActiveWindow", {})
+            folder_uri = last_win.get("folderUri", "")
+            if folder_uri.startswith("file://"):
+                workspace_folder_uri = folder_uri
+                workspace = folder_uri.rstrip("/").rsplit("/", 1)[-1] or None
+    except Exception: pass
+    import sqlite3
+    def _extract_file(state_obj):
+        try:
+            groups = state_obj.get("groups", [])
+            active_id = state_obj.get("active")
+            fallback = None
+            for group in groups:
+                is_active = (active_id is not None and group.get("id") == active_id) or group.get("active")
+                editors = group.get("editors", [])
+                active_idx = group.get("active", 0)
+                for i, ed in enumerate(editors):
+                    res = (ed.get("resource") or ed.get("options", {}).get("resource") or ed.get("input", {}).get("resource", ""))
+                    if isinstance(res, str) and res.startswith("file://"):
+                        fn = res.rstrip("/").rsplit("/", 1)[-1]
+                        if fn and "." in fn:
+                            if is_active and i == active_idx: return fn
+                            fallback = fallback or fn
+            return fallback
+        except Exception: return None
+    def _query_db(db_path):
+        try:
+            if not Path(db_path).exists(): return None
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro&immutable=1", uri=True)
+            try:
+                row = conn.execute("SELECT value FROM ItemTable WHERE key = 'workbench.editorpart.state'").fetchone()
+                if row:
+                    fn = _extract_file(json.loads(row[0]))
+                    if fn: return fn
+                row = conn.execute("SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'").fetchone()
+                if row:
+                    for entry in json.loads(row[0]).get("entries", []):
+                        file_uri = entry.get("fileUri", "")
+                        if file_uri.startswith("file://"):
+                            fn = file_uri.rstrip("/").rsplit("/", 1)[-1]
+                            if fn and "." in fn: return fn
+            finally: conn.close()
+        except Exception: pass
+        return None
+    if workspace_folder_uri and workspace:
+        try:
+            ws_dir_root = base / "User" / "workspaceStorage"
+            if ws_dir_root.exists():
+                ws_dirs = sorted(ws_dir_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:20]
+                for ws_dir in ws_dirs:
+                    ws_json = ws_dir / "workspace.json"
+                    if ws_json.exists():
+                        try:
+                            if workspace in json.loads(ws_json.read_text(encoding="utf-8")).get("folder", ""):
+                                fn = _query_db(ws_dir / "state.vscdb")
+                                if fn: filename = fn; break
+                        except Exception: pass
+        except Exception: pass
+    if not filename: filename = _query_db(base / "User" / "globalStorage" / "state.vscdb")
+    _cursor_state_cache[app_lower] = {"filename": filename, "workspace": workspace, "time": now}
+    return filename, workspace
 
 def _run_osascript(script, timeout=3):
     """Run a single-line AppleScript and return stdout, or None."""
@@ -296,11 +395,50 @@ def get_active_window_info():
                 'tell application "System Events" to get value of attribute "AXTitle" '
                 'of front window of (first application process whose frontmost is true)', timeout=5)
 
-        # Step 3: App-specific scripting for IDEs (Electron apps)
+        # Step 3: App-specific scripting for IDEs (Cursor, VS Code)
         if not title or title == app_name:
-            app_title = _run_osascript(
-                f'tell application "{app_name}" to get name of front window', timeout=3)
-            if app_title: title = app_title
+            app_lower = app_name.lower()
+            if app_lower in ('cursor', 'visual studio code', 'code'):
+                # Strategy A: AXDocument → file:// URL → filename
+                ax_doc = _run_osascript_multi(
+                    'tell application "System Events"',
+                    f'  tell process "{app_name}"',
+                    '    set docAttr to value of attribute "AXDocument" of front window',
+                    '    return docAttr',
+                    '  end tell',
+                    'end tell', timeout=4)
+                if ax_doc and ax_doc.startswith('file://'):
+                    fn = ax_doc.rstrip('/').rsplit('/', 1)[-1]
+                    if fn: title = f"{fn} — {app_name}"
+                # Strategy B: iterate all windows for a non-trivial title
+                if not title or title == app_name:
+                    all_titles = _run_osascript_multi(
+                        'tell application "System Events"',
+                        f'  tell process "{app_name}"',
+                        '    set result to ""',
+                        '    repeat with w in every window',
+                        '      set t to title of w',
+                        '      if t is not "" and t is not missing value then',
+                        f'        if t is not "{app_name}" then',
+                        '          set result to t',
+                        '          exit repeat',
+                        '        end if',
+                        '      end if',
+                        '    end repeat',
+                        '    return result',
+                        '  end tell',
+                        'end tell', timeout=4)
+                    if all_titles: title = all_titles
+                # Strategy C: read local state files (no AppleScript, always works)
+                if not title or title == app_name:
+                    ide_file, ide_workspace = _get_ide_active_file_from_storage(app_lower)
+                    if ide_file: title = f"{ide_file} — {app_name}"
+                    elif ide_workspace: title = f"{ide_workspace} — {app_name}"
+            # Strategy D: generic fallback for other apps
+            if not title or title == app_name:
+                app_title = _run_osascript(
+                    f'tell application "{app_name}" to get name of front window', timeout=3)
+                if app_title: title = app_title
 
         # Step 4: Browser — get tab title + URL
         url = None
@@ -346,6 +484,34 @@ def is_screen_locked():
         if app.lower() in ("loginwindow", "screensaverengine"): return True
     except Exception: pass
     return False
+
+def is_display_asleep() -> bool:
+    """Return True if ALL displays are off/sleeping (lid closed, display sleep, Power Nap).
+
+    Uses IODisplayWrangler CurrentPowerState:
+      4 = display fully on
+      3 = display dimmed (but still visible)
+      0 = display off / sleeping
+
+    Checks ALL displays so clamshell mode (lid closed + external monitor on)
+    is handled correctly — if ANY display is on (state >= 4), returns False.
+    Only returns True when every display is off — nobody can see the screen.
+    """
+    try:
+        result = subprocess.run(
+            ["ioreg", "-c", "IODisplayWrangler", "-r", "-S"],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode != 0:
+            return False
+        states = [int(m) for m in re.findall(r'"CurrentPowerState"\s*=\s*(\d+)', result.stdout)]
+        if not states:
+            return False
+        return all(s < 4 for s in states)
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return False
 
 def check_accessibility():
     """Warn if Accessibility permission is not granted."""
@@ -506,15 +672,18 @@ class ActivityAgent:
             try:
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
+                display_asleep = is_display_asleep()
                 afk_timeout = self.config["afk_timeout_seconds"]
                 screen_changing = (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds() < afk_timeout
-                should_pause = screen_locked or (idle_secs >= afk_timeout and not screen_changing)
+                should_pause = screen_locked or display_asleep or (idle_secs >= afk_timeout and not screen_changing)
                 if not self.idle_paused:
                     if should_pause:
                         now_dt = datetime.now(timezone.utc)
                         afk_started = now_dt - timedelta(seconds=idle_secs)
                         if screen_locked:
                             self.logger.info("Screen locked — pausing activity capture")
+                        elif display_asleep:
+                            self.logger.info("Display off (lid closed / display sleep) — pausing activity capture")
                         else:
                             self.logger.info(f"System idle ({idle_secs:.0f}s) — pausing activity capture")
                         self.tracker.flush_current()
@@ -530,15 +699,21 @@ class ActivityAgent:
                         self.tracker.tick()
                 else:
                     if not should_pause:
-                        now_dt = datetime.now(timezone.utc)
-                        if self.tracker.afk_start:
-                            afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
-                            if afk_dur >= 1:
-                                self.tracker.afk_events.append({"timestamp": self.tracker.afk_start.isoformat(), "duration": round(afk_dur, 1), "data": {"status": "afk"}})
-                        self.tracker.afk_state = "not-afk"; self.tracker.active_start = now_dt
-                        self.tracker.afk_start = None; self.tracker.last_screen_change = now_dt
-                        self.idle_paused = False
-                        self.logger.info("User activity detected — resuming capture")
+                        # Guard against Power Nap / background wake:
+                        # When macOS wakes briefly with lid closed, HIDIdleTime resets to ~0
+                        # but the display stays off. Only resume if the display is actually on.
+                        if is_display_asleep():
+                            self.logger.debug("idle_secs low but display is off — likely Power Nap, staying paused")
+                        else:
+                            now_dt = datetime.now(timezone.utc)
+                            if self.tracker.afk_start:
+                                afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
+                                if afk_dur >= 1:
+                                    self.tracker.afk_events.append({"timestamp": self.tracker.afk_start.isoformat(), "duration": round(afk_dur, 1), "data": {"status": "afk"}})
+                            self.tracker.afk_state = "not-afk"; self.tracker.active_start = now_dt
+                            self.tracker.afk_start = None; self.tracker.last_screen_change = now_dt
+                            self.idle_paused = False
+                            self.logger.info("User activity detected — resuming capture")
                 now = time.time()
                 if now - self.last_sync >= self.config["sync_interval_seconds"]:
                     self.tracker.flush_current(); w, a = self.tracker.drain_events()

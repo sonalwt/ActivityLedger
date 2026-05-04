@@ -199,6 +199,8 @@ class ActivityCategorizer:
             # Windows system
             "program manager", "task manager",
             "ms-settings", "windows settings", "control panel",
+            # macOS system
+            "system settings", "system preferences",
             # Personal media apps
             "photos.exe", "microsoft.photos",
             "movies & tv", "groove music", "windows media player",

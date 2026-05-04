@@ -1080,7 +1080,7 @@ async def get_all_projects(
                 {date_filter}
                 {dev_filter}
             GROUP BY LOWER(ar.project_name)
-            HAVING SUM(ar.duration) > 3600
+            HAVING SUM(ar.duration) > 1800
             ORDER BY total_hours DESC
         """), query_params).fetchall()
 
@@ -1110,7 +1110,7 @@ async def get_all_projects(
             if _re.search(r'\.[a-zA-Z]{2,4}$', pname):
                 continue
             # Skip names with em dash, en dash or pipe — browser tab titles
-            if '\u2014' in pname or '\u2013' in pname or ' | ' in pname or ' - ' in pname:
+            if '\u2014' in pname or '\u2013' in pname or ' | ' in pname:
                 continue
             # Skip temp folder patterns (fz3temp-2, tmp123)
             if _re.match(r'^(fz\d*temp|tmp\d|temp\d)', pname_lower):

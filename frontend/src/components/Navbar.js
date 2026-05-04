@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Clock, LogOut, User, FolderOpen, RefreshCw, BarChart3 } from 'lucide-react';
+import { Clock, LogOut, User, FolderOpen, RefreshCw, BarChart3, Settings } from 'lucide-react';
 
 function Navbar() {
   const { user, logout } = useAuth();
@@ -9,6 +9,7 @@ function Navbar() {
   const isDashboard = location.pathname === '/dashboard';
   const isProjects = location.pathname === '/project-time';
   const isAnalytics = location.pathname === '/analytics';
+  const isAdmin = location.pathname === '/admin';
 
   const navStyle = {
     background: 'rgba(255, 255, 255, 0.95)',
@@ -112,6 +113,15 @@ function Navbar() {
             >
               <BarChart3 size={16} />
               Analytics
+            </Link>
+            <Link
+              to="/admin"
+              style={getNavLinkStyle(isAdmin)}
+              onMouseEnter={(e) => { if (!isAdmin) e.currentTarget.style.backgroundColor = '#f3f4f6'; }}
+              onMouseLeave={(e) => { if (!isAdmin) e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              <Settings size={16} />
+              Admin
             </Link>
           </div>
         )}

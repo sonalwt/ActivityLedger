@@ -9,6 +9,7 @@ import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import ProjectDeveloperTime from './components/ProjectDeveloperTime';
 import AnalyticsTab from './components/AnalyticsTab';
+import AdminPage from './components/AdminPage';
 import Navbar from './components/Navbar';
 
 function ProtectedRoute({ children }) {
@@ -85,6 +86,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <AnalyticsTab />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminPage />
             </ProtectedRoute>
           }
         />
