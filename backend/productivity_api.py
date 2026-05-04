@@ -575,9 +575,7 @@ async def get_all_developers_productivity_summary(
                 daily[day_key]["total"] += adj_dur
                 daily[day_key]["activity_count"] += 1
                 cat = (act_row.category or "").lower()
-                # Only count explicitly productive categories — browser and NULL
-                # are excluded so generic browsing / email don't inflate the score.
-                if cat in ('coding', 'server'):
+                if cat not in ('entertainment', 'non-work'):
                     daily[day_key]["productive"] += adj_dur
 
             # Cap daily totals at not-afk time to prevent double-counting
