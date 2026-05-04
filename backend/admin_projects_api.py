@@ -173,34 +173,41 @@ async def admin_update_project(
     db: Session = Depends(get_db)
 ):
     """Update name, description, cost and keywords for a project."""
-    # Duplicate name check (exclude current project)
-    existing = db.execute(
-        text("SELECT id FROM projects WHERE LOWER(name) = LOWER(:name) AND id != :id"),
-        {"name": payload.name.strip(), "id": project_id}
-    ).fetchone()
-    if existing:
-        raise HTTPException(status_code=400, detail="Another project with this name already exists")
+    try:
+        # Duplicate name check (exclude current project)
+        existing = db.execute(
+            text("SELECT id FROM projects WHERE LOWER(name) = LOWER(:name) AND id != :id"),
+            {"name": payload.name.strip(), "id": project_id}
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Another project with this name already exists")
 
-    cleaned = [k.strip().lower() for k in payload.keywords if k.strip()]
+        cleaned = [k.strip().lower() for k in payload.keywords if k.strip()]
 
-    result = db.execute(text("""
-        UPDATE projects
-        SET name = :name,
-            description = :description,
-            keywords = :keywords::jsonb,
-            total_cost = :total_cost
-        WHERE id = :id
-        RETURNING id
-    """), {
-        "name": payload.name.strip(),
-        "description": payload.description,
-        "keywords": json.dumps(cleaned),
-        "total_cost": payload.total_cost or 0,
-        "id": project_id,
-    })
-    if not result.fetchone():
-        raise HTTPException(status_code=404, detail="Project not found")
-    db.commit()
+        result = db.execute(text("""
+            UPDATE projects
+            SET name = :name,
+                description = :description,
+                keywords = :keywords::jsonb,
+                total_cost = :total_cost
+            WHERE id = :id
+            RETURNING id
+        """), {
+            "name": payload.name.strip(),
+            "description": payload.description,
+            "keywords": json.dumps(cleaned),
+            "total_cost": payload.total_cost or 0,
+            "id": project_id,
+        })
+        if not result.fetchone():
+            raise HTTPException(status_code=404, detail="Project not found")
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"admin_update_project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     return {"id": project_id, "name": payload.name.strip(), "keywords": cleaned, "message": "Project updated"}
 
