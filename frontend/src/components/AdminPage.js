@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Edit2, ChevronDown, ChevronUp, X, Tag, Settings, Users, RotateCcw } from 'lucide-react';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
@@ -81,13 +81,33 @@ function KeywordInput({ tags, onChange }) {
 }
 
 // ─── Add / Edit modal ────────────────────────────────────────────────────────
-function ProjectModal({ mode, project, onClose, onSave }) {
+function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
   const [name, setName] = useState(project?.name || '');
   const [description, setDescription] = useState(project?.description || '');
   const [keywords, setKeywords] = useState(project?.keywords || []);
   const [cost, setCost] = useState(project?.total_cost != null ? String(project.total_cost) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [similarProjects, setSimilarProjects] = useState([]);
+  const checkTimer = useRef(null);
+
+  const checkSimilar = (val) => {
+    clearTimeout(checkTimer.current);
+    if (val.trim().length < 3) { setSimilarProjects([]); return; }
+    checkTimer.current = setTimeout(async () => {
+      try {
+        const excludeParam = mode === 'edit' && project?.id ? `&exclude_id=${project.id}` : '';
+        const res = await fetch(
+          `${API_BASE}/api/admin/projects/similar?name=${encodeURIComponent(val.trim())}${excludeParam}`,
+          { headers: authHeaders() }
+        );
+        const data = await res.json();
+        setSimilarProjects(data.projects || []);
+      } catch { setSimilarProjects([]); }
+    }, 500);
+  };
+
+  useEffect(() => () => clearTimeout(checkTimer.current), []);
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Project name is required'); return; }
@@ -129,15 +149,50 @@ function ProjectModal({ mode, project, onClose, onSave }) {
         </label>
         <input
           value={name}
-          onChange={e => setName(e.target.value)}
+          onChange={e => { setName(e.target.value); checkSimilar(e.target.value); }}
           placeholder="e.g. Mahindra Manulife"
           autoFocus={mode === 'add'}
           style={{
             width: '100%', boxSizing: 'border-box', padding: '8px 10px',
             border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px',
-            marginBottom: '16px', outline: 'none',
+            marginBottom: similarProjects.length > 0 ? '8px' : '16px', outline: 'none',
           }}
         />
+        {similarProjects.length > 0 && (
+          <div style={{
+            background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '6px',
+            padding: '10px 12px', marginBottom: '16px',
+          }}>
+            <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 600, color: '#92400e' }}>
+              Similar projects found — merge instead of creating a separate entry?
+            </p>
+            {similarProjects.map(sp => (
+              <div key={sp.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                <span style={{ fontSize: '13px', color: '#78350f', fontWeight: 500 }}>{sp.name}</span>
+                <button
+                  onClick={async () => {
+                    try {
+                      setSaving(true);
+                      await onMerge(sp.id, keywords);
+                      onClose();
+                    } catch (err) {
+                      setError(err.message || 'Merge failed');
+                      setSaving(false);
+                    }
+                  }}
+                  disabled={saving}
+                  style={{
+                    fontSize: '12px', padding: '3px 10px', background: '#f59e0b',
+                    color: '#fff', border: 'none', borderRadius: '4px',
+                    cursor: saving ? 'default' : 'pointer', fontWeight: 500,
+                  }}
+                >
+                  Merge into this →
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px' }}>
           Description
         </label>
@@ -348,6 +403,19 @@ export default function AdminPage() {
     await fetch(`${API_BASE}/api/admin/projects/${id}/reactivate`, { method: 'PUT', headers: authHeaders() });
     await loadProjects();
   };
+
+  const handleMerge = useCallback(async (targetId, extraKeywords, sourceId = null) => {
+    const res = await fetch(`${API_BASE}/api/admin/projects/${targetId}/merge`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ source_id: sourceId, extra_keywords: extraKeywords }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Merge failed');
+    }
+    await loadProjects();
+  }, [loadProjects]);
 
   // ── Styles ──────────────────────────────────────────────────────────────────
   const pageStyle = {
@@ -560,16 +628,17 @@ export default function AdminPage() {
           mode="add"
           onClose={() => setShowAddModal(false)}
           onSave={handleCreate}
+          onMerge={(targetId, extraKeywords) => handleMerge(targetId, extraKeywords, null)}
         />
       )}
 
-      {/* Edit keywords modal */}
       {editingProject && (
         <ProjectModal
           mode="edit"
           project={editingProject}
           onClose={() => setEditingProject(null)}
           onSave={handleUpdate}
+          onMerge={(targetId, extraKeywords) => handleMerge(targetId, extraKeywords, editingProject.id)}
         />
       )}
     </div>
