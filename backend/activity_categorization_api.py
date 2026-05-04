@@ -340,9 +340,11 @@ async def get_categorized_activities(
         for _day_cap in _not_afk_per_day.values():
             _denom += max(_day_cap, _DAILY_TARGET_SEC)  # always use 8h floor
 
+        # Only coding + server count as productive.
+        # browser (email, generic browsing) is excluded so sitting in a browser
+        # without doing development work doesn't inflate the score.
         _productive_sec = (
             cat_stats.get("coding", {}).get("duration", 0)
-            + cat_stats.get("browser", {}).get("duration", 0)
             + cat_stats.get("server", {}).get("duration", 0)
         )
         # Cap productive at not-afk time to prevent multi-window overcounting
