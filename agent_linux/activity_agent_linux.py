@@ -504,6 +504,89 @@ def is_screen_locked() -> bool:
     return False
 
 
+_display_asleep_cache: dict = {"result": False, "ts": 0.0}
+
+
+def is_display_asleep() -> bool:
+    """Return True if all displays are off/sleeping on Linux (lid closed or DPMS off).
+
+    Priority order:
+    1. ACPI lid state via /proc/acpi/button/lid/*/state — direct lid sensor, fast.
+    2. DPMS state via `xset q` — catches display sleep regardless of lid state.
+    3. DRM connector status via /sys/class/drm/*/status — catches HDMI/DP disconnect.
+
+    Result cached 5 s. Returns False when no lid sensor is found (desktop) so
+    capture continues normally; idle timeout handles the AFK case on desktops.
+    """
+    global _display_asleep_cache
+    now = time.time()
+    if now - _display_asleep_cache["ts"] < 5:
+        return _display_asleep_cache["result"]
+
+    result = False
+
+    # Method 1: ACPI lid state (works on most Linux laptops with ACPI)
+    try:
+        import glob as _glob
+        lid_files = _glob.glob("/proc/acpi/button/lid/*/state")
+        if lid_files:
+            all_closed = True
+            any_found = False
+            for lid_file in lid_files:
+                try:
+                    with open(lid_file) as f:
+                        state = f.read().strip()
+                    any_found = True
+                    if "open" in state.lower():
+                        all_closed = False
+                        break
+                except Exception:
+                    pass
+            if any_found and all_closed:
+                result = True
+    except Exception:
+        pass
+
+    # Method 2: DPMS state via xset (X11 — catches display sleep/standby/off)
+    if not result:
+        try:
+            xdisplay = os.environ.get("DISPLAY", ":0")
+            proc = subprocess.run(
+                ["xset", "-display", xdisplay, "q"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    if "monitor is" in line.lower():
+                        state = line.lower().split("monitor is")[-1].strip()
+                        if state in ("standby", "suspend", "off"):
+                            result = True
+                        break
+        except Exception:
+            pass
+
+    # Method 3: DRM connector status — all connectors disconnected/off
+    if not result:
+        try:
+            import glob as _glob
+            status_files = _glob.glob("/sys/class/drm/*/status")
+            if status_files:
+                statuses = []
+                for sf in status_files:
+                    try:
+                        with open(sf) as f:
+                            statuses.append(f.read().strip().lower())
+                    except Exception:
+                        pass
+                if statuses and all(s == "disconnected" for s in statuses):
+                    result = True
+        except Exception:
+            pass
+
+    _display_asleep_cache = {"result": result, "ts": now}
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Window Session Tracker
 # ---------------------------------------------------------------------------
@@ -839,6 +922,7 @@ class ActivityAgent:
 
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
+                display_asleep = is_display_asleep()
                 afk_timeout = self.config["afk_timeout_seconds"]
                 screen_changing = (
                     (datetime.now(timezone.utc) - self.tracker.last_screen_change).total_seconds()
@@ -847,24 +931,28 @@ class ActivityAgent:
                 # AI tools and Claude Code get a 30-min hard cap; all other apps use 2× afk_timeout (6 min).
                 # Watching Claude run a long task or reading AI responses easily takes 10-15 min
                 # without keyboard input — the old 6-min cap would wrongly mark them AFK.
+                # display_asleep gates everything: if the lid is closed / screen is off,
+                # no AI tool or screen change can keep the session alive.
                 ai_title_active = is_ai_tool_or_chat_active(self.tracker.current_title)
                 claude_code_running = is_claude_code_active()
                 hard_cap_secs = 1800 if (ai_title_active or claude_code_running) else afk_timeout * 2
                 hard_cap_exceeded = idle_secs >= hard_cap_secs
-                claude_active = not hard_cap_exceeded and claude_code_running
-                ai_active = not hard_cap_exceeded and ai_title_active
-                should_pause = screen_locked or hard_cap_exceeded or (
+                claude_active = not hard_cap_exceeded and not display_asleep and claude_code_running
+                ai_active = not hard_cap_exceeded and not display_asleep and ai_title_active
+                should_pause = screen_locked or display_asleep or hard_cap_exceeded or (
                     idle_secs >= afk_timeout and not screen_changing
                     and not claude_active and not ai_active
                 )
 
                 if not self.idle_paused:
                     if should_pause:
-                        # System idle / screen locked — stop capturing
+                        # System idle / screen locked / display off — stop capturing
                         now_dt = datetime.now(timezone.utc)
                         afk_started = now_dt - timedelta(seconds=idle_secs)
                         if screen_locked:
                             self.logger.info("Screen locked — pausing activity capture")
+                        elif display_asleep:
+                            self.logger.info("Display off (lid closed / display sleep) — pausing activity capture")
                         else:
                             self.logger.info(
                                 f"System idle ({idle_secs:.0f}s) — pausing activity capture"
@@ -895,23 +983,30 @@ class ActivityAgent:
                 else:
                     # Currently paused — wait for user to return
                     if not should_pause:
-                        # User is back — resume capture
-                        now_dt = datetime.now(timezone.utc)
-                        if self.tracker.afk_start:
-                            afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
-                            if afk_dur >= 1:
-                                self.tracker.afk_events.append({
-                                    "timestamp": self.tracker.afk_start.isoformat(),
-                                    "duration": round(afk_dur, 1),
-                                    "data": {"status": "afk"},
-                                })
-                        self.tracker.afk_state = "not-afk"
-                        self.tracker.active_start = now_dt
-                        self.tracker.afk_start = None
-                        self.tracker.last_screen_change = now_dt
-                        self.idle_paused = False
-                        self.idle_pause_start_time = None
-                        self.logger.info("User activity detected — resuming capture")
+                        # Guard against false resume: if idle_secs is low but display is still
+                        # off (lid still closed), don't resume — kernel may briefly reset idle timer.
+                        if is_display_asleep():
+                            self.logger.debug(
+                                "idle_secs low but display is off — likely kernel event, staying paused"
+                            )
+                        else:
+                            # User is back — resume capture
+                            now_dt = datetime.now(timezone.utc)
+                            if self.tracker.afk_start:
+                                afk_dur = (now_dt - self.tracker.afk_start).total_seconds()
+                                if afk_dur >= 1:
+                                    self.tracker.afk_events.append({
+                                        "timestamp": self.tracker.afk_start.isoformat(),
+                                        "duration": round(afk_dur, 1),
+                                        "data": {"status": "afk"},
+                                    })
+                            self.tracker.afk_state = "not-afk"
+                            self.tracker.active_start = now_dt
+                            self.tracker.afk_start = None
+                            self.tracker.last_screen_change = now_dt
+                            self.idle_paused = False
+                            self.idle_pause_start_time = None
+                            self.logger.info("User activity detected — resuming capture")
                     else:
                         # Still idle — enter deep idle if idle >= shutdown_idle_seconds
                         shutdown_secs = self.config.get("shutdown_idle_seconds", 3600)
@@ -932,6 +1027,13 @@ class ActivityAgent:
                             while self.running:
                                 time.sleep(30)
                                 if get_idle_seconds() < self.config["afk_timeout_seconds"]:
+                                    # Guard: don't wake if display is still off (lid still closed).
+                                    if is_display_asleep():
+                                        self.logger.debug(
+                                            "Deep idle: idle_secs low but display is off "
+                                            "— lid still closed, staying in deep idle"
+                                        )
+                                        continue
                                     self.logger.info(
                                         "User activity detected — waking agent from deep idle"
                                     )

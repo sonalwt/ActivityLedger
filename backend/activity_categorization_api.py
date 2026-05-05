@@ -335,10 +335,22 @@ async def get_categorized_activities(
             _ist_date = naf_start.astimezone(_IST).date()
             _not_afk_per_day[_ist_date] += (naf_end - naf_start).total_seconds()
 
+        from holidays import is_holiday as _is_holiday
         _DAILY_TARGET_SEC = 8 * 3600
+        _WEEKEND_HOLIDAY_MIN = 2 * 3600  # >2h on weekend/holiday → counts as full workday
         _denom = 0.0
-        for _day_cap in _not_afk_per_day.values():
-            _denom += max(_day_cap, _DAILY_TARGET_SEC)  # always use 8h floor
+        for _ist_date, _day_cap in _not_afk_per_day.items():
+            _is_weekend = _ist_date.weekday() >= 5  # Saturday=5, Sunday=6
+            if _is_weekend or _is_holiday(_ist_date):
+                # Weekend / holiday: only apply 8h floor if dev worked > 2h.
+                # > 2h = chose to work a proper shift → treat as workday.
+                # ≤ 2h = brief login / check → don't penalise with 8h floor.
+                if _day_cap > _WEEKEND_HOLIDAY_MIN:
+                    _denom += max(_day_cap, _DAILY_TARGET_SEC)
+                else:
+                    _denom += _day_cap
+            else:
+                _denom += max(_day_cap, _DAILY_TARGET_SEC)  # regular workday: 8h floor
 
         _productive_sec = (
             cat_stats.get("coding", {}).get("duration", 0)
