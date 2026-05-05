@@ -599,6 +599,8 @@ async def get_all_developers_productivity_summary(
             filtered_activity_count = 0
             today_date = datetime.now(timezone.utc).date()
 
+            from holidays import is_holiday as _is_holiday
+            _WEEKEND_HOLIDAY_MIN = 2 * 3600  # >2h on weekend/holiday → counts as full workday
             for day_key, stats in daily.items():
                 if stats["activity_count"] == 0:
                     continue
@@ -606,12 +608,15 @@ async def get_all_developers_productivity_summary(
                 total_seconds += stats["total"]
                 productive_seconds += stats["productive"]
                 filtered_activity_count += stats["activity_count"]
-                # Denominator = max(actual tracked time, 8h target) for all days.
-                # Using tracked time for today gave 100% whenever all activities were
-                # productive (productive == total after the not-afk cap).  The 8h
-                # floor ensures the percentage represents "fraction of the workday
-                # that was productive" rather than "fraction of tracked time".
-                denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
+                # Denominator rules:
+                # - Regular workday (Mon–Fri, not holiday): always 8h floor.
+                # - Weekend or holiday, worked > 2h: treat as full workday (8h floor).
+                # - Weekend or holiday, worked ≤ 2h: brief login — use actual time, no penalty.
+                _is_weekend = day_key.weekday() >= 5
+                if (_is_weekend or _is_holiday(day_key)) and stats["total"] <= _WEEKEND_HOLIDAY_MIN:
+                    denom_seconds += stats["total"]
+                else:
+                    denom_seconds += max(stats["total"], DAILY_TARGET_HOURS * 3600)
 
             total_hours = total_seconds / 3600.0
             productive_hours = productive_seconds / 3600.0
