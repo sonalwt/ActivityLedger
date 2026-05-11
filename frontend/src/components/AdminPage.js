@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Edit2, ChevronDown, ChevronUp, X, Tag, Settings, Users, RotateCcw, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, Edit2, ChevronDown, ChevronUp, X, Tag, Settings, Users, RotateCcw, Download, Upload, DollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'react-toastify';
 
@@ -407,8 +407,211 @@ function DevBreakdown({ projectId, month }) {
   );
 }
 
+// ─── Edit Developer Modal ─────────────────────────────────────────────────────
+function EditDeveloperModal({ developer, onClose, onSave }) {
+  const [name, setName] = useState(developer?.name || '');
+  const [email, setEmail] = useState(developer?.email || '');
+  const [hourlyCost, setHourlyCost] = useState(
+    developer?.hourly_cost != null ? String(developer.hourly_cost) : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    const parsedCost = hourlyCost !== '' ? parseFloat(hourlyCost) : 0;
+    if (hourlyCost !== '' && isNaN(parsedCost)) { setError('Hourly rate must be a valid number'); return; }
+    if (parsedCost < 0) { setError('Hourly rate cannot be negative'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(developer.id, { name: name.trim(), email: email.trim(), hourly_cost: parsedCost });
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to update developer');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const overlayStyle = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+  };
+  const boxStyle = {
+    background: '#fff', borderRadius: '12px', padding: '28px',
+    width: '420px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+  };
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+    border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px',
+    marginBottom: '16px', outline: 'none',
+  };
+  const labelStyle = {
+    fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px',
+  };
+
+  return (
+    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={boxStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#111' }}>Edit Developer</h3>
+          <X size={20} style={{ cursor: 'pointer', color: '#6b7280' }} onClick={onClose} />
+        </div>
+        <label style={labelStyle}>Name *</label>
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Developer name"
+          autoFocus
+          style={inputStyle}
+        />
+        <label style={labelStyle}>Email</label>
+        <input
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="developer@example.com"
+          style={inputStyle}
+        />
+        <label style={labelStyle}>Hourly Rate (₹)</label>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={hourlyCost}
+          onChange={e => setHourlyCost(e.target.value)}
+          placeholder="e.g. 500"
+          style={{ ...inputStyle, marginBottom: '4px' }}
+        />
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#9ca3af' }}>
+          Used to calculate developer cost against projects.
+        </p>
+        {error && <p style={{ color: '#ef4444', fontSize: '13px', margin: '0 0 12px' }}>{error}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px',
+              background: '#fff', cursor: 'pointer', fontSize: '14px', color: '#374151',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              padding: '8px 20px', border: 'none', borderRadius: '6px',
+              background: saving ? '#a5b4fc' : '#667eea', color: '#fff',
+              cursor: saving ? 'default' : 'pointer', fontSize: '14px', fontWeight: 500,
+            }}
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Salary Modal ────────────────────────────────────────────────────────
+function EditSalaryModal({ developer, onClose, onSave }) {
+  const [hourlyCost, setHourlyCost] = useState(
+    developer?.hourly_cost != null ? String(developer.hourly_cost) : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const parsed = hourlyCost !== '' ? parseFloat(hourlyCost) : 0;
+    if (hourlyCost !== '' && isNaN(parsed)) { setError('Salary must be a valid number'); return; }
+    if (parsed < 0) { setError('Salary cannot be negative'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(developer.id, parsed);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to update salary');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const overlayStyle = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
+  };
+  const boxStyle = {
+    background: '#fff', borderRadius: '12px', padding: '28px',
+    width: '400px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+  };
+
+  return (
+    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={boxStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#111' }}>
+            Edit Salary
+          </h3>
+          <X size={20} style={{ cursor: 'pointer', color: '#6b7280' }} onClick={onClose} />
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: '14px', color: '#6b7280' }}>
+          Developer: <strong style={{ color: '#111' }}>{developer?.name}</strong>
+        </p>
+        <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px' }}>
+          Hourly Rate (₹)
+        </label>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={hourlyCost}
+          onChange={e => setHourlyCost(e.target.value)}
+          placeholder="e.g. 500"
+          autoFocus
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+            border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px',
+            marginBottom: '4px', outline: 'none',
+          }}
+        />
+        <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#9ca3af' }}>
+          This is used to calculate developer cost against projects.
+        </p>
+        {error && <p style={{ color: '#ef4444', fontSize: '13px', margin: '0 0 12px' }}>{error}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px',
+              background: '#fff', cursor: 'pointer', fontSize: '14px', color: '#374151',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              padding: '8px 20px', border: 'none', borderRadius: '6px',
+              background: saving ? '#a5b4fc' : '#667eea', color: '#fff',
+              cursor: saving ? 'default' : 'pointer', fontSize: '14px', fontWeight: 500,
+            }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main AdminPage ──────────────────────────────────────────────────────────
 export default function AdminPage() {
+  const [activeTab, setActiveTab] = useState('projects'); // 'projects' | 'developers'
+
+  // ── Projects state ──
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth());
@@ -419,6 +622,13 @@ export default function AdminPage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef(null);
+
+  // ── Developers state ──
+  const [developers, setDevelopers] = useState([]);
+  const [devsLoading, setDevsLoading] = useState(false);
+  const [editingDev, setEditingDev] = useState(null);
+  const [editingSalaryDev, setEditingSalaryDev] = useState(null);
+  const [deletingDevId, setDeletingDevId] = useState(null);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -550,6 +760,66 @@ export default function AdminPage() {
     }
   };
 
+  // ── Developer handlers ───────────────────────────────────────────────────────
+  const loadDevelopers = useCallback(async () => {
+    setDevsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/developers-orm`, { headers: authHeaders() });
+      const data = await res.json();
+      setDevelopers(data.developers || []);
+    } catch {
+      setDevelopers([]);
+    } finally {
+      setDevsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'developers') loadDevelopers();
+  }, [activeTab, loadDevelopers]);
+
+  const handleUpdateDeveloper = async (developerId, body) => {
+    const res = await fetch(`${API_BASE}/api/developers/${developerId}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to update developer');
+    }
+    toast.success('Developer updated');
+    await loadDevelopers();
+  };
+
+  const handleUpdateSalary = async (developerId, hourlyCost) => {
+    const res = await fetch(
+      `${API_BASE}/api/developers/${developerId}/salary?hourly_cost=${hourlyCost}`,
+      { method: 'PUT', headers: authHeaders() }
+    );
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to update salary');
+    }
+    toast.success('Salary updated');
+    await loadDevelopers();
+  };
+
+  const handleDeleteDeveloper = async (developerId) => {
+    const res = await fetch(`${API_BASE}/api/developers/${developerId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      toast.error(err.detail || 'Failed to delete developer');
+      return;
+    }
+    setDeletingDevId(null);
+    toast.success('Developer deleted');
+    await loadDevelopers();
+  };
+
   // ── Styles ──────────────────────────────────────────────────────────────────
   const pageStyle = {
     maxWidth: '1200px', margin: '0 auto', padding: '32px 20px',
@@ -587,198 +857,311 @@ export default function AdminPage() {
     cursor: 'pointer', fontSize: '12px', fontWeight: 500,
   });
 
+  const tabBtnStyle = (active) => ({
+    display: 'flex', alignItems: 'center', gap: '6px',
+    padding: '8px 18px', border: 'none', borderRadius: '8px',
+    cursor: 'pointer', fontSize: '14px', fontWeight: 500,
+    background: active ? '#667eea' : 'transparent',
+    color: active ? '#fff' : '#6b7280',
+    transition: 'all 0.15s',
+  });
+
   return (
     <div style={pageStyle}>
-      {/* Header */}
-      <div style={headerRowStyle}>
-        <div style={titleStyle}>
-          <Settings size={22} color="#667eea" />
-          Project Management
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#6b7280' }}>
-            <span>Month:</span>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={e => { setSelectedMonth(e.target.value); setExpandedId(null); }}
-              style={{
-                padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px',
-                fontSize: '13px', outline: 'none', color: '#374151',
-              }}
-            />
-          </div>
-          <button
-            style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
-            onClick={() => importInputRef.current?.click()}
-            disabled={importing}
-            title="Import projects from an Excel file (.xlsx). Columns: Name, Description, Cost (INR), Keywords, Status"
-          >
-            <Upload size={16} />
-            {importing ? 'Importing…' : 'Import Excel'}
-          </button>
-          <button
-            style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
-            onClick={handleExport}
-            disabled={projects.length === 0}
-            title="Export all projects to Excel"
-          >
-            <Download size={16} />
-            Export Excel
-          </button>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            style={{ display: 'none' }}
-            onChange={handleImport}
-          />
-          <button style={addBtnStyle} onClick={() => setShowAddModal(true)}>
-            <Plus size={16} />
-            Add Project
-          </button>
-        </div>
+      {/* Tab navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '0' }}>
+        <button style={tabBtnStyle(activeTab === 'projects')} onClick={() => setActiveTab('projects')}>
+          <Settings size={16} />
+          Projects
+        </button>
+        <button style={tabBtnStyle(activeTab === 'developers')} onClick={() => setActiveTab('developers')}>
+          <Users size={16} />
+          Developers
+        </button>
       </div>
 
-      {/* Projects table */}
-      <div style={tableWrapStyle}>
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>Loading projects…</div>
-        ) : projects.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
-            No projects yet. Click "Add Project" to create one.
+      {/* ── Projects tab ── */}
+      {activeTab === 'projects' && (
+        <>
+          <div style={headerRowStyle}>
+            <div style={titleStyle}>
+              <Settings size={22} color="#667eea" />
+              Project Management
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#6b7280' }}>
+                <span>Month:</span>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={e => { setSelectedMonth(e.target.value); setExpandedId(null); }}
+                  style={{
+                    padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px',
+                    fontSize: '13px', outline: 'none', color: '#374151',
+                  }}
+                />
+              </div>
+              <button
+                style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
+                onClick={() => importInputRef.current?.click()}
+                disabled={importing}
+                title="Import projects from an Excel file (.xlsx). Columns: Name, Description, Cost (INR), Keywords, Status"
+              >
+                <Upload size={16} />
+                {importing ? 'Importing…' : 'Import Excel'}
+              </button>
+              <button
+                style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
+                onClick={handleExport}
+                disabled={projects.length === 0}
+                title="Export all projects to Excel"
+              >
+                <Download size={16} />
+                Export Excel
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={handleImport}
+              />
+              <button style={addBtnStyle} onClick={() => setShowAddModal(true)}>
+                <Plus size={16} />
+                Add Project
+              </button>
+            </div>
           </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Project Name</th>
-                <th style={thStyle}>Keywords</th>
-                <th style={thStyle}>Cost (₹)</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Actions</th>
-                <th style={{ ...thStyle, width: '40px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map(proj => (
-                <React.Fragment key={proj.id}>
-                  {/* Main row */}
-                  <tr style={{ background: expandedId === proj.id ? '#f0f4ff' : '#fff' }}>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 600 }}>{proj.name}</div>
-                      {proj.description && (
-                        <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
-                          {proj.description}
-                        </div>
+
+          <div style={tableWrapStyle}>
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>Loading projects…</div>
+            ) : projects.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
+                No projects yet. Click "Add Project" to create one.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Project Name</th>
+                    <th style={thStyle}>Keywords</th>
+                    <th style={thStyle}>Cost (₹)</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Actions</th>
+                    <th style={{ ...thStyle, width: '40px' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projects.map(proj => (
+                    <React.Fragment key={proj.id}>
+                      <tr style={{ background: expandedId === proj.id ? '#f0f4ff' : '#fff' }}>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 600 }}>{proj.name}</div>
+                          {proj.description && (
+                            <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
+                              {proj.description}
+                            </div>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          {proj.keywords.length > 0 ? (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {proj.keywords.map(k => <KeywordChip key={k} label={k} />)}
+                            </div>
+                          ) : (
+                            <span style={{ color: '#d1d5db', fontSize: '12px', fontStyle: 'italic' }}>
+                              No keywords (exact name match)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: '#059669' }}>
+                          {proj.total_cost > 0
+                            ? `₹${Number(proj.total_cost).toLocaleString('en-IN')}`
+                            : <span style={{ color: '#d1d5db', fontWeight: 400, fontSize: '12px', fontStyle: 'italic' }}>—</span>
+                          }
+                        </td>
+                        <td style={tdStyle}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 500,
+                            background: proj.is_active ? '#dcfce7' : '#f3f4f6',
+                            color: proj.is_active ? '#16a34a' : '#6b7280',
+                          }}>
+                            {proj.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              style={iconBtnStyle('#667eea')}
+                              onClick={() => setEditingProject({
+                                id: proj.id,
+                                name: proj.name,
+                                description: proj.description || '',
+                                keywords: proj.keywords,
+                                total_cost: proj.total_cost,
+                              })}
+                            >
+                              <Edit2 size={12} />
+                              Edit
+                            </button>
+                            {proj.is_active ? (
+                              deletingId === proj.id ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                  <span style={{ color: '#ef4444' }}>Deactivate?</span>
+                                  <button
+                                    style={{ ...iconBtnStyle('#ef4444'), fontWeight: 600 }}
+                                    onClick={() => handleDelete(proj.id)}
+                                  >Yes</button>
+                                  <button
+                                    style={iconBtnStyle('#6b7280')}
+                                    onClick={() => { setDeletingId(null); setDeleteConfirmName(''); }}
+                                  >No</button>
+                                </span>
+                              ) : (
+                                <button
+                                  style={iconBtnStyle('#ef4444')}
+                                  onClick={() => { setDeletingId(proj.id); setDeleteConfirmName(proj.name); }}
+                                >
+                                  <Trash2 size={12} />
+                                  Deactivate
+                                </button>
+                              )
+                            ) : (
+                              <button
+                                style={iconBtnStyle('#059669')}
+                                onClick={() => handleReactivate(proj.id)}
+                              >
+                                <RotateCcw size={12} />
+                                Reactivate
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <button
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              color: '#667eea', padding: '4px',
+                            }}
+                            title="Show developers"
+                            onClick={() => setExpandedId(expandedId === proj.id ? null : proj.id)}
+                          >
+                            {expandedId === proj.id
+                              ? <ChevronUp size={18} />
+                              : <ChevronDown size={18} />
+                            }
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedId === proj.id && (
+                        <tr style={{ background: '#f9fafb' }}>
+                          <DevBreakdown projectId={proj.id} month={selectedMonth} />
+                        </tr>
                       )}
-                    </td>
-                    <td style={tdStyle}>
-                      {proj.keywords.length > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          {proj.keywords.map(k => <KeywordChip key={k} label={k} />)}
-                        </div>
-                      ) : (
-                        <span style={{ color: '#d1d5db', fontSize: '12px', fontStyle: 'italic' }}>
-                          No keywords (exact name match)
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Developers tab ── */}
+      {activeTab === 'developers' && (
+        <>
+          <div style={headerRowStyle}>
+            <div style={titleStyle}>
+              <Users size={22} color="#667eea" />
+              Developer Management
+            </div>
+            <button style={addBtnStyle} onClick={loadDevelopers} disabled={devsLoading}>
+              {devsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          <div style={tableWrapStyle}>
+            {devsLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>Loading developers…</div>
+            ) : developers.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>No developers found.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Developer</th>
+                    <th style={thStyle}>Email</th>
+                    <th style={thStyle}>Hourly Rate (₹)</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {developers.map(dev => (
+                    <tr key={dev.id} style={{ background: '#fff' }}>
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 600 }}>{dev.name}</div>
+                        <div style={{ fontSize: '11px', color: '#9ca3af' }}>{dev.id}</div>
+                      </td>
+                      <td style={tdStyle}>
+                        {dev.email || <span style={{ color: '#d1d5db', fontStyle: 'italic', fontSize: '12px' }}>—</span>}
+                      </td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: '#059669' }}>
+                        {dev.hourly_cost > 0
+                          ? `₹${Number(dev.hourly_cost).toLocaleString('en-IN')}/hr`
+                          : <span style={{ color: '#d1d5db', fontWeight: 400, fontSize: '12px', fontStyle: 'italic' }}>Not set</span>
+                        }
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 500,
+                          background: dev.status === 'online' ? '#dcfce7' : dev.status === 'idle' ? '#fef9c3' : '#f3f4f6',
+                          color: dev.status === 'online' ? '#16a34a' : dev.status === 'idle' ? '#854d0e' : '#6b7280',
+                        }}>
+                          {dev.status}
                         </span>
-                      )}
-                    </td>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: '#059669' }}>
-                      {proj.total_cost > 0
-                        ? `₹${Number(proj.total_cost).toLocaleString('en-IN')}`
-                        : <span style={{ color: '#d1d5db', fontWeight: 400, fontSize: '12px', fontStyle: 'italic' }}>—</span>
-                      }
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{
-                        padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 500,
-                        background: proj.is_active ? '#dcfce7' : '#f3f4f6',
-                        color: proj.is_active ? '#16a34a' : '#6b7280',
-                      }}>
-                        {proj.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        {/* Edit project */}
-                        <button
-                          style={iconBtnStyle('#667eea')}
-                          onClick={() => setEditingProject({
-                            id: proj.id,
-                            name: proj.name,
-                            description: proj.description || '',
-                            keywords: proj.keywords,
-                            total_cost: proj.total_cost,
-                          })}
-                        >
-                          <Edit2 size={12} />
-                          Edit
-                        </button>
-                        {/* Deactivate / Reactivate */}
-                        {proj.is_active ? (
-                          deletingId === proj.id ? (
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            style={iconBtnStyle('#667eea')}
+                            onClick={() => setEditingDev(dev)}
+                          >
+                            <Edit2 size={12} />
+                            Edit
+                          </button>
+                          {deletingDevId === dev.id ? (
                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                              <span style={{ color: '#ef4444' }}>Deactivate?</span>
+                              <span style={{ color: '#ef4444' }}>Delete?</span>
                               <button
                                 style={{ ...iconBtnStyle('#ef4444'), fontWeight: 600 }}
-                                onClick={() => handleDelete(proj.id)}
+                                onClick={() => handleDeleteDeveloper(dev.id)}
                               >Yes</button>
                               <button
                                 style={iconBtnStyle('#6b7280')}
-                                onClick={() => { setDeletingId(null); setDeleteConfirmName(''); }}
+                                onClick={() => setDeletingDevId(null)}
                               >No</button>
                             </span>
                           ) : (
                             <button
                               style={iconBtnStyle('#ef4444')}
-                              onClick={() => { setDeletingId(proj.id); setDeleteConfirmName(proj.name); }}
+                              onClick={() => setDeletingDevId(dev.id)}
                             >
                               <Trash2 size={12} />
-                              Deactivate
+                              Delete
                             </button>
-                          )
-                        ) : (
-                          <button
-                            style={iconBtnStyle('#059669')}
-                            onClick={() => handleReactivate(proj.id)}
-                          >
-                            <RotateCcw size={12} />
-                            Reactivate
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    {/* Expand toggle */}
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <button
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#667eea', padding: '4px',
-                        }}
-                        title="Show developers"
-                        onClick={() => setExpandedId(expandedId === proj.id ? null : proj.id)}
-                      >
-                        {expandedId === proj.id
-                          ? <ChevronUp size={18} />
-                          : <ChevronDown size={18} />
-                        }
-                      </button>
-                    </td>
-                  </tr>
-
-                  {/* Developer breakdown row */}
-                  {expandedId === proj.id && (
-                    <tr style={{ background: '#f9fafb' }}>
-                      <DevBreakdown projectId={proj.id} month={selectedMonth} />
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  )}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Add project modal */}
       {showAddModal && (
@@ -797,6 +1180,22 @@ export default function AdminPage() {
           onClose={() => setEditingProject(null)}
           onSave={handleUpdate}
           onMerge={(targetId, extraKeywords) => handleMerge(targetId, extraKeywords, editingProject.id)}
+        />
+      )}
+
+      {editingDev && (
+        <EditDeveloperModal
+          developer={editingDev}
+          onClose={() => setEditingDev(null)}
+          onSave={handleUpdateDeveloper}
+        />
+      )}
+
+      {editingSalaryDev && (
+        <EditSalaryModal
+          developer={editingSalaryDev}
+          onClose={() => setEditingSalaryDev(null)}
+          onSave={handleUpdateSalary}
         />
       )}
     </div>

@@ -167,6 +167,55 @@ async def get_developer_activities(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/api/developers/{developer_id}")
+async def update_developer(
+    developer_id: str,
+    body: dict,
+    db: Session = Depends(get_db)
+):
+    """Update developer details (name, email)"""
+    developer = db.query(Developer).filter(Developer.developer_id == developer_id).first()
+    if not developer:
+        raise HTTPException(status_code=404, detail="Developer not found")
+    if "name" in body and body["name"]:
+        developer.name = body["name"]
+    if "email" in body:
+        developer.email = body["email"] or None
+    if "hourly_cost" in body and body["hourly_cost"] is not None:
+        developer.hourly_cost = float(body["hourly_cost"])
+    db.commit()
+    return {"success": True, "developer_id": developer_id}
+
+
+@router.put("/api/developers/{developer_id}/salary")
+async def update_developer_salary(
+    developer_id: str,
+    hourly_cost: float = Query(..., description="Hourly cost for the developer"),
+    db: Session = Depends(get_db)
+):
+    """Update hourly cost/salary for a developer"""
+    developer = db.query(Developer).filter(Developer.developer_id == developer_id).first()
+    if not developer:
+        raise HTTPException(status_code=404, detail="Developer not found")
+    developer.hourly_cost = hourly_cost
+    db.commit()
+    return {"success": True, "developer_id": developer_id, "hourly_cost": hourly_cost}
+
+
+@router.delete("/api/developers/{developer_id}")
+async def delete_developer(
+    developer_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete a developer (hard delete)"""
+    developer = db.query(Developer).filter(Developer.developer_id == developer_id).first()
+    if not developer:
+        raise HTTPException(status_code=404, detail="Developer not found")
+    db.delete(developer)
+    db.commit()
+    return {"success": True, "developer_id": developer_id}
+
+
 @router.get("/api/developers-with-stats")
 async def get_developers_with_stats(
     db: Session = Depends(get_db),
