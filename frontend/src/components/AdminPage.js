@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Edit2, ChevronDown, ChevronUp, X, Tag, Settings, Users, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, Edit2, ChevronDown, ChevronUp, X, Tag, Settings, Users, RotateCcw, Download, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { toast } from 'react-toastify';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://api-timesheet.firsteconomy.com';
 
@@ -415,6 +417,8 @@ export default function AdminPage() {
   const [editingProject, setEditingProject] = useState(null);   // { id, name, keywords }
   const [deletingId, setDeletingId] = useState(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef(null);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -485,6 +489,67 @@ export default function AdminPage() {
     await loadProjects();
   }, [loadProjects]);
 
+  const handleExport = () => {
+    if (projects.length === 0) return;
+    const rows = projects.map(p => ({
+      Name: p.name,
+      Description: p.description || '',
+      'Cost (INR)': p.total_cost || 0,
+      Keywords: (p.keywords || []).join(', '),
+      Status: p.is_active ? 'Active' : 'Inactive',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 32 }, { wch: 40 }, { wch: 15 }, { wch: 55 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Projects');
+    XLSX.writeFile(wb, `projects_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    setImporting(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (rows.length === 0) { toast.warn('No data rows found in the file.'); return; }
+
+      let created = 0, skipped = 0, failed = 0;
+      for (const row of rows) {
+        const name = (row['Name'] || row['name'] || '').toString().trim();
+        if (!name) { skipped++; continue; }
+        const description = (row['Description'] || row['description'] || '').toString().trim();
+        const rawCost = row['Cost (INR)'] || row['Cost (₹)'] || row['cost'] || row['total_cost'] || 0;
+        const cost = parseFloat(rawCost) || 0;
+        const kwRaw = (row['Keywords'] || row['keywords'] || '').toString();
+        const keywords = kwRaw ? kwRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) : [];
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/projects`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ name, description, keywords, total_cost: cost }),
+          });
+          if (res.ok) created++;
+          else if (res.status === 400) skipped++;
+          else failed++;
+        } catch { failed++; }
+      }
+      await loadProjects();
+      const parts = [];
+      if (created > 0) parts.push(`${created} created`);
+      if (skipped > 0) parts.push(`${skipped} skipped (already exist)`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      created > 0 ? toast.success(`Import done: ${parts.join(', ')}`) : toast.info(`Import done: ${parts.join(', ')}`);
+    } catch {
+      toast.error('Failed to read file. Make sure it is a valid .xlsx or .xls file.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // ── Styles ──────────────────────────────────────────────────────────────────
   const pageStyle = {
     maxWidth: '1200px', margin: '0 auto', padding: '32px 20px',
@@ -543,6 +608,31 @@ export default function AdminPage() {
               }}
             />
           </div>
+          <button
+            style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+            title="Import projects from an Excel file (.xlsx). Columns: Name, Description, Cost (INR), Keywords, Status"
+          >
+            <Upload size={16} />
+            {importing ? 'Importing…' : 'Import Excel'}
+          </button>
+          <button
+            style={{ ...addBtnStyle, background: '#fff', color: '#374151', border: '1px solid #d1d5db' }}
+            onClick={handleExport}
+            disabled={projects.length === 0}
+            title="Export all projects to Excel"
+          >
+            <Download size={16} />
+            Export Excel
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: 'none' }}
+            onChange={handleImport}
+          />
           <button style={addBtnStyle} onClick={() => setShowAddModal(true)}>
             <Plus size={16} />
             Add Project
