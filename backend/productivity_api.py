@@ -11,6 +11,21 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _parse_keywords(raw) -> list:
+    """Safely parse keywords from DB value (may be list, str, or None)."""
+    import json as _json
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return _json.loads(raw)
+        except Exception:
+            return []
+    return []
+
 # Define productive applications/categories...
 CODING_CATEGORIES = ['Development', 'IDE', 'Code', 'Terminal', 'Documentation']
 CODING_APPS = [
@@ -1155,18 +1170,6 @@ async def get_all_projects(
         # For projects in the admin panel that have keywords, also match against
         # window_title and url so cPanel, GCP console, and other browser-based
         # work shows up even when project_name is NULL in activity_records.
-        def _parse_keywords(raw):
-            if raw is None:
-                return []
-            if isinstance(raw, list):
-                return raw
-            if isinstance(raw, str):
-                try:
-                    import json as _json
-                    return _json.loads(raw)
-                except Exception:
-                    return []
-            return []
         existing_names_lower = {p["project_name"].lower() for p in projects}
 
         admin_projects_rows = db.execute(text("""
@@ -1346,20 +1349,14 @@ async def get_project_developers_time(
         # Resolve date range from period
         start, end = _resolve_project_period(period, start_date, end_date)
 
-        # Look up project_id and total_cost from projects table
-        project_row = db.execute(text("SELECT id, COALESCE(total_cost, 0) FROM projects WHERE LOWER(name) = LOWER(:name) AND is_active = true"), {"name": project_name}).fetchone()
+        # Look up project_id, total_cost, and keywords from projects table
+        project_row = db.execute(
+            text("SELECT id, COALESCE(total_cost, 0), keywords FROM projects WHERE LOWER(name) = LOWER(:name) AND is_active = true"),
+            {"name": project_name}
+        ).fetchone()
         project_id = project_row[0] if project_row else None
         project_total_cost = float(project_row[1]) if project_row else 0
-
-        # Handle "Unassigned" project
-        # Match on both project_id and project_name to capture browser activities
-        # (browser activities have project_name set but project_id is NULL)
-        if project_name == "Unassigned":
-            project_filter = "ar.project_id IS NULL AND (ar.project_name IS NULL OR ar.project_name = '')"
-        elif project_id:
-            project_filter = "(ar.project_id = :project_id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(:project_name_str)))"
-        else:
-            project_filter = "LOWER(ar.project_name) = LOWER(:project_name_str)"
+        project_keywords = _parse_keywords(project_row[2]) if project_row else []
 
         query_params = {
             "project_id": project_id,
@@ -1367,6 +1364,32 @@ async def get_project_developers_time(
             "start_date": start,
             "end_date": end
         }
+
+        # Build project filter:
+        # - Admin projects with keywords → match keywords against project_name,
+        #   window_title, and url so browser-based work (cPanel, GCP console, etc.)
+        #   is included alongside IDE activity.
+        # - Unassigned → activities with no project.
+        # - Fallback → exact project_name match.
+        if project_name == "Unassigned":
+            project_filter = "ar.project_id IS NULL AND (ar.project_name IS NULL OR ar.project_name = '')"
+        elif project_keywords:
+            kw_conds = []
+            for i, kw in enumerate(project_keywords):
+                query_params[f"kw_{i}"] = f"%{kw}%"
+                kw_conds.append(f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :kw_{i}")
+                kw_conds.append(f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :kw_{i}")
+                kw_conds.append(f"LOWER(COALESCE(ar.url, '')) ILIKE :kw_{i}")
+            # Also include activities directly assigned to this project by name or id
+            # (IDE agent tracks project_name; keyword filter alone misses them)
+            if project_id:
+                kw_conds.append("ar.project_id = :project_id")
+            kw_conds.append("LOWER(COALESCE(ar.project_name, '')) = LOWER(:project_name_str)")
+            project_filter = f"({' OR '.join(kw_conds)})"
+        elif project_id:
+            project_filter = "(ar.project_id = :project_id OR (ar.project_id IS NULL AND LOWER(ar.project_name) = LOWER(:project_name_str)))"
+        else:
+            project_filter = "LOWER(ar.project_name) = LOWER(:project_name_str)"
 
         # Get developer-wise time breakdown for the project
         developers_query = db.execute(text(f"""
@@ -1412,7 +1435,7 @@ async def get_project_developers_time(
                 COUNT(DISTINCT DATE(ar.timestamp)) as overall_days
             FROM activity_records ar
             WHERE ({project_filter})
-        """), {"project_id": project_id, "project_name_str": project_name}).fetchone()
+        """), {k: v for k, v in query_params.items() if k not in ("start_date", "end_date")}).fetchone()
 
         overall_hours = round(float(overall_query[0]), 2) if overall_query else 0
         overall_days = overall_query[1] if overall_query else 0
@@ -1428,7 +1451,7 @@ async def get_project_developers_time(
                 GROUP BY ar.developer_id
             ) ar_hours
             LEFT JOIN developers d ON ar_hours.developer_id = d.developer_id
-        """), {"project_id": project_id, "project_name_str": project_name}).fetchone()
+        """), {k: v for k, v in query_params.items() if k not in ("start_date", "end_date")}).fetchone()
 
         lifetime_resource_cost = round(float(lifetime_cost_query[0]), 2) if lifetime_cost_query else 0
 
