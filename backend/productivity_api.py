@@ -1112,7 +1112,18 @@ async def get_all_projects(
             if _re.match(r'^\d+(px|em|rem|vh|vw|pt|gb|mb|kb)?$', pname_lower):
                 continue
             # Skip file names (have extensions like .pptx, .xlsx, .pdf, .exe)
-            if _re.search(r'\.[a-zA-Z]{2,4}$', pname):
+            # But keep domain names like fccl.itiorg.com — only reject known file extensions
+            _FILE_EXTS = {
+                'pdf', 'exe', 'docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt',
+                'zip', 'rar', 'gz', 'tar', '7z', 'dmg', 'iso', 'msi', 'deb', 'rpm',
+                'txt', 'log', 'csv', 'xml', 'json', 'yaml', 'yml', 'sql',
+                'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'bmp', 'webp',
+                'mp4', 'mp3', 'avi', 'mov', 'mkv', 'wav', 'flac',
+                'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'css', 'scss',
+                'sh', 'bat', 'cmd', 'ps1', 'rb', 'php', 'java', 'go', 'rs',
+            }
+            _ext_m = _re.search(r'\.([a-zA-Z]{2,5})$', pname)
+            if _ext_m and _ext_m.group(1).lower() in _FILE_EXTS:
                 continue
             # Skip names with em dash, en dash or pipe — browser tab titles
             if '\u2014' in pname or '\u2013' in pname or ' | ' in pname:
@@ -1139,6 +1150,85 @@ async def get_all_projects(
                 "activity_count": row[6],
                 "developer_count": row[7]
             })
+
+        # --- Admin-registered projects matched via browser activity ---
+        # For projects in the admin panel that have keywords, also match against
+        # window_title and url so cPanel, GCP console, and other browser-based
+        # work shows up even when project_name is NULL in activity_records.
+        def _parse_keywords(raw):
+            if raw is None:
+                return []
+            if isinstance(raw, list):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    import json as _json
+                    return _json.loads(raw)
+                except Exception:
+                    return []
+            return []
+        existing_names_lower = {p["project_name"].lower() for p in projects}
+
+        admin_projects_rows = db.execute(text("""
+            SELECT id, name, description, keywords, total_cost
+            FROM projects
+            WHERE is_active = true AND keywords IS NOT NULL AND keywords != '[]'::jsonb
+        """)).fetchall()
+
+        for ap in admin_projects_rows:
+            ap_id, ap_name, ap_desc, ap_keywords_raw, ap_cost = ap
+            ap_keywords = _parse_keywords(ap_keywords_raw)
+            if not ap_keywords:
+                continue
+            # Skip if already covered by the IDE project_name query
+            if ap_name.lower() in existing_names_lower:
+                continue
+
+            # Build per-keyword OR conditions across project_name, window_title, url
+            kw_conditions = []
+            kw_params = dict(query_params)
+            for i, kw in enumerate(ap_keywords):
+                kw_params[f"ap_kw_{i}"] = f"%{kw}%"
+                kw_conditions.append(
+                    f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :ap_kw_{i}"
+                )
+                kw_conditions.append(
+                    f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :ap_kw_{i}"
+                )
+                kw_conditions.append(
+                    f"LOWER(COALESCE(ar.url, '')) ILIKE :ap_kw_{i}"
+                )
+            kw_where = " OR ".join(kw_conditions)
+
+            ap_row = db.execute(text(f"""
+                SELECT
+                    COALESCE(SUM(ar.duration) / 3600.0, 0) AS total_hours,
+                    COALESCE(COUNT(ar.id), 0)              AS activity_count,
+                    COUNT(DISTINCT ar.developer_id)        AS developer_count
+                FROM activity_records ar
+                WHERE ({kw_where})
+                  AND ar.category != 'non-work'
+                  {date_filter}
+                  {dev_filter}
+                HAVING SUM(ar.duration) > 1800
+            """), kw_params).fetchone()
+
+            if not ap_row or float(ap_row[0] or 0) == 0:
+                continue
+
+            projects.append({
+                "project_id": ap_id,
+                "project_name": ap_name,
+                "description": ap_desc,
+                "total_cost": round(float(ap_cost), 2) if ap_cost else 0,
+                "total_hours": round(float(ap_row[0]), 2),
+                "activity_count": ap_row[1],
+                "developer_count": ap_row[2],
+            })
+            existing_names_lower.add(ap_name.lower())
+
+        # Re-sort by total_hours descending after merging
+        projects.sort(key=lambda p: p["total_hours"], reverse=True)
 
         return {
             "projects": projects,

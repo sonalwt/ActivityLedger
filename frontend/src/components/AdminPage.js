@@ -330,15 +330,15 @@ function DevBreakdown({ projectId, month }) {
   const headerCellStyle = { ...cellStyle, fontWeight: 600, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' };
 
   if (loading) return (
-    <td colSpan={6} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+    <td colSpan={7} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
       Loading developer breakdown…
     </td>
   );
   if (error) return (
-    <td colSpan={6} style={{ padding: '16px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>{error}</td>
+    <td colSpan={7} style={{ padding: '16px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>{error}</td>
   );
   if (!data?.developers?.length) return (
-    <td colSpan={6} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+    <td colSpan={7} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
       No activity found for this project in {month}.
     </td>
   );
@@ -350,7 +350,8 @@ function DevBreakdown({ projectId, month }) {
           <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
             <th style={{ ...headerCellStyle, textAlign: 'left' }}>Developer</th>
             <th style={{ ...headerCellStyle, textAlign: 'right' }}>Hours ({month})</th>
-            <th style={{ ...headerCellStyle, textAlign: 'left' }}>Raw project names matched</th>
+            <th style={{ ...headerCellStyle, textAlign: 'left' }}>IDE projects matched</th>
+            <th style={{ ...headerCellStyle, textAlign: 'left' }}>Browser apps matched</th>
           </tr>
         </thead>
         <tbody>
@@ -365,12 +366,28 @@ function DevBreakdown({ projectId, month }) {
               </td>
               <td style={cellStyle}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {dev.matched_project_names.map(n => (
+                  {(dev.matched_project_names || []).map(n => (
                     <span key={n} style={{
                       background: '#f3f4f6', color: '#6b7280',
                       padding: '1px 6px', borderRadius: '4px', fontSize: '11px',
                     }}>{n}</span>
                   ))}
+                  {(!dev.matched_project_names || dev.matched_project_names.length === 0) && (
+                    <span style={{ fontSize: '11px', color: '#d1d5db', fontStyle: 'italic' }}>—</span>
+                  )}
+                </div>
+              </td>
+              <td style={cellStyle}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {(dev.matched_browser_apps || []).map(n => (
+                    <span key={n} style={{
+                      background: '#eff6ff', color: '#3b82f6',
+                      padding: '1px 6px', borderRadius: '4px', fontSize: '11px',
+                    }}>{n}</span>
+                  ))}
+                  {(!dev.matched_browser_apps || dev.matched_browser_apps.length === 0) && (
+                    <span style={{ fontSize: '11px', color: '#d1d5db', fontStyle: 'italic' }}>—</span>
+                  )}
                 </div>
               </td>
             </tr>
@@ -424,7 +441,9 @@ export default function AdminPage() {
       const err = await res.json();
       throw new Error(err.detail || 'Failed to create');
     }
+    const data = await res.json();
     await loadProjects();
+    if (data.id) setExpandedId(data.id);
   };
 
   const handleUpdate = async ({ name, description, keywords, total_cost }) => {

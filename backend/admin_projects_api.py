@@ -65,6 +65,16 @@ def _parse_keywords(raw) -> list:
     return []
 
 
+def _auto_keywords_from_name(name: str) -> list:
+    """Split project name into words to use as auto-generated keywords.
+    Splits on spaces, hyphens, and underscores; filters words shorter than 3 chars.
+    Example: "Mahindra Manulife" → ["mahindra", "manulife"]
+    """
+    import re
+    words = re.split(r'[\s\-_]+', name.strip().lower())
+    return [w for w in words if len(w) >= 3]
+
+
 def _ist_month_range(year: int, month: int):
     """Return UTC start/end datetimes for a calendar month in IST (UTC+5:30)."""
     ist_offset = timedelta(hours=5, minutes=30)
@@ -119,8 +129,10 @@ async def admin_create_project(payload: ProjectCreate, db: Session = Depends(get
     if existing:
         raise HTTPException(status_code=400, detail="A project with this name already exists")
 
-    # Normalize keywords
+    # Normalize keywords; auto-generate from project name if none provided
     cleaned = [k.strip().lower() for k in payload.keywords if k.strip()]
+    if not cleaned:
+        cleaned = _auto_keywords_from_name(payload.name)
 
     result = db.execute(text("""
         INSERT INTO projects (name, description, keywords, is_active, total_cost, created_at)
@@ -271,6 +283,8 @@ async def admin_update_project(
             raise HTTPException(status_code=400, detail="Another project with this name already exists")
 
         cleaned = [k.strip().lower() for k in payload.keywords if k.strip()]
+        if not cleaned:
+            cleaned = _auto_keywords_from_name(payload.name)
 
         result = db.execute(text("""
             UPDATE projects
@@ -433,18 +447,27 @@ async def admin_project_developers(
 
     start_utc, end_utc = _ist_month_range(year, mon)
 
-    # Build WHERE clause for keyword matching
+    # Build WHERE clause for keyword matching.
+    # Keywords are matched against project_name (IDE), window_title (IDE + browser),
+    # and url (browser) so that cPanel, GCP console, and other browser-based work
+    # is captured alongside IDE activity.
     if keywords:
-        # Normalize hyphens in project_name → space, then ILIKE '%keyword%'
-        conditions = " OR ".join(
-            f"REPLACE(LOWER(ar.project_name), '-', ' ') ILIKE :kw_{i}"
-            for i in range(len(keywords))
-        )
-        where_clause = f"({conditions})"
+        kw_conditions = []
+        for i in range(len(keywords)):
+            kw_conditions.append(
+                f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :kw_{i}"
+            )
+            kw_conditions.append(
+                f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :kw_{i}"
+            )
+            kw_conditions.append(
+                f"LOWER(COALESCE(ar.url, '')) ILIKE :kw_{i}"
+            )
+        where_clause = f"({' OR '.join(kw_conditions)})"
         params: dict = {f"kw_{i}": f"%{kw}%" for i, kw in enumerate(keywords)}
     else:
         # Legacy: exact name match (case-insensitive)
-        where_clause = "LOWER(ar.project_name) = LOWER(:exact_name)"
+        where_clause = "LOWER(COALESCE(ar.project_name, '')) = LOWER(:exact_name)"
         params = {"exact_name": proj[1]}
 
     params["start_date"] = start_utc
@@ -453,14 +476,18 @@ async def admin_project_developers(
     rows = db.execute(text(f"""
         SELECT
             ar.developer_id,
-            d.name                               AS developer_name,
-            ROUND(SUM(ar.duration) / 3600.0, 2) AS total_hours,
-            ARRAY_AGG(DISTINCT ar.project_name)  AS matched_names
+            d.name                                    AS developer_name,
+            ROUND(SUM(ar.duration) / 3600.0, 2)      AS total_hours,
+            ARRAY_AGG(DISTINCT ar.project_name)
+                FILTER (WHERE ar.project_name IS NOT NULL AND ar.project_name != '')
+                                                      AS matched_project_names,
+            ARRAY_AGG(DISTINCT ar.application_name)
+                FILTER (WHERE (ar.project_name IS NULL OR ar.project_name = '')
+                          AND ar.application_name IS NOT NULL)
+                                                      AS matched_browser_apps
         FROM activity_records ar
         LEFT JOIN developers d ON ar.developer_id = d.developer_id
         WHERE {where_clause}
-          AND ar.project_name IS NOT NULL
-          AND ar.project_name != ''
           AND ar.timestamp >= :start_date
           AND ar.timestamp <  :end_date
         GROUP BY ar.developer_id, d.name
@@ -472,12 +499,14 @@ async def admin_project_developers(
     for row in rows:
         dev_hours = float(row[2]) if row[2] else 0.0
         total_hours += dev_hours
-        matched = [n for n in (row[3] or []) if n]
+        matched_ide = [n for n in (row[3] or []) if n]
+        matched_browser = [n for n in (row[4] or []) if n]
         developers.append({
             "developer_id": row[0],
             "developer_name": row[1] or row[0],
             "total_hours": dev_hours,
-            "matched_project_names": matched,
+            "matched_project_names": matched_ide,
+            "matched_browser_apps": matched_browser,
         })
 
     return {
