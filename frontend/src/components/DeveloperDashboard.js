@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { Calendar, RefreshCw, Activity, Clock, ArrowLeft, Moon } from 'lucide-react';
+import { Calendar, RefreshCw, Activity, Clock, ArrowLeft } from 'lucide-react';
 import './DeveloperDashboard.css';
 import { Pie } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
@@ -30,10 +30,6 @@ function DeveloperDashboard({ developer, onBack }) {
   const [groupedActivities, setGroupedActivities] = useState({});
 
   const [quickRange, setQuickRange] = useState("this_week");
-
-  // Idle tab state
-  const [idleData, setIdleData] = useState(null);
-  const [idleLoading, setIdleLoading] = useState(false);
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -148,31 +144,6 @@ function DeveloperDashboard({ developer, onBack }) {
   }, [developer, startDate, endDate]);
 
   // ---- IDLE TAB ----
-  const fetchIdleTime = async () => {
-    if (!developer) return;
-    setIdleLoading(true);
-    try {
-      const { data } = await axios.get(
-        `${API_BASE}/api/developer/${getDeveloperId()}/idle-time`,
-        {
-          params: { start_date: toIST(startDate), end_date: toIST(endDate) },
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        }
-      );
-      setIdleData(data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to fetch idle data.");
-    } finally {
-      setIdleLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (selectedTab !== 'idle') return;
-    fetchIdleTime();
-  }, [selectedTab, startDate, endDate, developer]);
-
   // ---------------- FORMATTERS ----------------
   const formatTime = (seconds) => {
     const s = Math.max(0, Math.floor(seconds || 0));
@@ -382,63 +353,10 @@ function DeveloperDashboard({ developer, onBack }) {
             </button>
           ))}
 
-          {/* Idle tab — always last */}
-          {productivity.categories.length > 0 && <div className="tab-divider" />}
-          <button className={`tab-header tab-idle ${selectedTab === 'idle' ? 'active' : ''}`} onClick={() => setSelectedTab('idle')}>
-            <Moon size={14} />
-            <span>Idle Time</span>
-          </button>
         </div>
 
-        {/* ---- IDLE TIME TAB CONTENT ---- */}
-        {selectedTab === 'idle' && (
-          <div className="tab-content idle-tab-content">
-            <h4>Idle Time Breakdown</h4>
-
-            {idleLoading ? (
-              <div className="live-loading"><div className="spinner" /><p>Loading idle data...</p></div>
-            ) : idleData ? (
-              <>
-                {/* Summary Cards */}
-                <div className="idle-summary-grid">
-                  <div className="idle-summary-card">
-                    <div className="idle-summary-value">{formatTime(idleData.total_idle_seconds)}</div>
-                    <div className="idle-summary-label">Total Idle Time</div>
-                  </div>
-                  <div className="idle-summary-card">
-                    <div className="idle-summary-value" style={{ color: '#f59e0b' }}>{idleData.idle_percentage}%</div>
-                    <div className="idle-summary-label">Idle %</div>
-                  </div>
-                  <div className="idle-summary-card">
-                    <div className="idle-summary-value" style={{ color: '#10b981' }}>{formatTime(idleData.total_active_seconds)}</div>
-                    <div className="idle-summary-label">Active Time</div>
-                  </div>
-                </div>
-
-                {/* Per-Day Breakdown */}
-                {idleData.idle_by_day?.length > 0 ? (
-                  <div className="idle-days-list">
-                    {idleData.idle_by_day.map((day) => (
-                      <div key={day.date} className="idle-day-row">
-                        <div className="idle-day-header">
-                          <span className="idle-day-date">{format(new Date(day.date), "dd MMM yyyy, EEE")}</span>
-                          <span className="idle-day-total">{formatTime(day.total_idle_seconds)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="no-data-text">No idle periods recorded for this date range.</p>
-                )}
-              </>
-            ) : (
-              <p className="no-data-text">Could not load idle data.</p>
-            )}
-          </div>
-        )}
-
         {/* ---- CATEGORY TAB CONTENT ---- */}
-        {selectedTab !== 'live' && selectedTab !== 'idle' && !loading && (
+        {!loading && (
           <div className="tab-content">
             {(groupedActivities[selectedTab] || []).length > 0 ? (
               <div className="category-activity-list">
@@ -511,7 +429,7 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       )}
 
-      {!loading && activityData.length === 0 && selectedTab !== 'idle' && (
+      {!loading && activityData.length === 0 && (
         <div className="no-data"><p>No activity for selected range.</p></div>
       )}
 
