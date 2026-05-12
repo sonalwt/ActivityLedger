@@ -20,6 +20,7 @@ import fcntl
 import re
 import atexit
 from datetime import datetime, timezone, timedelta
+from urllib.parse import unquote
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
@@ -159,7 +160,7 @@ BROWSER_SCRIPTS = {
         "url": 'tell application "Opera" to get URL of active tab of front window',
     },
     "Dia": {
-        "title": 'tell application "Dia" to get title of active tab of front window',
+        "title": 'tell application "Dia" to get name of active tab of front window',
         "url": 'tell application "Dia" to get URL of active tab of front window',
     },
 }
@@ -262,7 +263,7 @@ def _get_ide_active_file_from_storage(app_lower: str):
             folder_uri = last_win.get("folderUri", "")
             if folder_uri.startswith("file://"):
                 workspace_folder_uri = folder_uri
-                workspace = folder_uri.rstrip("/").rsplit("/", 1)[-1] or None
+                workspace = unquote(folder_uri.rstrip("/").rsplit("/", 1)[-1]) or None
     except Exception:
         pass
 
@@ -282,7 +283,7 @@ def _get_ide_active_file_from_storage(app_lower: str):
                                 editor.get("options", {}).get("resource") or
                                 editor.get("input", {}).get("resource", ""))
                     if isinstance(resource, str) and resource.startswith("file://"):
-                        fn = resource.rstrip("/").rsplit("/", 1)[-1]
+                        fn = unquote(resource.rstrip("/").rsplit("/", 1)[-1])
                         if fn and "." in fn:
                             if is_active and i == active_idx:
                                 return fn  # exact active file in active group
@@ -323,7 +324,7 @@ def _get_ide_active_file_from_storage(app_lower: str):
                     for entry in entries:
                         file_uri = entry.get("fileUri", "")
                         if file_uri.startswith("file://"):
-                            fn = file_uri.rstrip("/").rsplit("/", 1)[-1]
+                            fn = unquote(file_uri.rstrip("/").rsplit("/", 1)[-1])
                             if fn and "." in fn:
                                 return fn
             finally:
@@ -534,7 +535,7 @@ def get_active_window_info():
                     timeout=4,
                 )
                 if ax_doc and ax_doc.startswith('file://'):
-                    filename = ax_doc.rstrip('/').rsplit('/', 1)[-1]
+                    filename = unquote(ax_doc.rstrip('/').rsplit('/', 1)[-1])
                     if filename:
                         title = f"{filename} — {app_name}"
 
@@ -592,6 +593,32 @@ def get_active_window_info():
                 url = tab_url
             if tab_title:
                 title = f"{tab_title} - {app_name}"
+            elif not tab_title and (not title or title == app_name):
+                # AppleScript dict failed for this browser (e.g. Dia has no
+                # standard Chrome/Safari AppleScript dictionary).
+                # Fall back: enumerate windows via System Events AX to find
+                # a window whose AXTitle contains real page content.
+                ax_browser_title = _run_osascript_multi(
+                    'tell application "System Events"',
+                    f'  tell process "{app_name}"',
+                    '    try',
+                    '      repeat with w in every window',
+                    '        try',
+                    '          set t to value of attribute "AXTitle" of w',
+                    '          if t is not "" and t is not missing value then',
+                    f'            if t is not "{app_name}" then',
+                    '              return t',
+                    '            end if',
+                    '          end if',
+                    '        end try',
+                    '      end repeat',
+                    '    end try',
+                    '  end tell',
+                    'end tell',
+                    timeout=4,
+                )
+                if ax_browser_title:
+                    title = f"{ax_browser_title} - {app_name}"
         elif app_name in BROWSER_NAMES and (not title or title == app_name):
             # Firefox/Arc etc. — use System Events title (already captured above)
             pass
