@@ -86,7 +86,6 @@ function KeywordInput({ tags, onChange }) {
 function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
   const [name, setName] = useState(project?.name || '');
   const [description, setDescription] = useState(project?.description || '');
-  const [keywords, setKeywords] = useState(project?.keywords || []);
   const [cost, setCost] = useState(project?.total_cost != null ? String(project.total_cost) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -123,9 +122,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
     }, 400);
   };
 
-  // Load activity name suggestions on mount (top recent names) and on name change
   useEffect(() => { fetchActivityNames(name); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => () => { clearTimeout(checkTimer.current); clearTimeout(activityTimer.current); }, []);
 
   const handleSubmit = async () => {
@@ -135,7 +132,9 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
     setSaving(true);
     setError('');
     try {
-      await onSave({ name: name.trim(), description: description.trim(), keywords, total_cost: parsedCost });
+      // Pass empty keywords — backend auto-generates them from the project name
+      // and the developer matching uses intelligent fuzzy matching automatically.
+      await onSave({ name: name.trim(), description: description.trim(), keywords: [], total_cost: parsedCost });
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to save project');
@@ -177,6 +176,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
             marginBottom: similarProjects.length > 0 ? '8px' : '16px', outline: 'none',
           }}
         />
+
         {similarProjects.length > 0 && (
           <div style={{
             background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '6px',
@@ -192,7 +192,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
                   onClick={async () => {
                     try {
                       setSaving(true);
-                      await onMerge(sp.id, keywords);
+                      await onMerge(sp.id, []);
                       onClose();
                     } catch (err) {
                       setError(err.message || 'Merge failed');
@@ -212,6 +212,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
             ))}
           </div>
         )}
+
         <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px' }}>
           Description
         </label>
@@ -225,6 +226,7 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
             marginBottom: '16px', outline: 'none',
           }}
         />
+
         <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px' }}>
           Project Cost (₹)
         </label>
@@ -242,46 +244,36 @@ function ProjectModal({ mode, project, onClose, onSave, onMerge }) {
           }}
         />
 
-        <label style={{ fontSize: '13px', fontWeight: 500, color: '#374151', display: 'block', marginBottom: '4px' }}>
-          Keywords
-        </label>
-        <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 8px' }}>
-          Activity records whose project name contains any keyword will be matched to this project.
-          Press Enter or comma to add each keyword.
-        </p>
-        <KeywordInput tags={keywords} onChange={setKeywords} />
-
-        {/* Activity record suggestions */}
-        {activityNames.length > 0 && (
-          <div style={{ marginTop: '10px' }}>
-            <p style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px', letterSpacing: '0.05em' }}>
-              Seen in activity records — click to add as keyword
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {activityNames.map(({ name: n }) => {
-                const kw = n.toLowerCase().replace(/-/g, ' ');
-                const alreadyAdded = keywords.some(k => k === kw || k === n.toLowerCase());
-                return (
-                  <button
-                    key={n}
-                    onClick={() => { if (!alreadyAdded) setKeywords(prev => [...prev, kw]); }}
-                    disabled={alreadyAdded}
-                    title={alreadyAdded ? 'Already added' : `Add "${kw}" as keyword`}
-                    style={{
-                      padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 500,
-                      border: alreadyAdded ? '1px solid #d1fae5' : '1px dashed #6ee7b7',
-                      background: alreadyAdded ? '#d1fae5' : '#f0fdf4',
-                      color: alreadyAdded ? '#065f46' : '#047857',
-                      cursor: alreadyAdded ? 'default' : 'pointer',
-                    }}
-                  >
-                    {alreadyAdded ? '✓ ' : '+ '}{n}
-                  </button>
-                );
-              })}
+        {/* Auto-match preview — informational only */}
+        <div style={{
+          background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px',
+          padding: '10px 12px', marginBottom: '16px',
+        }}>
+          <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: 600, color: '#166534' }}>
+            Auto-matching enabled
+          </p>
+          <p style={{ margin: 0, fontSize: '12px', color: '#15803d' }}>
+            Developers will be automatically connected to this project based on the project name.
+            No keywords needed.
+          </p>
+          {activityNames.length > 0 && (
+            <div style={{ marginTop: '8px' }}>
+              <p style={{ margin: '0 0 4px', fontSize: '11px', color: '#166534', fontWeight: 500 }}>
+                Detected in recent activity records:
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {activityNames.slice(0, 8).map(({ name: n }) => (
+                  <span key={n} style={{
+                    padding: '2px 8px', borderRadius: '10px', fontSize: '11px',
+                    background: '#dcfce7', color: '#166534', fontWeight: 500,
+                  }}>
+                    {n}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {error && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '8px' }}>{error}</p>}
 
@@ -945,7 +937,7 @@ export default function AdminPage() {
                 <thead>
                   <tr>
                     <th style={thStyle}>Project Name</th>
-                    <th style={thStyle}>Keywords</th>
+                    <th style={thStyle}>Matching</th>
                     <th style={thStyle}>Cost (₹)</th>
                     <th style={thStyle}>Status</th>
                     <th style={thStyle}>Actions</th>
@@ -965,15 +957,13 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td style={tdStyle}>
-                          {proj.keywords.length > 0 ? (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                              {proj.keywords.map(k => <KeywordChip key={k} label={k} />)}
-                            </div>
-                          ) : (
-                            <span style={{ color: '#d1d5db', fontSize: '12px', fontStyle: 'italic' }}>
-                              No keywords (exact name match)
-                            </span>
-                          )}
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 500,
+                            background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0',
+                          }}>
+                            Auto
+                          </span>
                         </td>
                         <td style={{ ...tdStyle, fontWeight: 600, color: '#059669' }}>
                           {proj.total_cost > 0
