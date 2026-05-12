@@ -135,6 +135,128 @@ def format_duration(seconds):
     secs = int(seconds % 60)
     return f"{hours}h {minutes}m {secs}s"
 
+@router.get("/api/developer/{developer_id}/live-status")
+def get_developer_live_status(developer_id: str, db: Session = Depends(get_db)):
+    """Return the developer's current real-time status and most recent activity."""
+    from collections import defaultdict
+    now = datetime.now(timezone.utc)
+    window = now - timedelta(minutes=15)
+
+    recent_activities = db.execute(text("""
+        SELECT application_name, window_title, project_name, category,
+               timestamp, duration
+        FROM activity_records
+        WHERE developer_id = :dev_id
+          AND timestamp >= :window
+        ORDER BY timestamp DESC
+        LIMIT 10
+    """), {"dev_id": developer_id, "window": window}).fetchall()
+
+    latest_afk = db.execute(text("""
+        SELECT status, timestamp, duration
+        FROM afk_records
+        WHERE developer_id = :dev_id
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """), {"dev_id": developer_id}).fetchone()
+
+    status = "offline"
+    if latest_afk:
+        afk_end = latest_afk[1] + timedelta(seconds=latest_afk[2])
+        diff = (now - afk_end).total_seconds()
+        if diff < 1800:
+            status = "afk" if latest_afk[0] == "afk" else "online"
+
+    current = None
+    if recent_activities:
+        r = recent_activities[0]
+        elapsed = (now - r[4]).total_seconds() + r[5]
+        current = {
+            "app": r[0], "title": r[1],
+            "project": r[2], "category": r[3],
+            "since": r[4].isoformat(),
+            "elapsed_seconds": round(elapsed)
+        }
+
+    return {
+        "developer_id": developer_id,
+        "status": status,
+        "current_activity": current,
+        "recent_activities": [
+            {"app": r[0], "title": r[1], "project": r[2],
+             "category": r[3], "timestamp": r[4].isoformat(),
+             "duration": round(r[5])}
+            for r in recent_activities
+        ],
+        "last_updated": now.isoformat()
+    }
+
+
+@router.get("/api/developer/{developer_id}/idle-time")
+def get_developer_idle_time(
+    developer_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Return AFK/idle breakdown for the developer for a given date range."""
+    from collections import defaultdict
+    now = datetime.now(timezone.utc)
+    start = datetime.fromisoformat(start_date) if start_date else now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = datetime.fromisoformat(end_date) if end_date else now
+
+    idle_records = db.execute(text("""
+        SELECT DATE(timestamp AT TIME ZONE 'Asia/Kolkata') as day,
+               timestamp, duration
+        FROM afk_records
+        WHERE developer_id = :dev_id
+          AND status = 'afk'
+          AND timestamp >= :start
+          AND timestamp <= :end
+          AND duration >= 60
+        ORDER BY timestamp ASC
+    """), {"dev_id": developer_id, "start": start, "end": end}).fetchall()
+
+    active_seconds = db.execute(text("""
+        SELECT COALESCE(SUM(duration), 0)
+        FROM afk_records
+        WHERE developer_id = :dev_id
+          AND status = 'not-afk'
+          AND timestamp >= :start AND timestamp <= :end
+    """), {"dev_id": developer_id, "start": start, "end": end}).scalar() or 0
+
+    total_idle = sum(float(r[2]) for r in idle_records)
+    total_active = float(active_seconds)
+    total = total_idle + total_active
+
+    by_day = defaultdict(list)
+    for r in idle_records:
+        dur = float(r[2])
+        by_day[str(r[0])].append({
+            "start": r[1].isoformat(),
+            "duration_seconds": round(dur),
+            "duration_display": (
+                f"{int(dur//3600)}h {int((dur%3600)//60)}m"
+                if dur >= 3600 else f"{int(dur//60)}m"
+            )
+        })
+
+    return {
+        "developer_id": developer_id,
+        "total_idle_seconds": round(total_idle),
+        "total_active_seconds": round(total_active),
+        "idle_percentage": round(total_idle / total * 100, 1) if total > 0 else 0,
+        "idle_by_day": [
+            {
+                "date": day,
+                "periods": periods,
+                "total_idle_seconds": sum(p["duration_seconds"] for p in periods)
+            }
+            for day, periods in sorted(by_day.items())
+        ]
+    }
+
+
 @router.get("/api/developer/{developer_id}/productivity-hours")
 async def get_developer_productivity_hours(
     developer_id: str,

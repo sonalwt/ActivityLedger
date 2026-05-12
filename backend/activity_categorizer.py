@@ -287,7 +287,11 @@ class ActivityCategorizer:
         # ── 4. System utilities -> NON-WORK ──
         system_apps = ["notification center", "shellexperiencehost", "searchhost",
                        "searchapp", "searchui", "windows shell experience host",
-                       "snipping tool", "snippingtool", "cortana"]
+                       "snipping tool", "snippingtool", "cortana",
+                       # macOS system apps
+                       "finder", "console", "activityledgeragent",
+                       "activity monitor", "system preferences", "system settings",
+                       "keychain access", "disk utility", "migration assistant"]
         if any(app in text for app in system_apps):
             return ("non-work", 1.0)
 

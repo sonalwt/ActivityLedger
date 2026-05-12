@@ -42,14 +42,13 @@ echo ""
 
 # --- Register developer in the backend database ---
 BASE_URL=$(echo "$SERVER" | sed 's|/api/v1/activitywatch/webhook||')
-AW_TOKEN="AWToken_$(openssl rand -base64 32 | tr -d '/+=' | head -c 43)"
 
 echo "Registering developer in the portal..."
 REGISTER_URL="${BASE_URL}/api/register-developer"
 
 REGISTER_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$REGISTER_URL" \
     -H "Content-Type: application/json" \
-    -d "{\"developer_name\": \"$DEV_NAME\", \"api_token\": \"$AW_TOKEN\"}" \
+    -d "{\"developer_name\": \"$DEV_NAME\"}" \
     2>/dev/null) || true
 
 HTTP_CODE=$(echo "$REGISTER_RESPONSE" | tail -n1)
@@ -147,6 +146,46 @@ SKIP_TITLES = frozenset(["", "program manager", "task switching", "task view",
     "windows default lock screen", "lock screen", "new tab", "blank",
     "notification center", "loginwindow", "missing value"])
 
+# Apps that should never be tracked (the agent itself, system utilities)
+SKIP_APPS = frozenset([
+    "activityledgeragent", "activity ledger agent",
+    "finder", "console", "activity monitor",
+    "system preferences", "system settings",
+])
+
+TERMINAL_APPS = frozenset(["terminal", "iterm2", "iterm", "warp", "alacritty", "wezterm", "hyper"])
+
+# AI tools that may run inside a terminal
+_AI_TOOLS = {
+    'claude': 'Claude Code',
+    'aider': 'Aider',
+    'codex': 'Codex CLI',
+    'gemini': 'Gemini CLI',
+    'copilot': 'GitHub Copilot CLI',
+    'cody': 'Cody',
+}
+
+def _get_terminal_ai_tool():
+    """Detect if an AI coding tool is running as a foreground process in the terminal."""
+    try:
+        result = subprocess.run(['ps', '-eo', 'comm,args'], capture_output=True, text=True, timeout=3)
+        if result.returncode == 0:
+            for line in result.stdout.lower().split('\n'):
+                for key, name in _AI_TOOLS.items():
+                    if re.search(rf'\b{key}\b', line) and 'grep' not in line:
+                        return name
+    except Exception:
+        pass
+    return None
+
+def _clean_terminal_title(title):
+    """Remove terminal window dimensions (e.g. '— 188×53') from title."""
+    # Strip trailing dimension pattern like "— 80×24" or "— 188×53"
+    cleaned = re.sub(r'\s*[—\-]\s*\d+[×x]\d+\s*$', '', title).strip()
+    # Strip trailing " — -zsh" or " — bash" if that's all that's left
+    cleaned = re.sub(r'\s*[—\-]\s*-?(zsh|bash|sh|fish|tcsh)\s*$', '', cleaned).strip()
+    return cleaned if cleaned else title
+
 # Browser apps with AppleScript support for tab title + URL
 BROWSER_SCRIPTS = {
     "Google Chrome": {
@@ -178,8 +217,8 @@ BROWSER_SCRIPTS = {
         "url": 'tell application "Opera" to get URL of active tab of front window',
     },
     "Dia": {
-        "title": 'tell application "Dia" to get title of active tab of front window',
-        "url": 'tell application "Dia" to get URL of active tab of front window',
+        "title": 'tell application "System Events" to get name of front window of process "Dia"',
+        "url": 'tell application "System Events" to tell process "Dia" to get value of attribute "AXValue" of text field 1 of toolbar 1 of front window',
     },
 }
 
@@ -440,7 +479,22 @@ def get_active_window_info():
                     f'tell application "{app_name}" to get name of front window', timeout=3)
                 if app_title: title = app_title
 
-        # Step 4: Browser — get tab title + URL
+        # Step 4a: Communication apps — get meeting/channel title via UI scripting
+        comm_scripts = {
+            "zoom": 'tell application "System Events" to tell process "zoom.us" to get title of front window',
+            "zoom.us": 'tell application "System Events" to tell process "zoom.us" to get title of front window',
+            "slack": 'tell application "System Events" to tell process "Slack" to get title of front window',
+            "microsoft teams": 'tell application "System Events" to tell process "Microsoft Teams" to get title of front window',
+            "messages": 'tell application "System Events" to tell process "Messages" to get title of front window',
+            "mail": 'tell application "System Events" to tell process "Mail" to get title of front window',
+            "whatsapp": 'tell application "System Events" to tell process "WhatsApp" to get title of front window',
+        }
+        comm_title = comm_scripts.get(app_name.lower())
+        if comm_title and (not title or title == app_name):
+            fetched = _run_osascript(comm_title)
+            if fetched and fetched != app_name: title = fetched
+
+        # Step 4b: Browser — get tab title + URL
         url = None
         if app_name in BROWSER_SCRIPTS:
             scripts = BROWSER_SCRIPTS[app_name]
@@ -451,9 +505,21 @@ def get_active_window_info():
         elif app_name in BROWSER_NAMES and (not title or title == app_name):
             pass  # Firefox/Arc etc. — use System Events title already captured
 
-        # Step 5: Final handling
+        # Step 5: Terminal-specific enrichment
+        if app_name.lower() in TERMINAL_APPS:
+            # Clean up window dimensions from title
+            if title and title != app_name:
+                title = _clean_terminal_title(title)
+            # Detect AI tools running inside terminal
+            ai_tool = _get_terminal_ai_tool()
+            if ai_tool:
+                app_name = ai_tool
+                title = f"{ai_tool} (in Terminal)"
+
+        # Step 6: Final handling
         if not title: title = app_name
         if title.lower() in SKIP_TITLES: return None
+        if app_name.lower() in SKIP_APPS: return None
 
         _log.debug(f"Captured: app={app_name}, title={title}, url={url}")
         info = {"app": app_name, "title": title}
@@ -668,8 +734,21 @@ class ActivityAgent:
         self.logger.info("=" * 50); self.logger.info("Activity Agent started (macOS)")
         self.logger.info(f"Developer: {self.config['developer_id']}"); self.logger.info(f"Server: {self.config['server_url']}")
         self._log_startup_diagnostic()
+        self._last_tick_wall = time.time()
         while self.running:
             try:
+                # Sleep/wake detection via wall-clock gap
+                now_wall = time.time()
+                gap = now_wall - self._last_tick_wall
+                sleep_threshold = self.config["capture_interval_seconds"] + 60
+                if gap > sleep_threshold:
+                    self.logger.info(f"Sleep/wake detected (gap={gap:.0f}s) — closing open session")
+                    sleep_start = datetime.now(timezone.utc) - timedelta(seconds=gap)
+                    self.tracker._close_window_session(sleep_start)
+                    self.tracker.current_app = None; self.tracker.current_title = None
+                    self.tracker.session_start = None; self.idle_paused = True
+                self._last_tick_wall = now_wall
+
                 idle_secs = get_idle_seconds()
                 screen_locked = is_screen_locked()
                 display_asleep = is_display_asleep()
@@ -737,7 +816,25 @@ PLIST_FILE="$PLIST_DIR/com.activityledger.agent.plist"
 PYTHON_PATH="$(command -v python3)"
 mkdir -p "$PLIST_DIR"
 
+# --- Accessibility permission check BEFORE starting ---
+echo "============================================"
+echo "  IMPORTANT: Accessibility Permission"
+echo "============================================"
+echo ""
+echo "  The agent needs Accessibility access to"
+echo "  capture window activity."
+echo ""
+echo "  Please do this NOW before continuing:"
+echo "    1. Open: System Settings > Privacy & Security"
+echo "               > Accessibility"
+echo "    2. Click '+' and add Terminal (or iTerm2)"
+echo "    3. Toggle it ON"
+echo ""
+read -p "Press ENTER once you have granted Accessibility permission..."
+echo ""
+
 # Stop any existing agent — always try unload + kill
+launchctl bootout gui/$(id -u) "$PLIST_FILE" 2>/dev/null || true
 launchctl unload "$PLIST_FILE" 2>/dev/null || true
 pkill -f "activity_agent_mac.py" 2>/dev/null || true
 sleep 1
@@ -761,6 +858,10 @@ cat > "$PLIST_FILE" <<PLISTEOF
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
     <key>StandardOutPath</key>
     <string>$AGENT_DIR/agent_stdout.log</string>
     <key>StandardErrorPath</key>
@@ -770,19 +871,31 @@ cat > "$PLIST_FILE" <<PLISTEOF
 PLISTEOF
 
 # Load and start
-launchctl load "$PLIST_FILE"
+launchctl bootstrap gui/$(id -u) "$PLIST_FILE" 2>/dev/null || launchctl load "$PLIST_FILE"
 
+# Wait a moment then verify the agent is running
+sleep 3
 echo ""
-echo "============================================"
-echo "  DONE! Agent installed and running."
-echo ""
-echo "  Developer '$DEV_NAME' registered in portal."
-echo "  Activity capturing started."
-echo "  Auto-starts on every login."
-echo ""
-echo "  IMPORTANT: Grant Accessibility permission:"
-echo "    System Settings > Privacy & Security >"
-echo "    Accessibility > Enable Terminal"
-echo ""
-echo "  Logs: $AGENT_DIR/activity_agent.log"
-echo "============================================"
+if pgrep -f "activity_agent_mac.py" > /dev/null 2>&1; then
+    echo "============================================"
+    echo "  DONE! Agent installed and running."
+    echo ""
+    echo "  Developer '$DEV_NAME' registered in portal."
+    echo "  Activity capturing started."
+    echo "  Auto-starts on every login."
+    echo ""
+    echo "  Logs: $AGENT_DIR/activity_agent.log"
+    echo "============================================"
+else
+    echo "============================================"
+    echo "  WARNING: Agent may not have started."
+    echo ""
+    echo "  Check the log for errors:"
+    echo "  cat $AGENT_DIR/agent_stdout.log"
+    echo "  cat $AGENT_DIR/activity_agent.log"
+    echo ""
+    echo "  Most likely cause: Accessibility permission"
+    echo "  not granted. Grant it then run:"
+    echo "  launchctl kickstart -k gui/\$(id -u)/com.activityledger.agent"
+    echo "============================================"
+fi
