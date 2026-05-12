@@ -1096,6 +1096,9 @@ async def get_all_projects(
                 AND ar.project_name != ''
                 AND ar.project_name != 'general'
                 AND ar.category != 'non-work'
+                AND LOWER(ar.project_name) NOT IN (
+                    SELECT LOWER(d.name) FROM developers d WHERE d.name IS NOT NULL
+                )
                 AND {blacklist_filter}
                 {date_filter}
                 {dev_filter}
