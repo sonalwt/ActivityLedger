@@ -1,11 +1,11 @@
 // DeveloperDashboard.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, subMonths } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { Calendar, RefreshCw, Activity, Clock, ArrowLeft, Radio, Moon } from 'lucide-react';
+import { Calendar, RefreshCw, Activity, Clock, ArrowLeft, Moon } from 'lucide-react';
 import './DeveloperDashboard.css';
 import { Pie } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
@@ -26,19 +26,10 @@ function DeveloperDashboard({ developer, onBack }) {
   const [backendProductivityPct, setBackendProductivityPct] = useState(null);
   const [activeDaysCount, setActiveDaysCount] = useState(0);
   const [topActivities, setTopActivities] = useState([]);
-  const [selectedTab, setSelectedTab] = useState('live');
+  const [selectedTab, setSelectedTab] = useState('coding');
   const [groupedActivities, setGroupedActivities] = useState({});
 
   const [quickRange, setQuickRange] = useState("this_week");
-
-  // Live tab state
-  const [liveData, setLiveData] = useState(null);
-  const [liveLoading, setLiveLoading] = useState(false);
-  const [liveElapsed, setLiveElapsed] = useState(0);
-  const [liveCountdown, setLiveCountdown] = useState(30);
-  const liveIntervalRef = useRef(null);
-  const countdownRef = useRef(null);
-  const elapsedRef = useRef(null);
 
   // Idle tab state
   const [idleData, setIdleData] = useState(null);
@@ -94,7 +85,7 @@ function DeveloperDashboard({ developer, onBack }) {
     if (developer) {
       setQuickRange("this_week");
       applyQuickRange("this_week");
-      setSelectedTab('live');
+      setSelectedTab('coding');
     }
   }, [developer]);
 
@@ -156,43 +147,6 @@ function DeveloperDashboard({ developer, onBack }) {
     };
     fetchData();
   }, [developer, startDate, endDate]);
-
-  // ---- LIVE TAB ----
-  const fetchLiveStatus = async () => {
-    if (!developer) return;
-    setLiveLoading(true);
-    try {
-      const { data } = await axios.get(
-        `${API_BASE}/api/developer/${getDeveloperId()}/live-status`,
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      setLiveData(data);
-      setLiveElapsed(data.current_activity?.elapsed_seconds || 0);
-      setLiveCountdown(30);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLiveLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (selectedTab !== 'live') {
-      clearInterval(liveIntervalRef.current);
-      clearInterval(countdownRef.current);
-      clearInterval(elapsedRef.current);
-      return;
-    }
-    fetchLiveStatus();
-    liveIntervalRef.current = setInterval(fetchLiveStatus, 30000);
-    countdownRef.current = setInterval(() => setLiveCountdown(c => Math.max(0, c - 1)), 1000);
-    elapsedRef.current = setInterval(() => setLiveElapsed(e => e + 1), 1000);
-    return () => {
-      clearInterval(liveIntervalRef.current);
-      clearInterval(countdownRef.current);
-      clearInterval(elapsedRef.current);
-    };
-  }, [selectedTab, developer]);
 
   // ---- IDLE TAB ----
   const fetchIdleTime = async () => {
@@ -326,15 +280,6 @@ function DeveloperDashboard({ developer, onBack }) {
     datasets: [{ data: productivity.categories.map((c) => c.time), backgroundColor: PIE_COLORS }],
   };
 
-  // ---------------- LIVE TAB HELPERS ----------------
-  const statusConfig = {
-    online:  { color: '#10b981', bg: '#d1fae5', label: 'Online',  dot: true },
-    afk:     { color: '#f59e0b', bg: '#fef3c7', label: 'AFK',     dot: false },
-    offline: { color: '#6b7280', bg: '#f3f4f6', label: 'Offline', dot: false },
-  };
-
-  const categoryColors = { coding: '#10b981', browser: '#3b82f6', server: '#6366f1', 'non-work': '#ef4444' };
-
   // ---------------- UI ----------------
   return (
     <div className="developer-dashboard">
@@ -430,20 +375,6 @@ function DeveloperDashboard({ developer, onBack }) {
       <div id="category-details-section" className="category-details">
 
         <div className="tab-headers">
-          {/* Fixed tabs: Live + Idle */}
-          <button className={`tab-header tab-live ${selectedTab === 'live' ? 'active' : ''}`} onClick={() => setSelectedTab('live')}>
-            {liveData?.status === 'online' && <span className="live-pulse-dot" />}
-            <Radio size={14} />
-            <span>Live</span>
-          </button>
-          <button className={`tab-header tab-idle ${selectedTab === 'idle' ? 'active' : ''}`} onClick={() => setSelectedTab('idle')}>
-            <Moon size={14} />
-            <span>Idle Time</span>
-          </button>
-
-          {/* Divider */}
-          {productivity.categories.length > 0 && <div className="tab-divider" />}
-
           {/* Category tabs */}
           {productivity.categories.map((cat) => (
             <button key={cat.name} className={`tab-header ${selectedTab === cat.name ? 'active' : ''}`} onClick={() => setSelectedTab(cat.name)}>
@@ -451,94 +382,14 @@ function DeveloperDashboard({ developer, onBack }) {
               <span>{cat.percentage.toFixed(1)}%</span>
             </button>
           ))}
+
+          {/* Idle tab — always last */}
+          {productivity.categories.length > 0 && <div className="tab-divider" />}
+          <button className={`tab-header tab-idle ${selectedTab === 'idle' ? 'active' : ''}`} onClick={() => setSelectedTab('idle')}>
+            <Moon size={14} />
+            <span>Idle Time</span>
+          </button>
         </div>
-
-        {/* ---- LIVE TAB CONTENT ---- */}
-        {selectedTab === 'live' && (
-          <div className="tab-content live-tab-content">
-            <div className="live-header-row">
-              <h4>Real-Time Activity</h4>
-              <div className="live-refresh-info">
-                <span className="live-countdown">Refreshing in {liveCountdown}s</span>
-                <button className="live-refresh-btn" onClick={fetchLiveStatus} disabled={liveLoading}>
-                  <RefreshCw size={14} className={liveLoading ? 'spinning' : ''} />
-                </button>
-              </div>
-            </div>
-
-            {liveLoading && !liveData ? (
-              <div className="live-loading"><div className="spinner" /><p>Loading live status...</p></div>
-            ) : liveData ? (
-              <>
-                {/* Status Badge */}
-                <div className="live-status-row">
-                  {(() => {
-                    const cfg = statusConfig[liveData.status] || statusConfig.offline;
-                    return (
-                      <span className="live-status-badge" style={{ color: cfg.color, background: cfg.bg }}>
-                        {cfg.dot && <span className="live-pulse-dot" />}
-                        {cfg.label}
-                      </span>
-                    );
-                  })()}
-                  <span className="live-last-updated">
-                    Last synced: {liveData.last_updated ? format(new Date(liveData.last_updated), "hh:mm:ss a") : "—"}
-                  </span>
-                </div>
-
-                {/* Current Activity Card */}
-                {liveData.current_activity ? (
-                  <div className="current-activity-card">
-                    <div className="current-activity-header">
-                      <span className="current-label">Currently on</span>
-                      <span className="elapsed-timer">{formatTime(liveElapsed)}</span>
-                    </div>
-                    <div className="current-app-name">{liveData.current_activity.app}</div>
-                    {liveData.current_activity.title && liveData.current_activity.title !== liveData.current_activity.app && (
-                      <div className="current-title">{liveData.current_activity.title}</div>
-                    )}
-                    <div className="current-meta">
-                      {liveData.current_activity.project && (
-                        <span className="current-project-badge">{liveData.current_activity.project}</span>
-                      )}
-                      {liveData.current_activity.category && (
-                        <span className="current-category-badge" style={{ background: categoryColors[liveData.current_activity.category] || '#6b7280' }}>
-                          {{ coding: "Coding", browser: "Browser", server: "Server", "non-work": "Non-Work" }[liveData.current_activity.category] || liveData.current_activity.category}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="no-current-activity">No recent activity in the last 15 minutes.</div>
-                )}
-
-                {/* Recent Activities */}
-                {liveData.recent_activities?.length > 0 && (
-                  <div className="recent-activities-section">
-                    <h5>Last 15 Minutes</h5>
-                    <div className="activity-scroll">
-                      {liveData.recent_activities.map((act, i) => (
-                        <div key={i} className="category-activity-item">
-                          <div className="activity-info">
-                            <div className="activity-title">{act.title || act.app}</div>
-                            <div className="activity-meta">
-                              <span>{act.app}</span>
-                              {act.project && <span> &bull; {act.project}</span>}
-                              <span> &bull; {formatActivityDate(act.timestamp)}</span>
-                            </div>
-                          </div>
-                          <div className="activity-duration">{formatTime(act.duration)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="no-data-text">Could not load live status.</p>
-            )}
-          </div>
-        )}
 
         {/* ---- IDLE TIME TAB CONTENT ---- */}
         {selectedTab === 'idle' && (
@@ -675,7 +526,7 @@ function DeveloperDashboard({ developer, onBack }) {
         </div>
       )}
 
-      {!loading && activityData.length === 0 && selectedTab !== 'live' && selectedTab !== 'idle' && (
+      {!loading && activityData.length === 0 && selectedTab !== 'idle' && (
         <div className="no-data"><p>No activity for selected range.</p></div>
       )}
 

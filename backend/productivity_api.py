@@ -202,8 +202,8 @@ def get_developer_idle_time(
     """Return AFK/idle breakdown for the developer for a given date range."""
     from collections import defaultdict
     now = datetime.now(timezone.utc)
-    start = datetime.fromisoformat(start_date) if start_date else now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = datetime.fromisoformat(end_date) if end_date else now
+    start = datetime.fromisoformat(start_date.replace('Z', '+00:00')) if start_date else now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = datetime.fromisoformat(end_date.replace('Z', '+00:00')) if end_date else now
 
     idle_records = db.execute(text("""
         SELECT DATE(timestamp AT TIME ZONE 'Asia/Kolkata') as day,
