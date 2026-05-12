@@ -526,15 +526,6 @@ async def receive_activitywatch_webhook_stateless(
                         # Parse timestamp
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
 
-                        # Skip overnight records (midnight–7 am IST).
-                        # macOS sometimes wakes for maintenance (Time Machine, updates)
-                        # between ~2–6 am with no user present, causing false activity
-                        # from apps with auto-updating titles (e.g. Gmail inbox count).
-                        _IST = timezone(timedelta(hours=5, minutes=30))
-                        _ist_hour = timestamp.astimezone(_IST).hour
-                        if _ist_hour < 7:  # 00:00–06:59 IST
-                            continue
-
                         # Extract activity information
                         app_name = data.get('app') or data.get('application', 'Unknown')
                         window_title = data.get('title', '')
