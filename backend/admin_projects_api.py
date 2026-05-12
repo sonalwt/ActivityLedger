@@ -75,6 +75,58 @@ def _auto_keywords_from_name(name: str) -> list:
     return [w for w in words if len(w) >= 3]
 
 
+def _build_name_like_conditions(project_name: str, param_prefix: str = "nm") -> tuple:
+    """
+    Build SQL ILIKE conditions and params for matching activity records against an
+    admin project name — no manual keywords required.
+
+    Strategy (all applied with OR logic):
+      1. Full normalised name as substring:
+            project_name ILIKE '%activityledger%'
+      2. Each significant word (≥3 chars) as substring:
+            project_name ILIKE '%activity%' OR project_name ILIKE '%ledger%'
+
+    Hyphens and underscores in stored values are collapsed to spaces before comparison
+    so "activity-ledger" correctly matches the token "activity".
+
+    Returns (conditions: list[str], params: dict).
+    """
+    import re
+
+    conditions: list = []
+    params: dict = {}
+
+    # Normalise: collapse separators → single space, lowercase
+    norm = re.sub(r'[\s\-_]+', ' ', project_name.strip().lower())
+
+    # Strategy 1: full name substring
+    pk = f"{param_prefix}_full"
+    params[pk] = f"%{norm}%"
+    conditions.append(
+        f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :{pk}"
+    )
+    conditions.append(
+        f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :{pk}"
+    )
+
+    # Strategy 2: individual word tokens
+    words = [w for w in norm.split() if len(w) >= 3]
+    for i, word in enumerate(words):
+        pk = f"{param_prefix}_w{i}"
+        params[pk] = f"%{word}%"
+        conditions.append(
+            f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :{pk}"
+        )
+        conditions.append(
+            f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :{pk}"
+        )
+        conditions.append(
+            f"LOWER(COALESCE(ar.url, '')) ILIKE :{pk}"
+        )
+
+    return conditions, params
+
+
 def _ist_month_range(year: int, month: int):
     """Return UTC start/end datetimes for a calendar month in IST (UTC+5:30)."""
     ist_offset = timedelta(hours=5, minutes=30)
@@ -417,13 +469,14 @@ async def admin_project_developers(
     db: Session = Depends(get_db)
 ):
     """
-    Return developer breakdown for a project matched by keywords.
+    Return developer breakdown for a project using intelligent auto-matching.
 
-    Keyword matching:
-    - Hyphens in project_name are replaced with spaces before ILIKE comparison,
-      so keyword "mahindra" matches both "mahindra-manulife-distributor" and "mahindra manulife".
-    - Multiple keywords use OR logic: any keyword match counts.
-    - If project has no keywords, falls back to exact name match (legacy mode).
+    Matching strategy (no manual keywords required):
+    - Full normalised project name: ILIKE '%mahindra manulife%'
+    - Each word token (≥3 chars):   ILIKE '%mahindra%', ILIKE '%manulife%'
+    - Applied across project_name, window_title, and url fields (OR logic).
+    - Existing keywords (if any) are also honoured for backward compatibility.
+    - Hyphens/underscores in stored values are normalised to spaces before comparison.
     """
     # Fetch project
     proj = db.execute(
@@ -447,28 +500,42 @@ async def admin_project_developers(
 
     start_utc, end_utc = _ist_month_range(year, mon)
 
-    # Build WHERE clause for keyword matching.
-    # Keywords are matched against project_name (IDE), window_title (IDE + browser),
-    # and url (browser) so that cPanel, GCP console, and other browser-based work
-    # is captured alongside IDE activity.
-    if keywords:
-        kw_conditions = []
-        for i in range(len(keywords)):
-            kw_conditions.append(
-                f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :kw_{i}"
-            )
-            kw_conditions.append(
-                f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :kw_{i}"
-            )
-            kw_conditions.append(
-                f"LOWER(COALESCE(ar.url, '')) ILIKE :kw_{i}"
-            )
-        where_clause = f"({' OR '.join(kw_conditions)})"
-        params: dict = {f"kw_{i}": f"%{kw}%" for i, kw in enumerate(keywords)}
+    # ------------------------------------------------------------------ #
+    # Smart auto-matching using SQL ILIKE %...% operators.               #
+    # The admin never needs to type keywords — the system matches        #
+    # activity records by the project name and its individual word       #
+    # tokens directly in SQL.                                            #
+    # ------------------------------------------------------------------ #
+
+    conditions: list = []
+    params: dict = {}
+
+    # 1. Keyword conditions — backward-compat for existing projects that
+    #    already have keywords stored (also covers URL / window_title).
+    for i, kw in enumerate(keywords):
+        conditions.append(
+            f"REPLACE(LOWER(COALESCE(ar.project_name, '')), '-', ' ') ILIKE :kw_{i}"
+        )
+        conditions.append(
+            f"REPLACE(LOWER(COALESCE(ar.window_title, '')), '-', ' ') ILIKE :kw_{i}"
+        )
+        conditions.append(
+            f"LOWER(COALESCE(ar.url, '')) ILIKE :kw_{i}"
+        )
+        params[f"kw_{i}"] = f"%{kw}%"
+
+    # 2. Intelligent name-based LIKE matching — runs purely in SQL.
+    #    Covers full project name AND every significant word token.
+    name_conds, name_params = _build_name_like_conditions(proj[1], param_prefix="nm")
+    conditions.extend(name_conds)
+    params.update(name_params)
+
+    if conditions:
+        where_clause = f"({' OR '.join(conditions)})"
     else:
-        # Legacy: exact name match (case-insensitive)
+        # Should not normally be reached, but safe fallback
         where_clause = "LOWER(COALESCE(ar.project_name, '')) = LOWER(:exact_name)"
-        params = {"exact_name": proj[1]}
+        params["exact_name"] = proj[1]
 
     params["start_date"] = start_utc
     params["end_date"] = end_utc
@@ -512,7 +579,6 @@ async def admin_project_developers(
     return {
         "project_id": project_id,
         "project_name": proj[1],
-        "keywords": keywords,
         "period": f"{year}-{str(mon).zfill(2)}",
         "developers": developers,
         "total_hours": round(total_hours, 2),
