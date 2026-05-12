@@ -564,23 +564,10 @@
 .idle-day-row { background: white; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
 .idle-day-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; cursor: pointer;
+  padding: 12px 16px;
 }
-.idle-day-header:hover { background: #f9fafb; }
 .idle-day-date { font-size: 14px; font-weight: 600; color: #374151; }
-.idle-day-stats { display: flex; align-items: center; gap: 12px; }
 .idle-day-total { font-size: 14px; font-weight: 600; color: #f59e0b; }
-.idle-day-count { font-size: 12px; color: #9ca3af; }
-.idle-expand-arrow { font-size: 11px; color: #9ca3af; }
-
-.idle-periods-list { border-top: 1px solid #f3f4f6; padding: 8px 16px; }
-.idle-period-item {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 0; border-bottom: 1px solid #f9fafb;
-}
-.idle-period-item:last-child { border-bottom: none; }
-.idle-period-time { font-size: 13px; color: #6b7280; }
-.idle-period-duration { font-size: 13px; font-weight: 600; color: #f59e0b; }
 
 @media (max-width: 768px) {
   .idle-summary-grid { grid-template-columns: 1fr; }

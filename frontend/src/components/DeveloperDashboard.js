@@ -34,7 +34,6 @@ function DeveloperDashboard({ developer, onBack }) {
   // Idle tab state
   const [idleData, setIdleData] = useState(null);
   const [idleLoading, setIdleLoading] = useState(false);
-  const [expandedDays, setExpandedDays] = useState({});
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -421,24 +420,10 @@ function DeveloperDashboard({ developer, onBack }) {
                   <div className="idle-days-list">
                     {idleData.idle_by_day.map((day) => (
                       <div key={day.date} className="idle-day-row">
-                        <div className="idle-day-header" onClick={() => setExpandedDays(prev => ({ ...prev, [day.date]: !prev[day.date] }))}>
+                        <div className="idle-day-header">
                           <span className="idle-day-date">{format(new Date(day.date), "dd MMM yyyy, EEE")}</span>
-                          <div className="idle-day-stats">
-                            <span className="idle-day-total">{formatTime(day.total_idle_seconds)}</span>
-                            <span className="idle-day-count">{day.periods.length} period{day.periods.length !== 1 ? 's' : ''}</span>
-                            <span className="idle-expand-arrow">{expandedDays[day.date] ? '▲' : '▼'}</span>
-                          </div>
+                          <span className="idle-day-total">{formatTime(day.total_idle_seconds)}</span>
                         </div>
-                        {expandedDays[day.date] && (
-                          <div className="idle-periods-list">
-                            {day.periods.map((p, i) => (
-                              <div key={i} className="idle-period-item">
-                                <span className="idle-period-time">{format(new Date(p.start), "hh:mm a")}</span>
-                                <span className="idle-period-duration">{p.duration_display}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     ))}
                   </div>

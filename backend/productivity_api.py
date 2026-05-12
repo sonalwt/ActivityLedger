@@ -214,6 +214,7 @@ def get_developer_idle_time(
           AND timestamp >= :start
           AND timestamp <= :end
           AND duration >= 60
+          AND duration <= 14400
         ORDER BY timestamp ASC
     """), {"dev_id": developer_id, "start": start, "end": end}).fetchall()
 
