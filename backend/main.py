@@ -158,7 +158,8 @@ app.include_router(admin_projects_router, tags=["admin-projects"])
 async def start_daily_cleanup():
     """Launch background task that cleans idle activities every 6 hours."""
     import asyncio
-    asyncio.create_task(daily_cleanup_loop())
+    if not os.getenv("CLEANUP_ONLY"):
+        asyncio.create_task(daily_cleanup_loop())
 
 # app.mount("/static", StaticFiles(directory="static"), name="static")
 

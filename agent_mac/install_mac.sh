@@ -841,22 +841,198 @@ PLIST_FILE="$PLIST_DIR/com.activityledger.agent.plist"
 PYTHON_PATH="$(command -v python3)"
 mkdir -p "$PLIST_DIR"
 
-# --- Accessibility permission check BEFORE starting ---
+# --- Permission Setup BEFORE starting ---
 echo "============================================"
-echo "  IMPORTANT: Accessibility Permission"
+echo "  Setting up macOS Permissions"
 echo "============================================"
 echo ""
-echo "  The agent needs Accessibility access to"
-echo "  capture window activity."
+echo "  The agent needs 2 permissions to fully"
+echo "  capture browser tabs, IDE files, and"
+echo "  window titles. Both MUST be granted."
 echo ""
-echo "  Please do this NOW before continuing:"
-echo "    1. Open: System Settings > Privacy & Security"
-echo "               > Accessibility"
-echo "    2. Click '+' and add Terminal (or iTerm2)"
-echo "    3. Toggle it ON"
+
+# --- STEP 1: Automation permissions (browsers + IDE) ---
+echo "--------------------------------------------"
+echo "  STEP 1 of 2: Browser & IDE Automation"
+echo "--------------------------------------------"
+echo "  Checking ALL installed browsers..."
+echo "  (If you ran this before and clicked Deny,"
+echo "   we will open System Settings to fix it.)"
 echo ""
-read -p "Press ENTER once you have granted Accessibility permission..."
+
+DENIED_APPS_FILE=$(mktemp)
+
+python3 << PERMEOF
+import subprocess, time, sys, os
+
+BROWSERS = [
+    ("Google Chrome",   "/Applications/Google Chrome.app",   'tell application "Google Chrome" to get title of front window'),
+    ("Safari",          "/Applications/Safari.app",           'tell application "Safari" to get name of front document'),
+    ("Brave Browser",   "/Applications/Brave Browser.app",   'tell application "Brave Browser" to get title of front window'),
+    ("Microsoft Edge",  "/Applications/Microsoft Edge.app",  'tell application "Microsoft Edge" to get title of front window'),
+    ("Firefox",         "/Applications/Firefox.app",         'tell application "Firefox" to get title of front window'),
+    ("Arc",             "/Applications/Arc.app",             'tell application "Arc" to get title of front window'),
+    ("Vivaldi",         "/Applications/Vivaldi.app",         'tell application "Vivaldi" to get title of front window'),
+    ("Opera",           "/Applications/Opera.app",           'tell application "Opera" to get title of front window'),
+    ("Chromium",        "/Applications/Chromium.app",        'tell application "Chromium" to get title of front window'),
+]
+
+denied_file = os.environ.get("DENIED_APPS_FILE", "/tmp/denied_apps.txt")
+denied = []
+found_any = False
+
+for app_name, app_path, script in BROWSERS:
+    if not os.path.exists(app_path):
+        continue
+    found_any = True
+    print(f"  → {app_name} found — requesting access...")
+    sys.stdout.flush()
+    r = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True, text=True, timeout=15
+    )
+    err = (r.stderr or "").lower()
+    if r.returncode == 0:
+        print(f"    ✓ Permission GRANTED")
+    elif "not allowed" in err or "-1743" in err or "1743" in err or "authorization" in err:
+        print(f"    ✗ Permission DENIED — must fix manually in System Settings")
+        denied.append(app_name)
+    else:
+        # App may not be open but permission popup was triggered
+        print(f"    ✓ Access requested (open the browser and click Allow if a popup appears)")
+    time.sleep(0.6)
+
+# System Events — needed for window/app detection
+print(f"  → Requesting System Events access (window detection)...")
+sys.stdout.flush()
+r = subprocess.run(
+    ["osascript", "-e",
+     'tell application "System Events" to get name of first process whose frontmost is true'],
+    capture_output=True, text=True, timeout=10
+)
+err = (r.stderr or "").lower()
+if r.returncode == 0:
+    print(f"    ✓ System Events access GRANTED")
+elif "not allowed" in err or "1743" in err or "authorization" in err:
+    print(f"    ✗ System Events access DENIED — must fix manually")
+    denied.append("System Events (Terminal)")
+else:
+    print(f"    ✓ System Events access requested")
+
+if not found_any:
+    print("  (No supported browsers found in /Applications.)")
+
+print("")
+
+# Write denied list to file for bash to read
+if denied:
+    with open(denied_file, "w") as f:
+        for app in denied:
+            f.write(app + "\n")
+    print("  ⚠  Some permissions were previously DENIED.")
+    print("     We will open System Settings → Automation now.")
+    print("     Please enable Terminal's access for the listed apps.")
+else:
+    print("  ✓ All Automation permissions are granted.")
+PERMEOF
+
 echo ""
+
+# If any apps were denied, open Automation settings and wait
+if [ -s "$DENIED_APPS_FILE" ]; then
+    echo "--------------------------------------------"
+    echo "  ACTION REQUIRED — Previously Denied Apps"
+    echo "--------------------------------------------"
+    echo "  These need to be turned ON in System Settings:"
+    echo ""
+    while IFS= read -r app; do
+        echo "    • $app"
+    done < "$DENIED_APPS_FILE"
+    echo ""
+    echo "  Opening System Settings → Automation now..."
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+    sleep 1
+    echo ""
+    echo "  In System Settings → Automation:"
+    echo "    1. Find 'Terminal' (or iTerm2) in the list"
+    echo "    2. Enable the toggle for EACH browser listed above"
+    echo "    3. Enter your password if prompted"
+    echo ""
+    read -p "  Press ENTER once you have enabled all toggles..."
+    echo ""
+    # Re-verify after manual fix
+    echo "  Re-checking permissions..."
+    python3 << 'REVERIFYEOF'
+import subprocess, sys
+
+CHECKS = [
+    ("Google Chrome",  'tell application "Google Chrome" to get title of front window'),
+    ("Safari",         'tell application "Safari" to get name of front document'),
+    ("Brave Browser",  'tell application "Brave Browser" to get title of front window'),
+    ("Arc",            'tell application "Arc" to get title of front window'),
+    ("Firefox",        'tell application "Firefox" to get title of front window'),
+    ("Microsoft Edge", 'tell application "Microsoft Edge" to get title of front window'),
+    ("System Events",  'tell application "System Events" to get name of first process whose frontmost is true'),
+]
+import os
+all_ok = True
+for app_name, script in CHECKS:
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+    err = (r.stderr or "").lower()
+    if "not allowed" in err or "1743" in err or "authorization" in err:
+        print(f"  ✗ {app_name}: still DENIED")
+        all_ok = False
+if all_ok:
+    print("  ✓ All Automation permissions look good.")
+REVERIFYEOF
+    echo ""
+fi
+
+rm -f "$DENIED_APPS_FILE"
+
+echo ""
+
+# --- STEP 2: Accessibility permission ---
+echo "--------------------------------------------"
+echo "  STEP 2 of 2: Accessibility Permission"
+echo "--------------------------------------------"
+
+# Check if Accessibility is already granted BEFORE asking
+if osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' >/dev/null 2>&1; then
+    echo "  ✓ Accessibility permission is already GRANTED."
+    echo "    No action needed for this step."
+    echo ""
+else
+    echo "  Accessibility NOT yet granted."
+    echo "  This lets the agent detect which app is"
+    echo "  active and read window titles."
+    echo ""
+    echo "  Opening System Settings → Accessibility now..."
+    echo ""
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    sleep 1
+    echo "  In the System Settings window:"
+    echo ""
+    echo "    1. Click the lock icon and enter your password"
+    echo "    2. Click the '+' button"
+    echo "    3. Navigate to /Applications/Utilities/Terminal"
+    echo "       (or iTerm2 / whichever terminal you use)"
+    echo "    4. Click Open"
+    echo "    5. Make sure the toggle next to Terminal is ON (green)"
+    echo ""
+    read -p "  Press ENTER once Accessibility is turned ON for Terminal..."
+    echo ""
+    # Verify
+    if osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' >/dev/null 2>&1; then
+        echo "  ✓ Accessibility permission confirmed."
+    else
+        echo "  ⚠ Accessibility still not detected."
+        echo "    The agent may not capture window titles correctly."
+        echo "    To fix later: System Settings → Privacy & Security"
+        echo "    → Accessibility → add Terminal and turn ON"
+    fi
+    echo ""
+fi
 
 # Stop any existing agent — always try unload + kill
 launchctl bootout gui/$(id -u) "$PLIST_FILE" 2>/dev/null || true
