@@ -42,7 +42,7 @@ export function AuthProvider({ children }) {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const response = await axios.get('/users/me');
+          const response = await axios.get('/api/users/me');
           setUser(response.data);
         } catch (error) {
           localStorage.removeItem('token');
@@ -61,14 +61,14 @@ export function AuthProvider({ children }) {
       formData.append('username', username);
       formData.append('password', password);
 
-      const response = await axios.post('/token', formData);
+      const response = await axios.post('/api/token', formData);
       const { access_token } = response.data;
 
       localStorage.setItem('token', access_token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
       // Get user info
-      const userResponse = await axios.get('/users/me');
+      const userResponse = await axios.get('/api/users/me');
       setUser(userResponse.data);
 
       toast.success('Login successful!');
@@ -81,7 +81,7 @@ export function AuthProvider({ children }) {
 
   const register = async (username, email, password) => {
     try {
-      await axios.post('/register', {
+      await axios.post('/api/register', {
         username,
         email,
         password
