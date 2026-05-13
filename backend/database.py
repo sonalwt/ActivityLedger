@@ -13,9 +13,8 @@ load_dotenv()  # Load default .env if exists
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-# Use SQLite as default if no DATABASE_URL or if there's an issue
-if not DATABASE_URL or DATABASE_URL == "":
-    DATABASE_URL="postgresql://postgres:asdf1234@localhost:5432/timesheet"
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
 
 # Create engine with appropriate settings
 try:
