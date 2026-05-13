@@ -4,10 +4,11 @@ from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 
-# Load environment files explicitly
-load_dotenv('.env.local', override=True)  # Load local first
-load_dotenv('.env.production', override=False)  # Fallback to production
-load_dotenv()  # Load default .env if exists
+# Load environment files using absolute paths (works regardless of working directory)
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, '.env.local'), override=True)
+load_dotenv(os.path.join(_base_dir, '.env.production'), override=False)
+load_dotenv(os.path.join(_base_dir, '.env'), override=False)
 
 # Get DATABASE_URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
