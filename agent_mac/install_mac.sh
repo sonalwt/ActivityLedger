@@ -91,6 +91,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+from urllib.parse import unquote
 
 if getattr(sys, "frozen", False):
     AGENT_DIR = Path(sys.executable).parent.resolve()
@@ -217,8 +218,8 @@ BROWSER_SCRIPTS = {
         "url": 'tell application "Opera" to get URL of active tab of front window',
     },
     "Dia": {
-        "title": 'tell application "System Events" to get name of front window of process "Dia"',
-        "url": 'tell application "System Events" to tell process "Dia" to get value of attribute "AXValue" of text field 1 of toolbar 1 of front window',
+        "title": 'tell application "Dia" to get name of active tab of front window',
+        "url": 'tell application "Dia" to get URL of active tab of front window',
     },
 }
 
@@ -296,7 +297,7 @@ def _get_ide_active_file_from_storage(app_lower):
             folder_uri = last_win.get("folderUri", "")
             if folder_uri.startswith("file://"):
                 workspace_folder_uri = folder_uri
-                workspace = folder_uri.rstrip("/").rsplit("/", 1)[-1] or None
+                workspace = unquote(folder_uri.rstrip("/").rsplit("/", 1)[-1]) or None
     except Exception: pass
     import sqlite3
     def _extract_file(state_obj):
@@ -311,7 +312,7 @@ def _get_ide_active_file_from_storage(app_lower):
                 for i, ed in enumerate(editors):
                     res = (ed.get("resource") or ed.get("options", {}).get("resource") or ed.get("input", {}).get("resource", ""))
                     if isinstance(res, str) and res.startswith("file://"):
-                        fn = res.rstrip("/").rsplit("/", 1)[-1]
+                        fn = unquote(res.rstrip("/").rsplit("/", 1)[-1])
                         if fn and "." in fn:
                             if is_active and i == active_idx: return fn
                             fallback = fallback or fn
@@ -331,7 +332,7 @@ def _get_ide_active_file_from_storage(app_lower):
                     for entry in json.loads(row[0]).get("entries", []):
                         file_uri = entry.get("fileUri", "")
                         if file_uri.startswith("file://"):
-                            fn = file_uri.rstrip("/").rsplit("/", 1)[-1]
+                            fn = unquote(file_uri.rstrip("/").rsplit("/", 1)[-1])
                             if fn and "." in fn: return fn
             finally: conn.close()
         except Exception: pass
@@ -447,7 +448,7 @@ def get_active_window_info():
                     '  end tell',
                     'end tell', timeout=4)
                 if ax_doc and ax_doc.startswith('file://'):
-                    fn = ax_doc.rstrip('/').rsplit('/', 1)[-1]
+                    fn = unquote(ax_doc.rstrip('/').rsplit('/', 1)[-1])
                     if fn: title = f"{fn} — {app_name}"
                 # Strategy B: iterate all windows for a non-trivial title
                 if not title or title == app_name:
@@ -502,6 +503,30 @@ def get_active_window_info():
             tab_url = _run_osascript(scripts["url"])
             if tab_url: url = tab_url
             if tab_title: title = f"{tab_title} - {app_name}"
+            elif not tab_title and (not title or title == app_name):
+                # AppleScript dict failed (e.g. Dia has no Chrome/Safari dict).
+                # Iterate all windows via System Events AX to find a real title.
+                ax_browser_title = _run_osascript_multi(
+                    'tell application "System Events"',
+                    f'  tell process "{app_name}"',
+                    '    try',
+                    '      repeat with w in every window',
+                    '        try',
+                    '          set t to value of attribute "AXTitle" of w',
+                    '          if t is not "" and t is not missing value then',
+                    f'            if t is not "{app_name}" then',
+                    '              return t',
+                    '            end if',
+                    '          end if',
+                    '        end try',
+                    '      end repeat',
+                    '    end try',
+                    '  end tell',
+                    'end tell',
+                    timeout=4,
+                )
+                if ax_browser_title:
+                    title = f"{ax_browser_title} - {app_name}"
         elif app_name in BROWSER_NAMES and (not title or title == app_name):
             pass  # Firefox/Arc etc. — use System Events title already captured
 
