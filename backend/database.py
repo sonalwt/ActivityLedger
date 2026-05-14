@@ -17,6 +17,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required")
 
+print(f"DEBUG: DATABASE_URL starts with: {DATABASE_URL[:30] if DATABASE_URL else 'None'}")
+
 # Create engine with appropriate settings
 try:
     if DATABASE_URL.startswith("sqlite"):
