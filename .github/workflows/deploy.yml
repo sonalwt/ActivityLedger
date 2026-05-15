@@ -50,7 +50,7 @@ jobs:
         working-directory: frontend
         env:
           PUBLIC_URL: /
-          REACT_APP_API_URL: ''
+          REACT_APP_API_URL: 'https://api-timesheet.firsteconomy.com'
           CI: false
 
       - name: Copy frontend build into backend

@@ -116,19 +116,13 @@ from config import Config
 
 # Get allowed origins based on environment
 if Config.is_production():
-    domain = Config.PRODUCTION_DOMAIN
-    frontend_url = os.getenv("FRONTEND_URL", "")
     allowed_origins = [
         "http://localhost:3000",
-        f"http://{domain}",
-        f"https://{domain}",
+        "http://timesheet.firsteconomy.com",
+        "https://timesheet.firsteconomy.com",
         "http://api-timesheet.firsteconomy.com",
         "https://api-timesheet.firsteconomy.com",
     ]
-    if frontend_url:
-        allowed_origins.append(frontend_url)
-        if frontend_url.startswith("https://"):
-            allowed_origins.append(frontend_url.replace("https://", "http://"))
 else:
     # In development, allow all origins for easier testing
     allowed_origins = ["*"]
