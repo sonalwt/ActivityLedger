@@ -30,6 +30,40 @@ import models
 router = APIRouter()
 
 
+def ensure_database_exists():
+    """Connect to the default 'postgres' DB and create the app DB if missing."""
+    db_url = os.getenv("DATABASE_URL", "")
+    if not db_url.startswith("postgresql"):
+        return
+    try:
+        import psycopg2
+        from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+        from urllib.parse import urlparse
+        parsed = urlparse(db_url)
+        dbname = parsed.path.lstrip("/")
+        conn = psycopg2.connect(
+            host=parsed.hostname,
+            port=parsed.port or 5432,
+            user=parsed.username,
+            password=parsed.password,
+            dbname="postgres",
+            sslmode="require",
+        )
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+        if not cur.fetchone():
+            cur.execute(f'CREATE DATABASE "{dbname}"')
+            print(f"Created database: {dbname}")
+        else:
+            print(f"Database already exists: {dbname}")
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: ensure_database_exists failed: {e}")
+
+
+ensure_database_exists()
 models.Base.metadata.create_all(bind=engine)
 
 # Auto-migrate: add project_id column to activity_records if missing, with SET NULL on delete
@@ -83,6 +117,7 @@ from config import Config
 # Get allowed origins based on environment
 if Config.is_production():
     domain = Config.PRODUCTION_DOMAIN
+    frontend_url = os.getenv("FRONTEND_URL", "")
     allowed_origins = [
         "http://localhost:3000",
         f"http://{domain}",
@@ -90,6 +125,10 @@ if Config.is_production():
         "http://api-timesheet.firsteconomy.com",
         "https://api-timesheet.firsteconomy.com",
     ]
+    if frontend_url:
+        allowed_origins.append(frontend_url)
+        if frontend_url.startswith("https://"):
+            allowed_origins.append(frontend_url.replace("https://", "http://"))
 else:
     # In development, allow all origins for easier testing
     allowed_origins = ["*"]
@@ -1037,6 +1076,17 @@ async def setup_database_schema(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         return {"success": False, "error": str(e)}
+
+# Serve React frontend static assets (must come after all API routes)
+_frontend_build = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend_build")
+if os.path.isdir(_frontend_build):
+    app.mount("/static", StaticFiles(directory=os.path.join(_frontend_build, "static")), name="react-static")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_react(full_path: str):
+        """Catch-all: serve React index.html for any non-API route."""
+        return FileResponse(os.path.join(_frontend_build, "index.html"))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

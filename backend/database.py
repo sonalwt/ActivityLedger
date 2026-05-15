@@ -30,18 +30,14 @@ try:
             pool_recycle=300,
             pool_size=10,
             max_overflow=20,
+            connect_args={"sslmode": "require"},
         )
     else:
         engine = create_engine(DATABASE_URL)
 
-    # Test connection
-    with engine.connect() as conn:
-        pass
-
 except Exception as e:
-    print(f"ERROR: Database connection failed: {e}")
-    print(f"ERROR: Please check your DATABASE_URL and ensure PostgreSQL is running")
-    raise RuntimeError(f"Failed to connect to database: {e}")
+    print(f"ERROR: Database engine creation failed: {e}")
+    raise RuntimeError(f"Failed to create database engine: {e}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

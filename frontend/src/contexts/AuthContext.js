@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 const AuthContext = createContext();
 
 export function useAuth() {
@@ -42,7 +44,7 @@ export function AuthProvider({ children }) {
       const token = localStorage.getItem('token');
       if (token) {
         try {
-          const response = await axios.get('/api/users/me');
+          const response = await axios.get(`${API_URL}/users/me`);
           setUser(response.data);
         } catch (error) {
           localStorage.removeItem('token');
@@ -61,14 +63,14 @@ export function AuthProvider({ children }) {
       formData.append('username', username);
       formData.append('password', password);
 
-      const response = await axios.post('/api/token', formData);
+      const response = await axios.post(`${API_URL}/token`, formData);
       const { access_token } = response.data;
 
       localStorage.setItem('token', access_token);
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
       // Get user info
-      const userResponse = await axios.get('/api/users/me');
+      const userResponse = await axios.get(`${API_URL}/users/me`);
       setUser(userResponse.data);
 
       toast.success('Login successful!');
@@ -81,7 +83,7 @@ export function AuthProvider({ children }) {
 
   const register = async (username, email, password) => {
     try {
-      await axios.post('/api/register', {
+      await axios.post(`${API_URL}/register`, {
         username,
         email,
         password
