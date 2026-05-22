@@ -133,4 +133,5 @@ agent_linux/pending_events.json
 agent_linux/*.log
 agent_linux/.agent.lock
 agent_linux/agent_stdout.log
-agent_linux/agent_stderr.log
+agent_linux/agent_stderr.logbackend/frontend_build/
+infra/

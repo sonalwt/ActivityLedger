@@ -1301,7 +1301,7 @@ async def get_all_projects(
         admin_projects_rows = db.execute(text("""
             SELECT id, name, description, keywords, total_cost
             FROM projects
-            WHERE is_active = true AND keywords IS NOT NULL AND keywords != '[]'::jsonb
+            WHERE is_active = true AND keywords IS NOT NULL AND keywords::text != '[]'
         """)).fetchall()
 
         for ap in admin_projects_rows:
